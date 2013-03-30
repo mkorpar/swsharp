@@ -1,0 +1,20 @@
+#!/bin/bash
+
+if [ $# -ne 3 ]
+then
+    echo "usage: $0 <swsharpn -i file> <swsharpn -j file> <output .png>"
+    exit
+fi
+
+DIR=$( dirname $0 )
+
+plot=$( mktemp )
+dump=$( mktemp )
+
+$DIR/../bin/swsharpn -i $1 -j $2 --dump $dump > /dev/null
+$DIR/../bin/swsharpout -i $dump --plot $plot > /dev/null
+
+$DIR/plot $plot $3
+
+rm $dump
+rm $plot

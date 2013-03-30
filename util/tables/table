@@ -1,0 +1,44 @@
+#!/usr/bin/python2.7
+import sys
+
+if len(sys.argv) != 2:
+    print "usage: " + sys.argv[0] + " <ncbi matrix file>"
+    sys.exit(-1)
+ 
+ls = [x.split() for x in open(sys.argv[1]).readlines()]
+ls[0] = [0] + ls[0]
+
+s = {}
+
+for i in range(1, len(ls)):
+    for j in range(1, len(ls[0])):
+        s[(ls[0][i], ls[j][0])] = ls[i][j]
+
+af = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+mat = []
+
+for i in range(len(af)):
+    mat.append([])
+    for j in range(len(af)):
+        mat[i].append(0)
+    
+for i in range(len(af)):
+    for j in range(len(af)):
+        key = (af[i], af[j])
+        if key not in s:
+            key = ('*', af[j])
+            if key not in s:
+                key = (af[i], '*')
+                if key not in s:
+                    key = ('*', '*')
+        mat[i][j] = s[key]
+
+print "#define " + sys.argv[1].upper() + " \"" + sys.argv[1].upper() + "\""
+print
+print "extern int " + sys.argv[1].upper() + "_TABLE[26][26];"
+print
+
+print "int " + sys.argv[1].upper() + "_TABLE[26][26] = {"
+print ",\n".join(["    { " + ", ".join(map(str, x)) + " }" for x in mat])
+print "};"

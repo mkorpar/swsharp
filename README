@@ -1,0 +1,32 @@
+DECAPRETATED!
+
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+1) DEPENDENCIES
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+WINDOWS*:
+    1) CUDA SDK 5.0
+    2) Visual Studio 2010
+
+LINUX and MAC OS:
+Application uses following software:
+    1) Linux shell
+    2) gcc 4.4 or (for newest nvcc) - depends on nvcc version
+    3) nvcc 2.*+
+    4) doxygen - for documentation generation (optional)
+    5) mpi - for swsharpdbmpi (optional)
+
+*note: The Visual Studio template provided by this distribution is only tested
+with the listed software. There is no guarantee it could be run on other 
+software setups.
+
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+2) INSTALLATION
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+LINUX and MAC OS:
+
+run Makefile with make <options>
+   make <options>:
+        1) make         - builds all of the the executables
+        2) make clean   - 
