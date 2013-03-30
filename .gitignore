@@ -1,0 +1,14 @@
+*obj*
+*bin*
+*include*
+*lib*
+*html*
+core/swsharp
+swsharpdb/swsharpdb
+swsharpdbmpi/swsharpdbmpi
+swsharpn/swsharpn
+swsharpout/swsharpout
+swsharpwin/*/*.cu
+swsharpwin/*/*.c
+swsharpwin/*/*.h
+
