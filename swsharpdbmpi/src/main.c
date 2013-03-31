@@ -148,7 +148,7 @@ int main(int argc, char* argv[]) {
     sendMpiData(dbAlignments, dbAlignmentsLen, queries, queriesLen, 
         database, databaseLen);
     
-    deleteDbAlignements(dbAlignments, dbAlignmentsLen, queriesLen);
+    deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
 
     // master node gathers and outputs data
     if (rank == MASTER_NODE) {
@@ -158,9 +158,10 @@ int main(int argc, char* argv[]) {
             database, databaseLen, scorer, maxAlignments);
 
         // output
-        outputShotgunBlastM9(dbAlignments, dbAlignmentsLen, queriesLen, out);
+        outputShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen, 
+            out, SW_OUT_DB_BLASTM9);
         
-        deleteDbAlignements(dbAlignments, dbAlignmentsLen, queriesLen);
+        deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
     }
     
     free(indexes);

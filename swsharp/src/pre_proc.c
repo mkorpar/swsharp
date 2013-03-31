@@ -32,6 +32,25 @@ Contact the author by mkorpar@gmail.com.
 
 #include "pre_proc.h"
 
+#define SCORERS_LEN (sizeof(scorers) / sizeof(ScorerEntry))
+
+typedef struct ScorerEntry {
+    const char* name;
+    int (*table)[26][26];
+} ScorerEntry;
+
+// to register a scorer just add his name and corresponding table to this array
+static ScorerEntry scorers[] = {
+    { BLOSUM_62, &BLOSUM_62_TABLE }, // default one
+    { BLOSUM_45, &BLOSUM_45_TABLE },
+    { BLOSUM_50, &BLOSUM_50_TABLE },
+    { BLOSUM_80, &BLOSUM_80_TABLE },
+    { BLOSUM_90, &BLOSUM_90_TABLE },
+    { PAM_30, &PAM_30_TABLE },
+    { PAM_70, &PAM_70_TABLE },
+    { PAM_250, &PAM_250_TABLE }
+};
+
 //******************************************************************************
 // PUBLIC
 
@@ -234,58 +253,23 @@ extern void scorerCreateConst(Scorer** scorer, int match, int mismatch,
 extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen, 
     int gapExtend) {
     
-    if (strncmp(name, BLOSUM_45, sizeof(BLOSUM_45)) == 0) {
-        scorerCreateBlosum45(scorer, gapOpen, gapExtend);
-    } else if (strncmp(name, BLOSUM_50, sizeof(BLOSUM_50)) == 0) {
-        scorerCreateBlosum50(scorer, gapOpen, gapExtend);
-    } else if (strncmp(name, BLOSUM_62, sizeof(BLOSUM_62)) == 0) {
-        scorerCreateBlosum62(scorer, gapOpen, gapExtend);
-    } else if (strncmp(name, BLOSUM_80, sizeof(BLOSUM_80)) == 0) {
-        scorerCreateBlosum80(scorer, gapOpen, gapExtend);
-    } else if (strncmp(name, BLOSUM_90, sizeof(BLOSUM_90)) == 0) {
-        scorerCreateBlosum90(scorer, gapOpen, gapExtend);
-    } else if (strncmp(name, PAM_30, sizeof(PAM_30)) == 0) {
-        scorerCreatePam30(scorer, gapOpen, gapExtend);
-    } else if (strncmp(name, PAM_70, sizeof(PAM_70)) == 0) {
-        scorerCreatePam70(scorer, gapOpen, gapExtend);
-    } else if (strncmp(name, PAM_250, sizeof(PAM_250)) == 0) {
-        scorerCreatePam250(scorer, gapOpen, gapExtend);
-    } else {
-        WARNING(1, "unknown table %s, using %s", name, BLOSUM_62);
-        scorerCreateBlosum62(scorer, gapOpen, gapExtend);
+    int index = -1;
+  
+    int i;
+    for (i = 0; i < SCORERS_LEN; ++i) {
+        if (strcmp(name, scorers[i].name) == 0) {
+            index = i;
+            break;
+        }
     }
-}
-
-extern void scorerCreateBlosum45(Scorer** scorer, int gapOpen, int gapExtend) {
-    *scorer = scorerCreate(BLOSUM_45, BLOSUM_45_TABLE, gapOpen, gapExtend);   
-}
-
-extern void scorerCreateBlosum50(Scorer** scorer, int gapOpen, int gapExtend) {
-    *scorer = scorerCreate(BLOSUM_50, BLOSUM_50_TABLE, gapOpen, gapExtend);   
-}
-
-extern void scorerCreateBlosum62(Scorer** scorer, int gapOpen, int gapExtend) {
-    *scorer = scorerCreate(BLOSUM_62, BLOSUM_62_TABLE, gapOpen, gapExtend);   
-}
-
-extern void scorerCreateBlosum80(Scorer** scorer, int gapOpen, int gapExtend) {
-    *scorer = scorerCreate(BLOSUM_80, BLOSUM_80_TABLE, gapOpen, gapExtend);   
-}
-
-extern void scorerCreateBlosum90(Scorer** scorer, int gapOpen, int gapExtend) {
-    *scorer = scorerCreate(BLOSUM_90, BLOSUM_90_TABLE, gapOpen, gapExtend);   
-}
-
-extern void scorerCreatePam30(Scorer** scorer, int gapOpen, int gapExtend) {
-    *scorer = scorerCreate(PAM_30, PAM_30_TABLE, gapOpen, gapExtend);   
-}
-
-extern void scorerCreatePam70(Scorer** scorer, int gapOpen, int gapExtend) {
-    *scorer = scorerCreate(PAM_70, PAM_70_TABLE, gapOpen, gapExtend);   
-}
-
-extern void scorerCreatePam250(Scorer** scorer, int gapOpen, int gapExtend) {
-    *scorer = scorerCreate(PAM_250, PAM_250_TABLE, gapOpen, gapExtend);   
+    
+    if (index == -1) {
+        index = 0;
+        WARNING(1, "unknown table %s, using %s", name, scorers[index].name);
+    }
+    
+    ScorerEntry* entry = &(scorers[index]);
+    *scorer = scorerCreate(entry->name, *(entry->table), gapOpen, gapExtend);
 }
 
 //------------------------------------------------------------------------------

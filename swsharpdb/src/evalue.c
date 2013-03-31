@@ -27,6 +27,8 @@ Contact the author by mkorpar@gmail.com.
 
 #include "evalue.h"
 
+#define TABLE_LEN (sizeof(table) / sizeof(TableEntry))
+
 typedef struct StatParams {
     double lambda;
     double K;
@@ -61,8 +63,7 @@ typedef struct TableEntry {
 } TableEntry;
 
 // lambda, k, H, a, C, Alpha, Sigma
-#define TABLE_SIZE  12
-static TableEntry table[TABLE_SIZE] = {
+static TableEntry table[] = {
     { BLOSUM_62, -1, -1, { 0.3176, 0.134, 0.4012, 0.7916, 0.623757, 4.964660, 4.964660 } },
     { BLOSUM_62, 11, 2, { 0.297, 0.082, 0.27, 1.1, 0.641766, 12.673800, 12.757600 } },
     { BLOSUM_62, 10, 2, { 0.291, 0.075, 0.23, 1.3, 0.649362, 16.474000, 16.602600 } },
@@ -200,7 +201,7 @@ static void initStatParams(StatParams* statParams, char* matrix, int gapOpen,
     int index = 0;
     
     int i;
-    for (i = 1; i < TABLE_SIZE; ++i) {
+    for (i = 1; i < TABLE_LEN; ++i) {
 
         TableEntry entry = table[i];
         

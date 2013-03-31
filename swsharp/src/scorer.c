@@ -169,19 +169,6 @@ extern Scorer* scorerDeserialize(char* bytes) {
 
 extern void scorerSerialize(char** bytes, int* bytesLen, Scorer* scorer) {
 
-    /*
-    
-    int nameLen
-    char* name;
-    
-    int gapOpen;
-    int gapExtend;
-    int table[SCORER_MAX_CODE][SCORER_MAX_CODE];
-    
-    int maxScore;
-    int scalar;
-    */
-    
     *bytesLen = 0;
     *bytesLen += sizeof(int); // nameLen
     *bytesLen += scorer->nameLen; // name

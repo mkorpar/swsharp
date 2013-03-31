@@ -5,21 +5,38 @@
 
 #include "swsharp/swsharp.h"
 
+#define OUT_FORMATS_LEN (sizeof(outFormats) / sizeof(CharInt))
+
+typedef struct CharInt {
+    const char* format;
+    const int code;
+} CharInt;
+
 static struct option options[] = {
     {"input", required_argument, 0, 'i'},
-    {"plot", required_argument, 0, 'p'},
     {"out", required_argument, 0, 'o'},
+    {"outfmt", required_argument, 0, 't'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
+
+static CharInt outFormats[] = {
+    { "pair", SW_OUT_PAIR },
+    { "pair-stat", SW_OUT_STAT_PAIR },
+    { "plot", SW_OUT_PLOT },
+    { "stat", SW_OUT_STAT }
+};
+
+static int getOutFormat(char* optarg);
 
 static void help();
 
 int main(int argc, char* argv[]) {
 
     char* alignmentPath = NULL;
-    char* plot = NULL;
+    
     char* out = NULL;
+    int outFormat = SW_OUT_STAT_PAIR;
     
     while (1) {
 
@@ -33,11 +50,11 @@ int main(int argc, char* argv[]) {
         case 'i':
             alignmentPath = optarg;
             break;
-        case 'p':
-            plot = optarg;
-            break;
         case 'o':
             out = optarg;
+            break;
+        case 't':
+            outFormat = getOutFormat(optarg);
             break;
         case 'h':
         default:
@@ -51,13 +68,7 @@ int main(int argc, char* argv[]) {
     Alignment* alignment = readAlignment(alignmentPath);
     ASSERT(checkAlignment(alignment), "invalid align");
     
-    if (out != NULL) {
-        outputPair(alignment, out); 
-    }
-    
-    if (plot != NULL) {
-        outputPlot(alignment, plot);   
-    }
+    outputAlignment(alignment, out, outFormat);
     
     chainDelete(alignmentGetQuery(alignment));
     chainDelete(alignmentGetTarget(alignment));
@@ -66,6 +77,18 @@ int main(int argc, char* argv[]) {
     alignmentDelete(alignment);
 
     return 0;
+}
+
+static int getOutFormat(char* optarg) {
+
+    int i;
+    for (i = 0; i < OUT_FORMATS_LEN; ++i) {
+        if (strcmp(outFormats[i].format, optarg) == 0) {
+            return outFormats[i].code;
+        }
+    }
+
+    ERROR("unknown out format %s", optarg);
 }
 
 static void help() {

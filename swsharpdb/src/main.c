@@ -6,6 +6,13 @@
 #include "evalue.h"
 #include "swsharp/swsharp.h"
 
+#define OUT_FORMATS_LEN (sizeof(outFormats) / sizeof(CharInt))
+
+typedef struct CharInt {
+    const char* format;
+    const int code;
+} CharInt;
+
 static struct option options[] = {
     {"cards", required_argument, 0, 'c'},
     {"gap-extend", required_argument, 0, 'e'},
@@ -14,13 +21,25 @@ static struct option options[] = {
     {"target", required_argument, 0, 'j'},
     {"matrix", required_argument, 0, 'm'},
     {"out", required_argument, 0, 'o'},
+    {"outfmt", required_argument, 0, 't'},
     {"evalue", required_argument, 0, 'E'},
     {"max-aligns", required_argument, 0, 'M'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
 
+static CharInt outFormats[] = {
+    { "bm1", SW_OUT_DB_BLASTM1 },
+    { "bm8", SW_OUT_DB_BLASTM8 },
+    { "bm9", SW_OUT_DB_BLASTM9 },
+    { "light", SW_OUT_DB_LIGHT }
+};
+
 static void help();
+
+static void getCudaCards(int** cards, int* cardsLen, char* optarg);
+
+static int getOutFormat(char* optarg);
 
 static void valueFunction(float* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, void* param);
@@ -36,14 +55,14 @@ int main(int argc, char* argv[]) {
     char* matrix = BLOSUM_62;
         
     int maxAlignments = 10;
-    float maxEValue = 1000;
+    float maxEValue = 10;
     
     int cardsLen = -1;
     int* cards = NULL;
     
-    int i;
     char* out = NULL;
-    
+    int outFormat = SW_OUT_DB_BLASTM9;
+
     while (1) {
 
         char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
@@ -66,11 +85,13 @@ int main(int argc, char* argv[]) {
             gapExtend = atoi(optarg);
             break;
         case 'c':
-            cardsLen = strlen(optarg);
-            for (i = 0; i < cardsLen; ++i) cards[i] = optarg[i] - '0';
+            getCudaCards(&cards, &cardsLen, optarg);
             break;
         case 'o':
             out = optarg;
+            break;
+        case 't':
+            outFormat = getOutFormat(optarg);
             break;
         case 'M':
             maxAlignments = atoi(optarg);
@@ -119,10 +140,11 @@ int main(int argc, char* argv[]) {
     shotgunDatabase(&dbAlignments, &dbAlignmentsLen, SW_ALIGN, queries, 
         queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
         (void*) scorer, maxEValue, NULL, 0, cards, cardsLen, NULL);
-        
-    outputShotgunBlastM9(dbAlignments, dbAlignmentsLen, queriesLen, out);
+      
+    outputShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen, 
+        out, outFormat);
     
-    deleteDbAlignements(dbAlignments, dbAlignmentsLen, queriesLen);
+    deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
 
     chainDatabaseDelete(chainDatabase);
     
@@ -134,6 +156,29 @@ int main(int argc, char* argv[]) {
     free(cards);
 
     return 0;
+}
+
+static void getCudaCards(int** cards, int* cardsLen, char* optarg) {
+
+    *cardsLen = strlen(optarg);
+    *cards = (int*) malloc(*cardsLen * sizeof(int));
+    
+    int i;
+    for (i = 0; i < *cardsLen; ++i) {
+        (*cards)[i] = optarg[i] - '0';
+    }
+}
+
+static int getOutFormat(char* optarg) {
+
+    int i;
+    for (i = 0; i < OUT_FORMATS_LEN; ++i) {
+        if (strcmp(outFormats[i].format, optarg) == 0) {
+            return outFormats[i].code;
+        }
+    }
+
+    ERROR("unknown out format %s", optarg);
 }
 
 static void valueFunction(float* values, int* scores, Chain* query, 

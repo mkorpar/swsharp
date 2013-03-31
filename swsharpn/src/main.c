@@ -5,6 +5,13 @@
 
 #include "swsharp/swsharp.h"
 
+#define OUT_FORMATS_LEN (sizeof(outFormats) / sizeof(CharInt))
+
+typedef struct CharInt {
+    const char* format;
+    const int code;
+} CharInt;
+
 static struct option options[] = {
     {"query", required_argument, 0, 'i'},
     {"target", required_argument, 0, 'j'},
@@ -14,10 +21,22 @@ static struct option options[] = {
     {"mismatch", required_argument, 0, 'b'},
     {"cards", required_argument, 0, 'c'},
     {"out", required_argument, 0, 'o'},
-    {"dump", required_argument, 0, 'd'},
+    {"outfmt", required_argument, 0, 't'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
+
+static CharInt outFormats[] = {
+    { "pair", SW_OUT_PAIR },
+    { "pair-stat", SW_OUT_STAT_PAIR },
+    { "plot", SW_OUT_PLOT },
+    { "stat", SW_OUT_STAT },
+    { "dump", SW_OUT_DUMP }
+};
+
+static void getCudaCards(int** cards, int* cardsLen, char* optarg);
+
+static int getOutFormat(char* optarg);
 
 static void help();
 
@@ -36,10 +55,8 @@ int main(int argc, char* argv[]) {
     int* cards = NULL;
     
     char* out = NULL;
-    char* dump = NULL;
-    
-    int i;
-    
+    int outFormat = SW_OUT_STAT_PAIR;
+
     while (1) {
 
         char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
@@ -68,14 +85,13 @@ int main(int argc, char* argv[]) {
             mismatch = atoi(optarg);
             break;
         case 'c':
-            cardsLen = strlen(optarg);
-            for (i = 0; i < cardsLen; ++i) cards[i] = optarg[i] - '0';
+            getCudaCards(&cards, &cardsLen, optarg);
             break;
         case 'o':
             out = optarg;
             break;
-        case 'd':
-            dump = optarg;
+        case 't':
+            outFormat = getOutFormat(optarg);
             break;
         case 'h':
         default:
@@ -112,11 +128,7 @@ int main(int argc, char* argv[]) {
      
     ASSERT(checkAlignment(alignment), "invalid align");
     
-    outputPair(alignment, out);
-        
-    if (dump != NULL) {
-        dumpAlignment(alignment, dump);
-    }
+    outputAlignment(alignment, out, outFormat);
     
     alignmentDelete(alignment);
 
@@ -128,6 +140,29 @@ int main(int argc, char* argv[]) {
     free(cards);
 
     return 0;
+}
+
+static void getCudaCards(int** cards, int* cardsLen, char* optarg) {
+
+    *cardsLen = strlen(optarg);
+    *cards = (int*) malloc(*cardsLen * sizeof(int));
+    
+    int i;
+    for (i = 0; i < *cardsLen; ++i) {
+        (*cards)[i] = optarg[i] - '0';
+    }
+}
+
+static int getOutFormat(char* optarg) {
+
+    int i;
+    for (i = 0; i < OUT_FORMATS_LEN; ++i) {
+        if (strcmp(outFormats[i].format, optarg) == 0) {
+            return outFormats[i].code;
+        }
+    }
+
+    ERROR("unknown out format %s", optarg);
 }
 
 static void help() {

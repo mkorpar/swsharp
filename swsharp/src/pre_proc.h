@@ -42,14 +42,4 @@ extern void scorerCreateConst(Scorer** scorer, int match, int mismatch,
 extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen, 
     int gapExtend);
 
-extern void scorerCreateBlosum45(Scorer** scorer, int gapOpen, int gapExtend);
-extern void scorerCreateBlosum50(Scorer** scorer, int gapOpen, int gapExtend);
-extern void scorerCreateBlosum62(Scorer** scorer, int gapOpen, int gapExtend);
-extern void scorerCreateBlosum80(Scorer** scorer, int gapOpen, int gapExtend);
-extern void scorerCreateBlosum90(Scorer** scorer, int gapOpen, int gapExtend);
-
-extern void scorerCreatePam30(Scorer** scorer, int gapOpen, int gapExtend);
-extern void scorerCreatePam70(Scorer** scorer, int gapOpen, int gapExtend);
-extern void scorerCreatePam250(Scorer** scorer, int gapOpen, int gapExtend);
-
 #endif // __SW_SHARP_PRE_PROCESH__

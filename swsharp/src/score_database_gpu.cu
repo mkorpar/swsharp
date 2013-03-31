@@ -35,7 +35,7 @@ Contact the author by mkorpar@gmail.com.
 
 #include "gpu_module.h"
 
-#define THRESHOLD       3000
+#define THRESHOLD       2800
 
 typedef struct Context {
     int** scores;
@@ -284,17 +284,24 @@ static void* scoreDatabaseThread(void* param) {
     
     TIMER_START("Database solving GPU");
     
+    TIMER_START("Short solve");
+    
     int* scoresShort;
     scoreShortDatabasesGpu(&scoresShort, type, queries, queriesLen, 
         chainDatabaseGpu->shortDatabase, scorer, shortIndexes, shortIndexesLen, 
         cards, cardsLen, NULL);
+
+    TIMER_STOP;
+        
+    TIMER_START("Long solve");
     
     int* scoresLong;
     scoreLongDatabasesGpu(&scoresLong, type, queries, queriesLen, 
         chainDatabaseGpu->longDatabase, scorer, longIndexes, longIndexesLen, 
         cards, cardsLen, NULL);
+        
+    TIMER_STOP;
     
-
     TIMER_STOP;
     
     //**************************************************************************

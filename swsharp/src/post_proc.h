@@ -34,42 +34,31 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
+
+#define SW_OUT_PAIR         0
+#define SW_OUT_PLOT         1
+#define SW_OUT_STAT         2
+#define SW_OUT_STAT_PAIR    3
+#define SW_OUT_DUMP         4
+
+#define SW_OUT_DB_BLASTM1   0
+#define SW_OUT_DB_BLASTM8   1
+#define SW_OUT_DB_BLASTM9   2
+#define SW_OUT_DB_LIGHT     3
+
 extern int checkAlignment(Alignment* alignment);
 
-extern void dumpAlignment(Alignment* alignment, char* path);
-extern Alignment* readAlignment(const char* path);
+extern Alignment* readAlignment(char* path);
 
-extern void outputPair(Alignment* alignment, char* path);
-
-extern void outputStat(Alignment* alignment, char* path);
-
-extern void outputPlot(Alignment* alignment, char* path);
+extern void outputAlignment(Alignment* alignment, char* path, int type);
 
 extern void outputDatabase(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    char* path);
+    char* path, int type);
     
-extern void outputBlastM1(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    char* path);
-    
-extern void outputBlastM8(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    char* path);
-    
-extern void outputBlastM9(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    char* path);
-
 extern void outputShotgunDatabase(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen, char* path);
+    int* dbAlignmentsLens, int dbAlignmentsLen, char* path, int type);
     
-extern void outputShotgunBlastM1(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen, char* path);
-    
-extern void outputShotgunBlastM8(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen, char* path);
-    
-extern void outputShotgunBlastM9(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen, char* path);
-
-extern void deleteDbAlignements(DbAlignment*** dbAlignments, 
+extern void deleteShotgunDatabase(DbAlignment*** dbAlignments, 
     int* dbAlignmentsLens, int dbAlignmentsLen);
 
 #ifdef __cplusplus 

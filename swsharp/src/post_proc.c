@@ -33,31 +33,50 @@ Contact the author by mkorpar@gmail.com.
 
 #include "post_proc.h"
 
+typedef void (*OutputFunction) (Alignment* alignment, FILE* file);
+
+typedef void (*OutputDatabaseFunction) (DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file);
+
 //******************************************************************************
 // PUBLIC
-
     
 //******************************************************************************
 
 //******************************************************************************
 // PRIVATE
 
-static void aligmentStr(char** queryStr, char** targetStr, Alignment* alignment, 
-    const char gapItem);
+// utils
+static void aligmentStr(char** queryStr, char** targetStr, 
+    Alignment* alignment, const char gapItem);
     
-static void outputStatToFile(Alignment* alignment, FILE* file);
+// single output
+static OutputFunction outputFunction(int type);
 
-static void outputDatabaseToFile(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    FILE* file);
+static void outputDump(Alignment* alignment, FILE* file);
+
+static void outputPair(Alignment* alignment, FILE* file);
+
+static void outputPlot(Alignment* alignment, FILE* file);
+
+static void outputStat(Alignment* alignment, FILE* file);
+
+static void outputStatPair(Alignment* alignment, FILE* file);
+
+// database output 
+static OutputDatabaseFunction outputDatabaseFunction(int type);
+
+static void outputDatabaseLight(DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file);
     
-static void outputBlastM1ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    FILE* file);
+static void outputDatabaseBlastM1(DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file);
     
-static void outputBlastM8ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    FILE* file);
+static void outputDatabaseBlastM8(DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file);
     
-static void outputBlastM9ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    FILE* file);
+static void outputDatabaseBlastM9(DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file);
 
 //******************************************************************************
 
@@ -139,7 +158,6 @@ extern int checkAlignment(Alignment* alignment) {
         }
     }
     
-    
     //LOG("Checking: %d %d | %d %d", queryIdx + 1, targetIdx + 1, score, 
     //    alignmentGetScore(alignment));
     
@@ -150,20 +168,7 @@ extern int checkAlignment(Alignment* alignment) {
     return valid;
 }
 
-extern void dumpAlignment(Alignment* alignment, char* path) {
-    
-    FILE* file = fileSafeOpen(path, "w");
-        
-    char* bytes;
-    int bytesLen;
-    
-    alignmentSerialize(&bytes, &bytesLen, alignment);
-    fwrite(bytes, sizeof(char), bytesLen, file);
-    
-    free(bytes);
-}
-
-extern Alignment* readAlignment(const char* path) {
+extern Alignment* readAlignment(char* path) {
 
     FILE* file = fileSafeOpen(path, "r");
     
@@ -181,11 +186,160 @@ extern Alignment* readAlignment(const char* path) {
     return alignment;
 }
 
-extern void outputPair(Alignment* alignment, char* path) {
+extern void outputAlignment(Alignment* alignment, char* path, int type) {
 
     FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
+
+    OutputFunction function = outputFunction(type);
+    function(alignment, file);
     
-    outputStatToFile(alignment, file);
+    if (file != stdout) fclose(file);
+}
+
+extern void outputDatabase(DbAlignment** dbAlignments, int dbAlignmentsLen, 
+    char* path, int type) {
+
+    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
+
+    OutputDatabaseFunction function = outputDatabaseFunction(type);
+    function(dbAlignments, dbAlignmentsLen, file);
+    
+    if (file != stdout) fclose(file);
+}
+
+extern void outputShotgunDatabase(DbAlignment*** dbAlignments, 
+    int* dbAlignmentsLens, int dbAlignmentsLen, char* path, int type) {
+    
+    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
+
+    OutputDatabaseFunction function = outputDatabaseFunction(type);
+
+    int i;
+    for (i = 0; i < dbAlignmentsLen; ++i) {
+        function(dbAlignments[i], dbAlignmentsLens[i], file);
+    }
+    
+    if (file != stdout) fclose(file);
+}
+
+extern void deleteShotgunDatabase(DbAlignment*** dbAlignments, 
+    int* dbAlignmentsLens, int dbAlignmentsLen) {
+    
+    int i;
+    for (i = 0; i < dbAlignmentsLen; ++i) {
+    
+        int j;
+        for (j = 0; j < dbAlignmentsLens[i]; ++j) {
+            dbAlignmentDelete(dbAlignments[i][j]);
+        }
+        
+        free(dbAlignments[i]);
+    }
+    free(dbAlignments);
+    free(dbAlignmentsLens);
+}
+
+//******************************************************************************
+    
+//******************************************************************************
+// PRIVATE
+
+//------------------------------------------------------------------------------
+// UTILS
+
+static void aligmentStr(char** queryStr, char** targetStr, 
+    Alignment* alignment, const char gapItem) {
+
+    Chain* query = alignmentGetQuery(alignment);
+    int queryStart = alignmentGetQueryStart(alignment);
+
+    Chain* target = alignmentGetTarget(alignment);
+    int targetStart = alignmentGetTargetStart(alignment);
+
+    int pathLen = alignmentGetPathLen(alignment);
+    
+    int queryIdx = queryStart;
+    int targetIdx = targetStart;
+    
+    *queryStr = (char*) malloc(pathLen * sizeof(char));
+    *targetStr = (char*) malloc(pathLen * sizeof(char));
+    
+    int i;
+    for (i = 0; i < pathLen; ++i) {
+
+        char queryChr;
+        char targetChr;
+        
+        switch (alignmentGetMove(alignment, i)) {
+        case MOVE_LEFT:
+        
+            queryChr = gapItem;
+            targetChr = chainGetChar(target, targetIdx);
+
+            targetIdx++;
+
+            break;
+        case MOVE_UP:
+        
+            queryChr = chainGetChar(query, queryIdx);
+            targetChr = gapItem;
+            
+            queryIdx++;
+            
+            break;
+        case MOVE_DIAG:
+        
+            queryChr = chainGetChar(query, queryIdx);
+            targetChr = chainGetChar(target, targetIdx);
+            
+            queryIdx++;
+            targetIdx++;
+            
+            break;
+        default:
+            // error
+            return;
+        }
+        
+        (*queryStr)[i] = queryChr;
+        (*targetStr)[i] = targetChr;
+    }
+}
+
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// OUTPUT SINGLE
+
+static OutputFunction outputFunction(int type) {
+    switch (type) {
+    case SW_OUT_PAIR:
+        return outputPair;
+    case SW_OUT_STAT_PAIR:
+        return outputStatPair;
+    case SW_OUT_PLOT:
+        return outputPlot;
+    case SW_OUT_STAT:
+        return outputStat;
+    case SW_OUT_DUMP:
+        return outputDump;
+    default:
+        ERROR("Wrong output type");
+    }
+}
+
+static void outputDump(Alignment* alignment, FILE* file) {
+
+    char* bytes;
+    int bytesLen;
+    
+    alignmentSerialize(&bytes, &bytesLen, alignment);
+    fwrite(bytes, sizeof(char), bytesLen, file);
+    
+    free(bytes);
+}
+
+static void outputPair(Alignment* alignment, FILE* file) {
     
     Chain* query = alignmentGetQuery(alignment);
     Chain* target = alignmentGetTarget(alignment);
@@ -268,26 +422,41 @@ extern void outputPair(Alignment* alignment, char* path) {
     
     free(queryStr);
     free(targetStr);
-    
-    fclose(file);
 }
 
-extern void outputStat(Alignment* alignment, char* path) {
+static void outputPlot(Alignment* alignment, FILE* file) {
 
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
+    const char* queryName = chainGetName(alignmentGetQuery(alignment));
+    const char* queryOff = strchr(queryName, ' ');
+    int queryLen = queryOff == NULL ? 30 : MIN(30, queryOff - queryName);
+        
+    int queryStart = alignmentGetQueryStart(alignment);
+    int queryEnd = alignmentGetQueryEnd(alignment);
     
-    outputStatToFile(alignment, file);
+    const char* targetName = chainGetName(alignmentGetTarget(alignment));
+    const char* targetOff = strchr(targetName, ' ');
+    int targetLen = targetOff == NULL ? 30 : MIN(30, targetOff - targetName);
 
-    fclose(file);
-}
-
-extern void outputPlot(Alignment* alignment, char* path) {
-
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w+");
+    int targetStart = alignmentGetTargetStart(alignment);
+    int targetEnd = alignmentGetTargetEnd(alignment);
     
-    int queryIdx = alignmentGetQueryStart(alignment);
-    int targetIdx = alignmentGetTargetStart(alignment);
+    fprintf(file, "set terminal png\n");
+    fprintf(file, "set output 'output.png'\n");
+    fprintf(file, "set autoscale xfix\n");
+    fprintf(file, "set autoscale yfix\n");
+    fprintf(file, "set yrange [] reverse\n");
+    fprintf(file, "set xtics (%d, %d)\n", queryStart, queryEnd);
+    fprintf(file, "set ytics (%d, %d)\n", targetStart, targetEnd);
+    fprintf(file, "set format x '%%.0f'\n");
+    fprintf(file, "set format y '%%.0f'\n");
+    fprintf(file, "set tics font 'arial, 10'\n");
+    fprintf(file, "set xlabel '%.*s' offset 0,1\n", queryLen, queryName);
+    fprintf(file, "set ylabel '%.*s' offset 1,0\n", targetLen, targetName);
     
+    fprintf(file, "plot '-' using 1:2 notitle with lines linecolor rgb 'black'\n");
+
+    int queryIdx = queryStart;
+    int targetIdx = targetStart;
     int pathLen = alignmentGetPathLen(alignment);
     
     int i;
@@ -312,184 +481,9 @@ extern void outputPlot(Alignment* alignment, char* path) {
             return;
         }
     }
-
-    fclose(file);
 }
 
-extern void outputDatabase(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    char* path) {
-
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
-    
-    outputDatabaseToFile(dbAlignments, dbAlignmentsLen, file);
-    
-    fclose(file);
-}
-
-extern void outputBlastM1(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    char* path) {
-
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
-    
-    outputBlastM1ToFile(dbAlignments, dbAlignmentsLen, file);
-    
-    fclose(file);
-}
-
-extern void outputBlastM8(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    char* path) {
-
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
-    
-    outputBlastM8ToFile(dbAlignments, dbAlignmentsLen, file);
-    
-    fclose(file);
-}
-
-extern void outputBlastM9(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    char* path) {
-
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
-    
-    outputBlastM9ToFile(dbAlignments, dbAlignmentsLen, file);
-    
-    fclose(file);
-}
-
-extern void outputShotgunDatabase(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen, char* path) {
-    
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
-    
-    int i;
-    for (i = 0; i < dbAlignmentsLen; ++i) {
-        outputDatabaseToFile(dbAlignments[i], dbAlignmentsLens[i], file);
-    }
-    
-    fclose(file);
-}
-    
-extern void outputShotgunBlastM1(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen, char* path) {
-    
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
-  
-    int i;
-    for (i = 0; i < dbAlignmentsLen; ++i) {
-        outputBlastM1ToFile(dbAlignments[i], dbAlignmentsLens[i], file);
-    }
-      
-    fclose(file);
-}
-    
-extern void outputShotgunBlastM8(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen, char* path) {
-
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
-
-    int i;
-    for (i = 0; i < dbAlignmentsLen; ++i) {
-        outputBlastM8ToFile(dbAlignments[i], dbAlignmentsLens[i], file);
-    }
-    
-    fclose(file);
-}
-    
-extern void outputShotgunBlastM9(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen, char* path) {
-
-    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
-
-    int i;
-    for (i = 0; i < dbAlignmentsLen; ++i) {
-        outputBlastM9ToFile(dbAlignments[i], dbAlignmentsLens[i], file);
-    }
-
-    fclose(file);
-}
-
-extern void deleteDbAlignements(DbAlignment*** dbAlignments, 
-    int* dbAlignmentsLens, int dbAlignmentsLen) {
-    
-    int i;
-    for (i = 0; i < dbAlignmentsLen; ++i) {
-    
-        int j;
-        for (j = 0; j < dbAlignmentsLens[i]; ++j) {
-            dbAlignmentDelete(dbAlignments[i][j]);
-        }
-        
-        free(dbAlignments[i]);
-    }
-    free(dbAlignments);
-    free(dbAlignmentsLens);
-}
-
-//******************************************************************************
-    
-//******************************************************************************
-// PRIVATE
-
-static void aligmentStr(char** queryStr, char** targetStr, Alignment* alignment, 
-    const char gapItem) {
-
-    Chain* query = alignmentGetQuery(alignment);
-    int queryStart = alignmentGetQueryStart(alignment);
-
-    Chain* target = alignmentGetTarget(alignment);
-    int targetStart = alignmentGetTargetStart(alignment);
-
-    int pathLen = alignmentGetPathLen(alignment);
-    
-    int queryIdx = queryStart;
-    int targetIdx = targetStart;
-    
-    *queryStr = (char*) malloc(pathLen * sizeof(char));
-    *targetStr = (char*) malloc(pathLen * sizeof(char));
-    
-    int i;
-    for (i = 0; i < pathLen; ++i) {
-
-        char queryChr;
-        char targetChr;
-        
-        switch (alignmentGetMove(alignment, i)) {
-        case MOVE_LEFT:
-        
-            queryChr = gapItem;
-            targetChr = chainGetChar(target, targetIdx);
-
-            targetIdx++;
-
-            break;
-        case MOVE_UP:
-        
-            queryChr = chainGetChar(query, queryIdx);
-            targetChr = gapItem;
-            
-            queryIdx++;
-            
-            break;
-        case MOVE_DIAG:
-        
-            queryChr = chainGetChar(query, queryIdx);
-            targetChr = chainGetChar(target, targetIdx);
-            
-            queryIdx++;
-            targetIdx++;
-            
-            break;
-        default:
-            // error
-            return;
-        }
-        
-        (*queryStr)[i] = queryChr;
-        (*targetStr)[i] = targetChr;
-    }
-}
-
-static void outputStatToFile(Alignment* alignment, FILE* file) {
+static void outputStat(Alignment* alignment, FILE* file) {
 
     Chain* query = alignmentGetQuery(alignment);
     Chain* target = alignmentGetTarget(alignment);
@@ -544,8 +538,8 @@ static void outputStatToFile(Alignment* alignment, FILE* file) {
         }
     }
     
-    float identityPct = ((float) identity) / pathLen * 100;
-    float similarityPct = ((float) similarity) / pathLen * 100;
+    float idnPct = ((float) identity) / pathLen * 100;
+    float simPct = ((float) similarity) / pathLen * 100;
     float gapsPct = ((float) gaps) / pathLen * 100;
         
     fprintf(file, "########################################\n");
@@ -558,8 +552,8 @@ static void outputStatToFile(Alignment* alignment, FILE* file) {
     fprintf(file, "# Gap extend: %d\n", scorerGetGapExtend(scorer));
     fprintf(file, "#\n");
     fprintf(file, "# Length: %d\n", pathLen);
-    fprintf(file, "# Identity:   %9d/%d (%.2f%%)\n", identity, pathLen, identityPct);
-    fprintf(file, "# Similarity: %9d/%d (%.2f%%)\n", similarity, pathLen, similarityPct);
+    fprintf(file, "# Identity:   %9d/%d (%.2f%%)\n", identity, pathLen, idnPct);
+    fprintf(file, "# Similarity: %9d/%d (%.2f%%)\n", similarity, pathLen, simPct);
     fprintf(file, "# Gaps:       %9d/%d (%.2f%%)\n", gaps, pathLen, gapsPct);
     fprintf(file, "# Score: %d\n", score);
     fprintf(file, "# Query: (%d, %d)\n", queryStart, queryEnd);
@@ -568,8 +562,33 @@ static void outputStatToFile(Alignment* alignment, FILE* file) {
     fprintf(file, "########################################\n");
 }
 
-static void outputDatabaseToFile(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    FILE* file) {
+static void outputStatPair(Alignment* alignment, FILE* file) {
+    outputStat(alignment, file);
+    outputPair(alignment, file);
+}
+
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// OUTPUT DATABASE
+
+static OutputDatabaseFunction outputDatabaseFunction(int type) {
+    switch (type) {
+    case SW_OUT_DB_LIGHT:
+        return outputDatabaseLight;
+    case SW_OUT_DB_BLASTM1:
+        return outputDatabaseBlastM1;
+    case SW_OUT_DB_BLASTM8:
+        return outputDatabaseBlastM8;
+    case SW_OUT_DB_BLASTM9:
+        return outputDatabaseBlastM9;
+    default:
+        ERROR("Wrong output type");
+    }
+}
+
+static void outputDatabaseLight(DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file) {
     
     fprintf(file, "displaying top %d results\n", dbAlignmentsLen);
     
@@ -593,8 +612,8 @@ static void outputDatabaseToFile(DbAlignment** dbAlignments, int dbAlignmentsLen
     }
 }
     
-static void outputBlastM1ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    FILE* file) {
+static void outputDatabaseBlastM1(DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file) {
     
     int i, j;
     
@@ -671,13 +690,13 @@ static void outputBlastM1ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen,
             }
         }
         
-        int identitiesPct = (int) ceil((identities * 100.f) / length);
-        int positivesPct = (int) ceil((positives * 100.f) / length);
+        int idnPct = (int) ceil((identities * 100.f) / length);
+        int posPct = (int) ceil((positives * 100.f) / length);
         int gapsPct = (int) ceil((gaps * 100.f) / length);
         
         fprintf(file, " ");
-        fprintf(file, "Identities = %d/%d (%d%%), ", identities, length, identitiesPct);
-        fprintf(file, "Positives = %d/%d (%d%%), ", positives, length, positivesPct);
+        fprintf(file, "Identities = %d/%d (%d%%), ", identities, length, idnPct);
+        fprintf(file, "Positives = %d/%d (%d%%), ", positives, length, posPct);
         fprintf(file, "Gaps = %d/%d (%d%%) ", gaps, length, gapsPct);
         fprintf(file, "\n\n");
         
@@ -746,8 +765,8 @@ static void outputBlastM1ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen,
     }
 }
     
-static void outputBlastM8ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    FILE* file) {
+static void outputDatabaseBlastM8(DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file) {
     
     const char gapItem = '-';
      
@@ -792,13 +811,15 @@ static void outputBlastM8ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen,
         free(queryStr);
         free(targetStr);
         
-        const char* queryName = chainGetName(dbAlignmentGetQuery(dbAlignments[i]));
-        const char* queryOffset = strchr(queryName, ' ');
-        int queryLen = queryOffset == NULL ? 30 : MIN(30, queryOffset - queryName);
+        Chain* query = dbAlignmentGetQuery(dbAlignments[i]);
+        const char* queryName = chainGetName(query);
+        const char* queryOff = strchr(queryName, ' ');
+        int queryLen = queryOff == NULL ? 30 : MIN(30, queryOff - queryName);
         
-        const char* targetName = chainGetName(dbAlignmentGetTarget(dbAlignments[i]));
-        const char* targetOffset = strchr(targetName, ' ');
-        int targetLen = targetOffset == NULL ? 30 : MIN(30, targetOffset - targetName);
+        Chain* target = dbAlignmentGetTarget(dbAlignments[i]);
+        const char* targetName = chainGetName(target);
+        const char* targetOff = strchr(targetName, ' ');
+        int targetLen = targetOff == NULL ? 30 : MIN(30, targetOff - targetName);
 
         fprintf(file, "%.*s\t", queryLen, queryName);
         fprintf(file, "%.*s\t", targetLen, targetName);
@@ -815,15 +836,17 @@ static void outputBlastM8ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen,
         fprintf(file, "\n");
     }
 }
-
-static void outputBlastM9ToFile(DbAlignment** dbAlignments, int dbAlignmentsLen, 
-    FILE* file) {
+    
+static void outputDatabaseBlastM9(DbAlignment** dbAlignments, 
+    int dbAlignmentsLen, FILE* file) {
     
     fprintf(file, "# Fields:\n"
                   "Query id,Subject id,%% identity,alignment length,mismatches,"
                   "gap openings,q. start,q. end,s. start,s. end,value,score\n");
               
-    outputBlastM8ToFile(dbAlignments, dbAlignmentsLen, file);
+    outputDatabaseBlastM8(dbAlignments, dbAlignmentsLen, file);
 }
+
+//------------------------------------------------------------------------------
 
 //******************************************************************************

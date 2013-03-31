@@ -37,7 +37,7 @@ Contact the author by mkorpar@gmail.com.
 #define BLOCKS    120
 
 #define INT4_ZERO make_int4(0, 0, 0, 0)
-#define SCORE4_MIN make_int4(SCORE_MIN, SCORE_MIN, SCORE_MIN, SCORE_MIN)
+#define INT4_SCORE_MIN make_int4(SCORE_MIN, SCORE_MIN, SCORE_MIN, SCORE_MIN)
 
 struct ShortDatabase {
     int length;
@@ -96,7 +96,7 @@ static __constant__ int gapOpen_;
 static __constant__ int gapExtend_;
 
 static __constant__ int rows_;
-static __constant__ int rowsPadded_; // padded
+static __constant__ int rowsPadded_;
 static __constant__ int width_;
 
 texture<int, 2, cudaReadModeElementType> seqsTexture;
@@ -533,8 +533,9 @@ static void kernelSingle(int* scores, int type, Chain* query,
         }
     }
     
-    cudaArray* subArray; 
-    CUDA_SAFE_CALL(cudaMallocArray(&subArray, &subTexture.channelDesc, subLen, rowsGpu)); 
+    cudaArray* subArray;
+    int subH = rowsGpu / 4;
+    CUDA_SAFE_CALL(cudaMallocArray(&subArray, &subTexture.channelDesc, subLen, subH)); 
     CUDA_SAFE_CALL(cudaMemcpyToArray (subArray, 0, 0, subCpu, subSize, TO_GPU));
     CUDA_SAFE_CALL(cudaBindTextureToArray(subTexture, subArray));
     subTexture.addressMode[0] = cudaAddressModeClamp;
@@ -711,7 +712,7 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
     int cols = lengthsPadded[id];
 
     if (cols == 0) {
-        scores[id] = SCORE_MIN;
+        scores[id] = NO_SCORE;
         return;
     }
     
@@ -738,11 +739,11 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
     for (int i = 0; i < rowsPadded_; i += 8) {
     
         scrUp = make_int4(gap(i), gap(i + 1), gap(i + 2), gap(i + 3));
-        affUp = SCORE4_MIN;
+        affUp = INT4_SCORE_MIN;
         mchUp = make_int4(gap(i - 1), gap(i), gap(i + 1), gap(i + 2));
         
         scrDown = make_int4(gap(i + 4), gap(i + 5), gap(i + 6), gap(i + 7));
-        affDown = SCORE4_MIN;
+        affDown = INT4_SCORE_MIN;
         mchDown = make_int4(gap(i + 3), gap(i + 4), gap(i + 5), gap(i + 6));
         
         for (int j = 0; j < cols; ++j) {
@@ -843,7 +844,7 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
     int cols = lengthsPadded[id];
 
     if (cols == 0) {
-        scores[id] = SCORE_MIN;
+        scores[id] = NO_SCORE;
         return;
     }
     
@@ -870,11 +871,11 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
     for (int i = 0; i < rowsPadded_; i += 8) {
     
         scrUp = make_int4(gap(i), gap(i + 1), gap(i + 2), gap(i + 3));
-        affUp = SCORE4_MIN;
+        affUp = INT4_SCORE_MIN;
         mchUp = make_int4(gap(i - 1), gap(i), gap(i + 1), gap(i + 2));
         
         scrDown = make_int4(gap(i + 4), gap(i + 5), gap(i + 6), gap(i + 7));
-        affDown = SCORE4_MIN;
+        affDown = INT4_SCORE_MIN;
         mchDown = make_int4(gap(i + 3), gap(i + 4), gap(i + 5), gap(i + 6));
         
         for (int j = 0; j < cols; ++j) {
@@ -975,7 +976,7 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
     int cols = lengthsPadded[id];
 
     if (cols == 0) {
-        scores[id] = SCORE_MIN;
+        scores[id] = NO_SCORE;
         return;
     }
     
@@ -999,11 +1000,11 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
     for (int i = 0; i < rowsPadded_; i += 8) {
     
         scrUp = INT4_ZERO;
-        affUp = SCORE4_MIN;
+        affUp = INT4_SCORE_MIN;
         mchUp = INT4_ZERO;
         
         scrDown = INT4_ZERO;
-        affDown = SCORE4_MIN;
+        affDown = INT4_SCORE_MIN;
         mchDown = INT4_ZERO;
         
         for (int j = 0; j < cols; ++j) {

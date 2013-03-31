@@ -284,6 +284,10 @@ static void* databaseSearchThread(void* param) {
         maxAlignments = databaseLen;
     }
     
+    if (indexes != NULL) {
+        maxAlignments = MIN(indexesLen, maxAlignments);
+    }
+    
     TIMER_START("Database search");
     
     int i;
