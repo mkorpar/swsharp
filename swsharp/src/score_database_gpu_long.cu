@@ -147,13 +147,15 @@ static void longDatabaseGpuDelete(LongDatabaseGpu* longDatabaseGpu);
 // gpu kernels
 __global__ void hwSolve(int* scores, char* codes, int2* hBus, int3* data);
 
-__device__ void hwSolveSingle(int* scores, char* codes, int2* hBus, int3 data);
-
 __global__ void nwSolve(int* scores, char* codes, int2* hBus, int3* data);
 
-__device__ void nwSolveSingle(int* scores, char* codes, int2* hBus, int3 data);
-
 __global__ void swSolve(int* scores, char* codes, int2* hBus, int3* data);
+
+__device__ static int gap(int index);
+
+__device__ void hwSolveSingle(int* scores, char* codes, int2* hBus, int3 data);
+
+__device__ void nwSolveSingle(int* scores, char* codes, int2* hBus, int3 data);
 
 __device__ void swSolveSingle(int* scores, char* codes, int2* hBus, int3 data);
 
@@ -507,7 +509,7 @@ static void kernelSingle(int* scores, int type, Chain* query,
 
     size_t scoresSize = longDatabaseGpu->scoresSize;
     CUDA_SAFE_CALL(cudaMemcpy(scores, scoresGpu, scoresSize, FROM_GPU));
-
+    
     //**************************************************************************
     
     //**************************************************************************
@@ -601,7 +603,7 @@ __global__ void hwSolve(int* scores, char* codes, int2* hBus, int3* data) {
 __global__ void nwSolve(int* scores, char* codes, int2* hBus, int3* data) {
 
     for (int i = blockIdx.x; i < length_; i += gridDim.x) {
-        swSolveSingle(scores, codes, hBus, data[i]);
+        nwSolveSingle(scores, codes, hBus, data[i]);
     }
 }
 
@@ -612,12 +614,259 @@ __global__ void swSolve(int* scores, char* codes, int2* hBus, int3* data) {
     }
 }
 
+__device__ static int gap(int index) {
+    return (-gapOpen_ - index * gapExtend_) * (index >= 0);
+}
+
 __device__ void hwSolveSingle(int* scores, char* codes, int2* hBus, int3 data) {
 
+    __shared__ int scoresShr[MAX_THREADS];
+
+    __shared__ int hBusScrShr[MAX_THREADS + 1];
+    __shared__ int hBusAffShr[MAX_THREADS + 1];
+
+    int id = data.x;
+    int off = data.y;
+    int cols = data.z;
+
+    int score = SCORE_MIN;
+
+    int width = cols * iters_ + 2 * (blockDim.x - 1);
+    int col = -threadIdx.x;
+    int row = threadIdx.x * 4;
+    int iter = 0;
+    
+    Atom atom;
+    atom.mch = gap(row - 1);
+    atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));
+    atom.lAff = INT4_SCORE_MIN;
+    
+    hBusScrShr[threadIdx.x] = 0;
+    hBusAffShr[threadIdx.x] = SCORE_MIN;
+    
+    for (int i = 0; i < width; ++i) {
+    
+        int del;
+        int valid = col >= 0 && row < rowsPadded_;
+    
+        if (valid) {
+        
+            if (iter != 0 && threadIdx.x == 0) {
+                atom.up = hBus[off + col];
+            } else {
+                atom.up.x = hBusScrShr[threadIdx.x];
+                atom.up.y = hBusAffShr[threadIdx.x];
+            }
+            
+            char code = codes[off + col];
+            char4 rowScores = tex2D(subTexture, code, row >> 2);
+            
+            del = max(atom.up.x - gapOpen_, atom.up.y - gapExtend_);
+            int ins = max(atom.lScr.x - gapOpen_, atom.lAff.x - gapExtend_);
+            int mch = atom.mch + rowScores.x;
+
+            atom.rScr.x = MAX3(mch, del, ins);
+            atom.rAff.x = ins;
+
+            del = max(atom.rScr.x - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.y - gapOpen_, atom.lAff.y - gapExtend_);
+            mch = atom.lScr.x + rowScores.y;
+
+            atom.rScr.y = MAX3(mch, del, ins);
+            atom.rAff.y = ins;
+            
+            del = max(atom.rScr.y - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.z - gapOpen_, atom.lAff.z - gapExtend_);
+            mch = atom.lScr.y + rowScores.z;
+
+            atom.rScr.z = MAX3(mch, del, ins);
+            atom.rAff.z = ins;
+
+            del = max(atom.rScr.z - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.w - gapOpen_, atom.lAff.w - gapExtend_);
+            mch = atom.lScr.z + rowScores.w;
+
+            atom.rScr.w = MAX3(mch, del, ins);
+            atom.rAff.w = ins;
+
+            if (row + 0 == rows_ - 1) score = max(score, atom.rScr.x);
+            if (row + 1 == rows_ - 1) score = max(score, atom.rScr.y);
+            if (row + 2 == rows_ - 1) score = max(score, atom.rScr.z);
+            if (row + 3 == rows_ - 1) score = max(score, atom.rScr.w);
+
+            atom.mch = atom.up.x;   
+            VEC4_ASSIGN(atom.lScr, atom.rScr);
+            VEC4_ASSIGN(atom.lAff, atom.rAff);
+        }
+        
+        __syncthreads();
+
+        if (valid) {
+            if (iter < iters_ - 1 && threadIdx.x == blockDim.x - 1) {
+                VEC2_ASSIGN(hBus[off + col], make_int2(atom.rScr.w, del));
+            } else {
+                hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
+                hBusAffShr[threadIdx.x + 1] = del;
+            }
+        }
+        
+        col++;
+        
+        if (col == cols) {
+
+            col = 0;
+            row += blockDim.x * 4;
+            iter++;
+            
+            atom.mch = gap(row - 1);
+            atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));;
+            atom.lAff = INT4_SCORE_MIN;
+        }
+        
+        __syncthreads();
+    }
+
+    // write all scores    
+    scoresShr[threadIdx.x] = score;
+    __syncthreads();
+    
+    // gather scores
+    if (threadIdx.x == 0) {
+    
+        for (int i = 1; i < blockDim.x; ++i) {
+            score = max(score, scoresShr[i]);
+        }
+    
+        scores[id] = score;
+    }
 }
 
 __device__ void nwSolveSingle(int* scores, char* codes, int2* hBus, int3 data) {
 
+    __shared__ int scoresShr[MAX_THREADS];
+
+    __shared__ int hBusScrShr[MAX_THREADS + 1];
+    __shared__ int hBusAffShr[MAX_THREADS + 1];
+
+    int id = data.x;
+    int off = data.y;
+    int cols = data.z;
+
+    int score = SCORE_MIN;
+
+    int width = cols * iters_ + 2 * (blockDim.x - 1);
+    int col = -threadIdx.x;
+    int row = threadIdx.x * 4;
+    int iter = 0;
+    
+    Atom atom;
+    atom.mch = gap(row - 1);
+    atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));
+    atom.lAff = INT4_SCORE_MIN;
+    
+    hBusScrShr[threadIdx.x] = gap(off);
+    hBusAffShr[threadIdx.x] = SCORE_MIN;
+    
+    for (int i = 0; i < width; ++i) {
+    
+        int del;
+        int valid = col >= 0 && row < rowsPadded_;
+    
+        if (valid) {
+        
+            if (iter != 0 && threadIdx.x == 0) {
+                if (iter == 0) {
+                   atom.up.x = gap(off);
+                   atom.up.y = SCORE_MIN;
+                } else {
+                    atom.up = hBus[off + col];
+                }
+            } else {
+                atom.up.x = hBusScrShr[threadIdx.x];
+                atom.up.y = hBusAffShr[threadIdx.x];
+            }
+            
+            char code = codes[off + col];
+            char4 rowScores = tex2D(subTexture, code, row >> 2);
+            
+            del = max(atom.up.x - gapOpen_, atom.up.y - gapExtend_);
+            int ins = max(atom.lScr.x - gapOpen_, atom.lAff.x - gapExtend_);
+            int mch = atom.mch + rowScores.x;
+
+            atom.rScr.x = MAX3(mch, del, ins);
+            atom.rAff.x = ins;
+
+            del = max(atom.rScr.x - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.y - gapOpen_, atom.lAff.y - gapExtend_);
+            mch = atom.lScr.x + rowScores.y;
+
+            atom.rScr.y = MAX3(mch, del, ins);
+            atom.rAff.y = ins;
+            
+            del = max(atom.rScr.y - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.z - gapOpen_, atom.lAff.z - gapExtend_);
+            mch = atom.lScr.y + rowScores.z;
+
+            atom.rScr.z = MAX3(mch, del, ins);
+            atom.rAff.z = ins;
+
+            del = max(atom.rScr.z - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.w - gapOpen_, atom.lAff.w - gapExtend_);
+            mch = atom.lScr.z + rowScores.w;
+
+            atom.rScr.w = MAX3(mch, del, ins);
+            atom.rAff.w = ins;
+
+            atom.mch = atom.up.x;   
+            VEC4_ASSIGN(atom.lScr, atom.rScr);
+            VEC4_ASSIGN(atom.lAff, atom.rAff);
+        }
+        
+        __syncthreads();
+
+        if (valid) {
+            if (iter < iters_ - 1 && threadIdx.x == blockDim.x - 1) {
+                VEC2_ASSIGN(hBus[off + col], make_int2(atom.rScr.w, del));
+            } else {
+                hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
+                hBusAffShr[threadIdx.x + 1] = del;
+            }
+        }
+        
+        col++;
+        
+        if (col == cols) {
+
+            if (row + 0 == rows_ - 1) score = max(score, atom.lScr.x);
+            if (row + 1 == rows_ - 1) score = max(score, atom.lScr.y);
+            if (row + 2 == rows_ - 1) score = max(score, atom.lScr.z);
+            if (row + 3 == rows_ - 1) score = max(score, atom.lScr.w);
+            
+            col = 0;
+            row += blockDim.x * 4;
+            iter++;
+            
+            atom.mch = gap(row - 1);
+            atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));;
+            atom.lAff = INT4_SCORE_MIN;
+        }
+        
+        __syncthreads();
+    }
+
+    // write all scores    
+    scoresShr[threadIdx.x] = score;
+    __syncthreads();
+    
+    // gather scores
+    if (threadIdx.x == 0) {
+    
+        for (int i = 1; i < blockDim.x; ++i) {
+            score = max(score, scoresShr[i]);
+        }
+    
+        scores[id] = score;
+    }
 }
 
 __device__ void swSolveSingle(int* scores, char* codes, int2* hBus, int3 data) {
@@ -633,17 +882,15 @@ __device__ void swSolveSingle(int* scores, char* codes, int2* hBus, int3 data) {
 
     int score = 0;
     
-    Atom atom;
-    atom.mch = 0;
-    atom.up.x = 0;
-    atom.up.y = SCORE_MIN;
-    atom.lScr = INT4_ZERO;
-    atom.lAff = INT4_SCORE_MIN;
-    
     int width = cols * iters_ + 2 * (blockDim.x - 1);
     int col = -threadIdx.x;
     int row = threadIdx.x * 4;
     int iter = 0;
+    
+    Atom atom;
+    atom.mch = 0;
+    atom.lScr = INT4_ZERO;
+    atom.lAff = INT4_SCORE_MIN;
     
     hBusScrShr[threadIdx.x] = 0;
     hBusAffShr[threadIdx.x] = SCORE_MIN;
@@ -717,14 +964,14 @@ __device__ void swSolveSingle(int* scores, char* codes, int2* hBus, int3 data) {
         col++;
         
         if (col == cols) {
-        
-            atom.mch = 0;
-            atom.lScr = INT4_ZERO;
-            atom.lAff = INT4_SCORE_MIN;
-        
+
             col = 0;
             row += blockDim.x * 4;
             iter++;
+                    
+            atom.mch = 0;
+            atom.lScr = INT4_ZERO;
+            atom.lAff = INT4_SCORE_MIN;
         }
         
         __syncthreads();
