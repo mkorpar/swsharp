@@ -63,7 +63,7 @@ extern float stopTimer();
 
 #define TIMER_STOP \
 do { \
-    printf("[TIMER_STOP:%s:%d]: %f\n", __FILE__, __LINE__, stopTimer());\
+    printf("[TIMER_STOP:%s:%d]: %.3f\n", __FILE__, __LINE__, stopTimer());\
 } while(0)
 #else 
 #define TIMER_START(fmt, ...)
