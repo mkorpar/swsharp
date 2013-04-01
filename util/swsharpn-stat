@@ -11,9 +11,10 @@ control_c()
     exit $?
 }
 
-if [ $# -ne 2 ]
+if [ $# -lt 1 ]
 then
-    echo "usage: " $0 <pair list> [swsharpn args...]
+    echo "usage: $0 <pair list> [swsharpn args...]"
+    exit -1
 fi
 
 input=$1
