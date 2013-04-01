@@ -1,5 +1,16 @@
 #!/bin/bash
 
+trap control_c SIGINT
+
+control_c()
+# run if user hits control-c
+{
+    rm -f $tout
+    rm -f $out
+    rm -f $stat
+    exit $?
+}
+
 time=/usr/bin/time
 
 DIR=$(dirname $0)
@@ -10,9 +21,9 @@ printf "%-13s %-13s | " "query" "target"
 printf "%-20s %-20s %-20s %-10s | " "solve" "find" "recn" "total"
 printf "%-10s | " "mem (MB)"
 printf "%-14s | " "prunned"
-printf "%-19s %-19s | " "start" "end"
-printf "%-10s | " "score"
-printf "%-10s %-10s %-10s %-10s" "length" "identity" "similarity" "gaps"
+printf "%-21s %-21s | " "start" "end"
+printf "%-13s | " "score"
+printf "%-13s %-13s %-13s %-13s" "length" "identity" "similarity" "gaps"
 echo
 
 out=$(mktemp)
@@ -56,9 +67,9 @@ do
     printf "%-20s %-20s %-20s %-10s | " $ts $tf $tr $tt
     printf "%-10s | " $m
     printf "%-14s | " $prn
-    printf "%-19s %-19s | " "($qrys, $tgts)" "($qrye, $tgte)"
-    printf "%-10s | " $scr
-    printf "%-10s %-10s %-10s %-10s" $len $idn $sim $gap
+    printf "%-21s %-21s | " "($qrys, $tgts)" "($qrye, $tgte)"
+    printf "%-13s | " $scr
+    printf "%-13s %-13s %-13s %-13s" $len $idn $sim $gap
     echo
     
 done < $1
