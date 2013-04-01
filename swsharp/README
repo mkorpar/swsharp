@@ -1,0 +1,2 @@
+Swsharp module is used as a static library for core functionality of other 
+modules. It cannot be executed as a standalone.
