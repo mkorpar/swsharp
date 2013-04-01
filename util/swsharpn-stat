@@ -11,6 +11,15 @@ control_c()
     exit $?
 }
 
+if [ $# -ne 2 ]
+then
+    echo "usage: " $0 <pair list> [swsharpn args...]
+fi
+
+input=$1
+shift
+args=$@
+
 time=/usr/bin/time
 
 DIR=$(dirname $0)
@@ -43,7 +52,16 @@ do
     
     dump=$n1"-"$n2
 
-    $time -o $tout -f "%e %M" $swsharpn -i $in1 -j $in2 --outfmt dump --out $dump > $out
+    $time -o $tout -f "%e %M" $swsharpn -i $in1 -j $in2 --outfmt dump --out $dump $args > $out
+    
+    if [ $? -ne 0 ]
+    then 
+        rm $tout
+        rm $out
+        rm $stat
+        exit -1
+    fi
+    
     $swsharpout -i $dump --outfmt 'stat' --out $stat
 
     ts=$(grep "STOP:src/sw_end_data_gpu.cu" $out | cut -d " " -f 2 | paste -sd ",")
@@ -72,7 +90,7 @@ do
     printf "%-13s %-13s %-13s %-13s" $len $idn $sim $gap
     echo
     
-done < $1
+done < $input
 
 rm $tout
 rm $out

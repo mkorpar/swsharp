@@ -39,8 +39,8 @@ extern "C" {
 #define ASSERT(expr, fmt, ...)\
     do {\
         if (!(expr)) {\
-            printf("[ERROR:%s:%d]: " fmt "\n", __FILE__, __LINE__,\
-                                    ##__VA_ARGS__);\
+            fprintf(stderr, "[ERROR:%s:%d]: " fmt "\n", __FILE__, __LINE__,\
+                ##__VA_ARGS__);\
             exit(-1);\
         }\
     } while(0)
@@ -48,8 +48,8 @@ extern "C" {
 #define ASSERT_CALL(expr, call, fmt, ...)\
     do {\
         if (!(expr)) {\
-            printf("[ERROR:%s:%d]: " fmt "\n", __FILE__, __LINE__,\
-                                    ##__VA_ARGS__);\
+            fprintf(stderr, "[ERROR:%s:%d]: " fmt "\n", __FILE__, __LINE__,\
+                ##__VA_ARGS__);\
             call(); \
             exit(-1);\
         }\
