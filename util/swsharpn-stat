@@ -9,6 +9,7 @@ swsharpout=$DIR/../bin/swsharpout
 printf "%-13s %-13s | " "query" "target"
 printf "%-20s %-20s %-20s %-10s | " "solve" "find" "recn" "total"
 printf "%-10s | " "mem (MB)"
+printf "%-14s | " "prunned"
 printf "%-19s %-19s | " "start" "end"
 printf "%-10s | " "score"
 printf "%-10s %-10s %-10s %-10s" "length" "identity" "similarity" "gaps"
@@ -39,21 +40,23 @@ do
     tr=$(grep "STOP:src/reconstruct.c" $out | cut -d " " -f 2 | paste -sd ",")
     tt=$(cat $tout | cut -d" " -f1)
     m=$(echo "scale = 3; $(cat $tout | cut -d " " -f2) / 1025.0" | bc)
+    prn=$(grep "Pruned percentage" $out | cut -d " " -f 4 | paste -sd ",")
 
     len=$(grep "Length" $stat | cut -d " " -f 3)
     idn=$(grep "Identity" $stat | awk -F' ' '{print $3}' | cut -d "/" -f 1 )
     sim=$(grep "Similarity" $stat | awk -F' ' '{print $3}' | cut -d "/" -f 1)
     gap=$(grep "Gaps" $stat | awk -F' ' '{print $3}' | cut -d "/" -f 1)
     scr=$(grep "Score" $stat | cut -d " " -f 3)
-    qs=$(grep "Query" $stat | cut -d " " -f 3 | tr -d "(,")
-    qe=$(grep "Query" $stat | cut -d " " -f 4 | tr -d ")")
-    ts=$(grep "Target" $stat | cut -d " " -f 3 | tr -d "(,")
-    te=$(grep "Target" $stat | cut -d " " -f 4 | tr -d ")")
+    qrys=$(grep "Query" $stat | cut -d " " -f 3 | tr -d "(,")
+    qrye=$(grep "Query" $stat | cut -d " " -f 4 | tr -d ")")
+    tgts=$(grep "Target" $stat | cut -d " " -f 3 | tr -d "(,")
+    tgte=$(grep "Target" $stat | cut -d " " -f 4 | tr -d ")")
 
     printf "%-13s %-13s | " $n1 $n2
     printf "%-20s %-20s %-20s %-10s | " $ts $tf $tr $tt
     printf "%-10s | " $m
-    printf "%-19s %-19s | " "($qs, $ts)" "($qe, $te)"
+    printf "%-14s | " $prn
+    printf "%-19s %-19s | " "($qrys, $tgts)" "($qrye, $tgte)"
     printf "%-10s | " $scr
     printf "%-10s %-10s %-10s %-10s" $len $idn $sim $gap
     echo
