@@ -35,14 +35,22 @@ BIN = $(EXC_DIR)/$(EXC)
 DOC = $(DOC_DIR)/Doxyfile
 WIN = $(subst $(SRC_DIR), $(WIN_DIR), $(API) $(SRC))
 
-debug: CC_FLAGS := $(CC_FLAGS) -DDEBUG
-debug: CP_FLAGS := $(CP_FLAGS) -DDEBUG
-debug: CU_FLAGS := $(CU_FLAGS) -DDEBUG --ptxas-options=-v
+debug: CC_FLAGS := $(CC_FLAGS) -DDEBUG -DTIMERS
+debug: CP_FLAGS := $(CP_FLAGS) -DDEBUG -DTIMERS
+debug: CU_FLAGS := $(CU_FLAGS) -DDEBUG -DTIMERS --ptxas-options=-v
 
 all: $(EXC)
 debug: all
 
-install: $(BIN) $(WIN)
+install: bin win
+
+bin: $(BIN)
+
+include: $(INC)
+
+lib: $(LIB)
+
+win: $(WIN)
 
 $(EXC): $(OBJ) $(DEP_LIBS)
 	@echo [LD] $@

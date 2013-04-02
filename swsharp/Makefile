@@ -42,7 +42,15 @@ debug: CU_FLAGS := $(CU_FLAGS) -DDEBUG -DTIMERS --ptxas-options=-v
 all: $(OBJ) $(DEP_LIBS)
 debug: all
 
-install: $(LIB) $(INC) $(WIN)
+install: lib include win
+
+bin: $(BIN)
+
+include: $(INC)
+
+lib: $(LIB)
+
+win: $(WIN)
 
 $(EXC): $(OBJ) $(DEP_LIBS)
 	@echo [LD] $@

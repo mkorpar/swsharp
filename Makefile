@@ -8,11 +8,14 @@ EXC_DIR = bin
 
 all: TARGETS=debug install
 debug: TARGETS=debug install
+win: TARGETS=win
 clean: TARGETS=remove clean
 
 all: $(MODULES)
 
 debug: $(MODULES)
+
+win: $(MODULES)
 
 clean: $(MODULES)
 	@echo [RM] removing
