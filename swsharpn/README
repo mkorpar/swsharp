@@ -1,3 +1,5 @@
+Swsharpn is a CUDA-GPU based tool for performing Smith-Waterman alignment on 
+nucleotides.
 
 usage: swsharpn -i <query file> -j <target file> [arguments ...]
 
