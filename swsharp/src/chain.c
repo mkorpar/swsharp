@@ -73,7 +73,8 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
     chain->nameLen = nameLen + 1;
     
     chain->codes = (char*) malloc(stringLen * sizeof(char));
-
+    chain->reverseCodes = (char*) malloc(chain->length * sizeof(char));
+    
     int charIdx;
     for (charIdx = 0; charIdx < stringLen; ++charIdx) {
     
@@ -81,10 +82,8 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
         code = (code < 91) ? code - 'A' : code - 'a';
         
         chain->codes[charIdx] = code;
+        chain->reverseCodes[chain->length - charIdx - 1] = code;
     }
-    
-    // reverse will be lazy loaded
-    chain->reverseCodes = NULL; 
     
     return chain;
 }
@@ -128,17 +127,6 @@ extern int chainGetLength(Chain* chain) {
 // FUNCTIONS
 
 extern Chain* chainCreateView(Chain* chain, int start, int end, int reverse) {
-
-    // lazy load reverse codes
-    if (chain->reverseCodes == NULL) {
-    
-        chain->reverseCodes = (char*) malloc(chain->length * sizeof(char));
-        
-        int charIdx;
-        for (charIdx = 0; charIdx < chain->length; ++charIdx) {
-            chain->reverseCodes[chain->length - charIdx - 1] = chain->codes[charIdx];
-        }
-    }
 
     Chain* view = (Chain*) malloc(sizeof(struct Chain));
 
