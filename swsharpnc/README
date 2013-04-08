@@ -1,6 +1,6 @@
 Swsharpnc is a CUDA-GPU based tool for performing Smith-Waterman alignment on 
-nucleotides. It scores both ot the query strands with the target, however only
-the better scored alignment is reconstructed and outputed.
+nucleotides. It scores both of the query strands with the target, however only
+the better scored alignment is reconstructed and outputted.
 
 usage: swsharpnc -i <query file> -j <target file> [arguments ...]
 

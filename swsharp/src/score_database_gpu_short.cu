@@ -272,6 +272,7 @@ extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen) {
     
 extern void shortDatabaseDelete(ShortDatabase* shortDatabase) {
 
+    free(shortDatabase->order);
     free(shortDatabase->positions);
     free(shortDatabase->offsets);
     free(shortDatabase->lengths);

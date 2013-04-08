@@ -544,6 +544,8 @@ static LongDatabaseGpu* longDatabaseGpuCreate(LongDatabase* longDatabase,
     CUDA_SAFE_CALL(cudaMalloc(&dataGpu, dataSize));
     CUDA_SAFE_CALL(cudaMemcpy(dataGpu, data, dataSize, TO_GPU));
     
+    free(data);
+    
     size_t codesSize = longDatabase->codesSize;
     char* codesGpu;
     CUDA_SAFE_CALL(cudaMalloc(&codesGpu, codesSize));
@@ -563,6 +565,8 @@ static LongDatabaseGpu* longDatabaseGpuCreate(LongDatabase* longDatabase,
         scores[i] = NO_SCORE;
     }
     CUDA_SAFE_CALL(cudaMemcpy(scoresGpu, scores, scoresSize, TO_GPU));
+    
+    free(scores);
     
     LongDatabaseGpu* longDatabaseGpu = 
         (LongDatabaseGpu*) malloc(sizeof(struct LongDatabaseGpu));
