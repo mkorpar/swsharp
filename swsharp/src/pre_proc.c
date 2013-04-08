@@ -95,9 +95,16 @@ extern Chain* createChainComplement(Chain* chain) {
         string[length - 1 - i] = chr;
     }
     
-    char* name = "CMPL";
+    char name[1000];
+    sprintf(name, "complement: %s", chainGetName(chain));
     
-    return chainCreate(name, 4, string, length);
+    int nameLen = strlen(name);
+
+    Chain* complement = chainCreate(name, nameLen, string, length);
+    
+    free(string);
+    
+    return complement;
 }
 
 extern void readFastaChain(Chain** chain, const char* path) {

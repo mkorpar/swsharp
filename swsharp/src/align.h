@@ -40,6 +40,10 @@ extern "C" {
 extern void alignPair(Alignment** alignment, Chain* query, Chain* target, 
     Scorer* scorer, int type, int* cards, int cardsLen, Thread* thread);
 
+extern void alignBest(Alignment** alignment, Chain** queries, int queriesLen, 
+    Chain* target, Scorer* scorer, int type, int* cards, int cardsLen, 
+    Thread* thread);
+
 #ifdef __cplusplus 
 }
 #endif

@@ -687,6 +687,8 @@ static void* kernel(void* params) {
     CUDA_SAFE_CALL(cudaMallocHost(&bCpu, bSize));
     CUDA_SAFE_CALL(cudaMalloc(&bGpu, bSize));
     CUDA_SAFE_CALL(cudaMemset(bGpu, 0, bSize));
+    memoryUsedCpu += bSize;
+    memoryUsedGpu += bSize;
     
     size_t subSize = subLen * subLen * sizeof(int);
     int* subCpu = (int*) malloc(subSize);
@@ -715,7 +717,7 @@ static void* kernel(void* params) {
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(pruneHigh_, &pruneHigh, sizeof(int)));
     
     // LOG("Memory used CPU: %fMB", memoryUsedCpu / 1024. / 1024.);
-    // LOG("Memory used GPU: %fMB", memoryUsedGpu / 1024. / 1024.);
+    LOG("Memory used GPU: %fMB", memoryUsedGpu / 1024. / 1024.);
 
     //**************************************************************************
 
