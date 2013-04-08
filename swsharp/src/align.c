@@ -333,14 +333,22 @@ static void* alignBestThread(void* param) {
     int cardsStep = cardsLen / threadNmr;
 
     for (i = 0; i < threadNmr; ++i) {
+        
         contexts[i].endData = endData  + i * queriesStep;
         contexts[i].queries = queries + i * queriesStep;
-        contexts[i].queriesLen = MIN(queriesStep, queriesLen - i * queriesStep);
         contexts[i].target = target;
         contexts[i].scorer = scorer;
         contexts[i].type = type;
         contexts[i].cards = cards + i * cardsStep;
-        contexts[i].cardsLen = MIN(cardsStep, cardsLen - i * cardsStep);
+        
+        if (i == threadNmr - 1) {
+            // possible leftovers
+            contexts[i].queriesLen = queriesLen - i * queriesStep;
+            contexts[i].cardsLen = cardsLen - i * cardsStep;
+        } else {
+            contexts[i].queriesLen = queriesStep;
+            contexts[i].cardsLen = cardsStep;
+        }
     }
     
     for (i = 0; i < threadNmr - 1; ++i) {
