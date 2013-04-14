@@ -681,7 +681,9 @@ static void* kernel(void* params) {
     size_t hBusSize = colsGpu * sizeof(int2);
     int2* hBusCpu = (int2*) malloc(hBusSize);
     int2* hBusGpu;
-    for (int i = 0; i < colsGpu; ++i) hBusCpu[i] = make_int2(-score, -score);
+    for (int i = 0; i < colsGpu; ++i) {
+        hBusCpu[i] = make_int2(SCORE_MIN, SCORE_MIN);
+    }
     CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
     CUDA_SAFE_CALL(cudaMemcpy(hBusGpu, hBusCpu, hBusSize, TO_GPU));
     CUDA_SAFE_CALL(cudaBindTexture(NULL, hBusTexture, hBusGpu, hBusSize));
