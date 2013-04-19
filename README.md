@@ -35,6 +35,7 @@ Currently supported modules are:
 1. swsharp - Module is the main static library used by other modules and does not provide any executable.
 2. swsharpn - Module is used for aligning nucleotide sequnces.
 3. swsharpp - Module is used for aligning protein sequnces.
+4. swsharpnc - Module is used for aligning which searches the best scores on both strands of a nucleotide sequnces.
 
 ## NOTES
 
