@@ -6,7 +6,7 @@ INC_DIR = include
 LIB_DIR = lib
 EXC_DIR = bin
 
-all: TARGETS=debug install
+all: TARGETS=install
 debug: TARGETS=debug install
 win: TARGETS=win
 clean: TARGETS=remove clean
