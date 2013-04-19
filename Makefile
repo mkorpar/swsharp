@@ -1,6 +1,6 @@
 # swsharp must be first on the list
 # uncomment swsharpdbmpi module if mpi is available 
-MODULES = swsharp swsharpn swsharpnc swsharpp swsharpdb swsharpout # swsharpdbmpi
+MODULES = swsharp swsharpn swsharpp # swsharpnc swsharpdb swsharpout swsharpdbmpi
 
 INC_DIR = include
 LIB_DIR = lib

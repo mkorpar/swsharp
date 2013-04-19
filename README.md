@@ -23,10 +23,18 @@ Application uses following software:
 ## INSTALLATION
 
 ### LINUX and MAC OS
-Makefile is provided in the project root folder. If mpi is available uncomment the swsharpdbmpi module on the top of the Makefile. After running make and all dependencies are satisfied, include, lib and bin folders will appear. All executables are located in the bin folder. Exposed swsharp core api is located in the include folder, and swsharp core static library is found in the lib folder.
+Makefile is provided in the project root folder. If mpi is available uncomment the swsharpdbmpi module on the top of the Makefile. After running make and all dependencies are satisfied, include, lib and bin folders will appear. All executables are located in the bin folder. Exposed swsharp core api is located in the include folder, and swsharp core static library is found in the lib folder. 
 
 ### WINDOWS
 Download the executables from https://sourceforge.net/projects/swsharp/files/ or download the Visual Studio project from the same location.
+
+### MODULES
+
+Currently supported modules are:
+
+1. swsharp - Module is the main static library used by other modules and does not provide any executable.
+2. swsharpn - Module is used for aligning nucleotide sequnces.
+3. swsharpp - Module is used for aligning protein sequnces.
 
 ## NOTES
 
