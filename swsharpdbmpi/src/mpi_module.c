@@ -50,6 +50,8 @@ static void dbAlignmentToBytes(char** bytes, size_t* size,
 
 static int dbAlignmentCmp(const void* a_, const void* b_);
 
+static int dbAlignmentsCmp(const void* a_, const void* b_);
+
 //******************************************************************************
 
 //******************************************************************************
@@ -80,6 +82,8 @@ extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
     //**************************************************************************
     // RECIEVE
     
+    MPI_Status status;
+    
     for (i = 0; i < nodes; ++i) {
     
         if (i == MASTER_NODE) {
@@ -87,12 +91,10 @@ extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
         }
         
         size_t size;
-        MPI_Recv(&size, sizeof(size), MPI_CHAR, i, 1, MPI_COMM_WORLD, NULL);
+        MPI_Recv(&size, sizeof(size), MPI_CHAR, i, 1, MPI_COMM_WORLD, &status);
 
-        printf("recv: %d\n", size);
-    
         char* buffer = (char*) malloc(size);
-        MPI_Recv(buffer, size, MPI_CHAR, i, 0, MPI_COMM_WORLD, NULL);
+        MPI_Recv(buffer, size, MPI_CHAR, i, 0, MPI_COMM_WORLD, &status);
 
         size_t ptr = 0;
         
@@ -169,6 +171,8 @@ extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
         (*dbAlignmentsLen)[i] = length;
     }
     
+    qsort(*dbAlignments, queriesLen, sizeof(DbAlignment**), dbAlignmentsCmp);
+    
     //**************************************************************************
     
     //**************************************************************************
@@ -236,8 +240,6 @@ extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLen,
             ptr += bytesSize;
         }
     }
-    
-    printf("send: %d\n", realSize);
     
     MPI_Send(&realSize, sizeof(size_t), MPI_CHAR, MASTER_NODE, 1, MPI_COMM_WORLD);
     MPI_Send(buffer, realSize, MPI_CHAR, MASTER_NODE, 0, MPI_COMM_WORLD);
@@ -371,8 +373,21 @@ static int dbAlignmentCmp(const void* a_, const void* b_) {
     DbAlignment* a = *((DbAlignment**) a_);
     DbAlignment* b = *((DbAlignment**) b_);
     
-    int va = dbAlignmentGetValue(a);
-    int vb = dbAlignmentGetValue(b);
+    float va = dbAlignmentGetValue(a);
+    float vb = dbAlignmentGetValue(b);
+
+    if (va < vb) return -1;
+    if (va > vb) return 1;
+    return 0;
+}
+
+static int dbAlignmentsCmp(const void* a_, const void* b_) {
+
+    DbAlignment** a = *((DbAlignment***) a_);
+    DbAlignment** b = *((DbAlignment***) b_);
+    
+    float va = dbAlignmentGetValue(a[0]);
+    float vb = dbAlignmentGetValue(b[0]);
 
     if (va < vb) return -1;
     if (va > vb) return 1;
