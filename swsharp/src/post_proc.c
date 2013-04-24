@@ -551,6 +551,9 @@ static void outputStat(Alignment* alignment, FILE* file) {
     fprintf(file, "# Gap open: %d\n", scorerGetGapOpen(scorer));
     fprintf(file, "# Gap extend: %d\n", scorerGetGapExtend(scorer));
     fprintf(file, "#\n");
+    fprintf(file, "# Query length: %d\n", chainGetLength(query));
+    fprintf(file, "# Target length: %d\n", chainGetLength(target));
+    fprintf(file, "#\n");
     fprintf(file, "# Length: %d\n", pathLen);
     fprintf(file, "# Identity:   %9d/%d (%.2f%%)\n", identity, pathLen, idnPct);
     fprintf(file, "# Similarity: %9d/%d (%.2f%%)\n", similarity, pathLen, simPct);
