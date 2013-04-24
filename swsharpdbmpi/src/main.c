@@ -127,15 +127,17 @@ int main(int argc, char* argv[]) {
     
     ChainDatabase* chainDatabase = chainDatabaseCreate(database, databaseLen);
     
-    // MPI create indexes and its data
-    int indexesOffset = rank * (databaseLen / nodes);
-    int indexesLen = MIN(databaseLen / nodes, databaseLen - indexesOffset);
+    // MPI create dummy indexes
     int* indexes = (int*) malloc(databaseLen * sizeof(int));
-    
     for (i = 0; i < databaseLen; ++i) {
         indexes[i] = i;
     }
     
+    // MPI calculate indexes to solve
+    int indexesOffset = rank * (databaseLen / nodes);
+    int lastNode = rank == nodes - 1;
+    int indexesLen = lastNode ? databaseLen - indexesOffset : databaseLen / nodes;
+
     DbAlignment*** dbAlignments;
     int* dbAlignmentsLen;
 
@@ -144,12 +146,6 @@ int main(int argc, char* argv[]) {
         (void*) scorer, maxEValue, indexes + indexesOffset, indexesLen, cards, 
         cardsLen, NULL);
         
-    // send data to master node
-    sendMpiData(dbAlignments, dbAlignmentsLen, queries, queriesLen, 
-        database, databaseLen);
-    
-    deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
-
     // master node gathers and outputs data
     if (rank == MASTER_NODE) {
     
@@ -160,11 +156,15 @@ int main(int argc, char* argv[]) {
         // output
         outputShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen, 
             out, SW_OUT_DB_BLASTM9);
-        
-        deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
+    } else {
+        // send data to master node
+        sendMpiData(dbAlignments, dbAlignmentsLen, queries, queriesLen, 
+            database, databaseLen);
     }
     
     free(indexes);
+    
+    deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
     
     chainDatabaseDelete(chainDatabase);
     

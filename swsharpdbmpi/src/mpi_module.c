@@ -72,11 +72,9 @@ extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
         
     int** allLens = (int**) malloc(nodes * sizeof(int*));
     
-    for (i = 0; i < nodes; ++i) {
-        all[i] = (DbAlignment***) malloc(queriesLen * sizeof(DbAlignment**));
-        allLens[i] = (int*) malloc(queriesLen * sizeof(int));
-    }
-
+    all[MASTER_NODE] = *dbAlignments;
+    allLens[MASTER_NODE] = *dbAlignmentsLen;
+    
     //**************************************************************************
     
     //**************************************************************************
@@ -84,13 +82,23 @@ extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
     
     for (i = 0; i < nodes; ++i) {
     
+        if (i == MASTER_NODE) {
+            continue;
+        }
+        
         size_t size;
         MPI_Recv(&size, sizeof(size), MPI_CHAR, i, 1, MPI_COMM_WORLD, NULL);
 
+        printf("recv: %d\n", size);
+    
         char* buffer = (char*) malloc(size);
         MPI_Recv(buffer, size, MPI_CHAR, i, 0, MPI_COMM_WORLD, NULL);
 
         size_t ptr = 0;
+        
+        DbAlignment*** aligns = 
+            (DbAlignment***) malloc(queriesLen * sizeof(DbAlignment**));
+        int* lengths = (int*) malloc(queriesLen * sizeof(int));
         
         for (j = 0; j < queriesLen; ++j) {
         
@@ -98,8 +106,8 @@ extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
             memcpy(&length, buffer + ptr, sizeof(int));
             ptr += sizeof(int);
             
-            DbAlignment** aligns = 
-                (DbAlignment**) malloc(length * sizeof(DbAlignment*));
+            lengths[j] = length;
+            aligns[j] = (DbAlignment**) malloc(length * sizeof(DbAlignment*));
 
             for (k = 0; k < length; ++k) {
             
@@ -107,15 +115,15 @@ extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
                 memcpy(&bytesSize, buffer + ptr, sizeof(size_t));
                 ptr += sizeof(size_t);
               
-                aligns[k] = dbAlignmentFromBytes(buffer + ptr, queries, 
+                aligns[j][k] = dbAlignmentFromBytes(buffer + ptr, queries, 
                     database, scorer);
                     
                 ptr += bytesSize;
             }
-            
-            all[i][j] = aligns;
-            allLens[i][j] = length;
         }
+        
+        all[i] = aligns;
+        allLens[i] = lengths;
     }
     
     //**************************************************************************
@@ -228,6 +236,8 @@ extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLen,
             ptr += bytesSize;
         }
     }
+    
+    printf("send: %d\n", realSize);
     
     MPI_Send(&realSize, sizeof(size_t), MPI_CHAR, MASTER_NODE, 1, MPI_COMM_WORLD);
     MPI_Send(buffer, realSize, MPI_CHAR, MASTER_NODE, 0, MPI_COMM_WORLD);
