@@ -5,6 +5,14 @@
 
 #include "swsharp/swsharp.h"
 
+#define ASSERT(expr, fmt, ...)\
+    do {\
+        if (!(expr)) {\
+            fprintf(stderr, "[ERROR]: " fmt "\n", ##__VA_ARGS__);\
+            exit(-1);\
+        }\
+    } while(0)
+
 #define OUT_FORMATS_LEN (sizeof(outFormats) / sizeof(CharInt))
 
 typedef struct CharInt {
@@ -63,7 +71,7 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    ASSERT_CALL(alignmentPath != NULL, help, "missing option -i (alignment file)");
+    ASSERT(alignmentPath != NULL, "missing option -i (alignment file)");
     
     Alignment* alignment = readAlignment(alignmentPath);
     ASSERT(checkAlignment(alignment), "invalid align");
@@ -88,7 +96,7 @@ static int getOutFormat(char* optarg) {
         }
     }
 
-    ERROR("unknown out format %s", optarg);
+    ASSERT(0, "unknown out format %s", optarg);
 }
 
 static void help() {

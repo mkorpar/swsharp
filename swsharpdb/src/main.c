@@ -6,6 +6,14 @@
 #include "evalue.h"
 #include "swsharp/swsharp.h"
 
+#define ASSERT(expr, fmt, ...)\
+    do {\
+        if (!(expr)) {\
+            fprintf(stderr, "[ERROR]: " fmt "\n", ##__VA_ARGS__);\
+            exit(-1);\
+        }\
+    } while(0)
+
 #define OUT_FORMATS_LEN (sizeof(outFormats) / sizeof(CharInt))
 
 typedef struct CharInt {
@@ -178,7 +186,7 @@ static int getOutFormat(char* optarg) {
         }
     }
 
-    ERROR("unknown out format %s", optarg);
+    ASSERT(0, "unknown out format %s", optarg);
 }
 
 static void valueFunction(float* values, int* scores, Chain* query, 

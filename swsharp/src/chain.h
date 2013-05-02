@@ -21,7 +21,8 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief 
+
 */
 
 #ifndef __SW_SHARP_CHAINH__
@@ -35,19 +36,83 @@ typedef struct Chain Chain;
 
 extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen);
 
+/*!
+@brief Chain destructor.
+
+@param chain chain object 
+*/
 extern void chainDelete(Chain* chain);
 
 extern char chainGetChar(Chain* chain, int index);
 extern char chainGetCode(Chain* chain, int index);
+
+/*!
+@brief Chain length getter.
+
+@param chain chain object 
+
+@return length
+*/
 extern int chainGetLength(Chain* chain);
+
+/*!
+@brief Chain name getter.
+
+@param chain chain object 
+
+@return name
+*/
 extern const char* chainGetName(Chain* chain);
 
+/*!
+@brief Creates a view to the chain object.
+
+Method creates a subchain from the input chain. It doesn't copy the data since
+the original chain object is immutable. However the top parent chain object
+(one created via the constructor), should not be deleted before the views are 
+deleted. Both the start and end indexes shoulde be greater than 1 and less than 
+the chain length.
+
+@param chain chain object
+@param start start index, inclusive
+@param end end index, inclusive
+@param reverse bool, 1 if the view should be reverse 0 otherwise
+
+@return chain view 
+*/
 extern Chain* chainCreateView(Chain* chain, int start, int end, int reverse);
 
+/*!
+@brief Copies chain code to a buffer.
+
+Destination buffer should be allocated and its length should be greater or equal
+to chain length.
+
+@param chain chain object
+@param dest pointer to the destination buffer
+*/
 extern void chainCopyCodes(Chain* chain, char* dest);
 
+/*!
+@brief Chain deserialization method.
+
+Method deserializes chain object from a byte buffer.
+
+@param bytes byte buffer
+
+@return chain object
+*/
 extern Chain* chainDeserialize(char* bytes);
 
+/*!
+@brief Chain serialization method.
+
+Method serializes chain object to a byte buffer.
+
+@param bytes output byte buffer
+@param bytesLen output byte buffer length
+@param chain chain object
+*/
 extern void chainSerialize(char** bytes, int* bytesLen, Chain* chain);
 
 #ifdef __cplusplus 

@@ -18,11 +18,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 Contact the author by mkorpar@gmail.com.
 */
-/**
-@file
-
-@brief
-*/
 
 #ifndef __SW_SHARP_ERRORH__
 #define __SW_SHARP_ERRORH__

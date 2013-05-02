@@ -8,6 +8,21 @@
 #include "mpi_module.h"
 #include "swsharp/swsharp.h"
 
+#define ASSERT(expr, fmt, ...)\
+    do {\
+        if (!(expr)) {\
+            fprintf(stderr, "[ERROR]: " fmt "\n", ##__VA_ARGS__);\
+            exit(-1);\
+        }\
+    } while(0)
+
+#define OUT_FORMATS_LEN (sizeof(outFormats) / sizeof(CharInt))
+
+typedef struct CharInt {
+    const char* format;
+    const int code;
+} CharInt;
+
 static struct option options[] = {
     {"cards", required_argument, 0, 'c'},
     {"gap-extend", required_argument, 0, 'e'},
@@ -16,18 +31,28 @@ static struct option options[] = {
     {"target", required_argument, 0, 'j'},
     {"matrix", required_argument, 0, 'm'},
     {"out", required_argument, 0, 'o'},
+    {"outfmt", required_argument, 0, 't'},
     {"evalue", required_argument, 0, 'E'},
     {"max-aligns", required_argument, 0, 'M'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
 
+static CharInt outFormats[] = {
+    { "bm1", SW_OUT_DB_BLASTM1 },
+    { "bm8", SW_OUT_DB_BLASTM8 },
+    { "bm9", SW_OUT_DB_BLASTM9 },
+    { "light", SW_OUT_DB_LIGHT }
+};
+
 static void help();
+
+static void getCudaCards(int** cards, int* cardsLen, char* optarg);
+
+static int getOutFormat(char* optarg);
 
 static void valueFunction(float* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, void* param);
-
-static int chainCmp(const void* a_, const void* b_);
 
 int main(int argc, char* argv[]) {
 
@@ -47,17 +72,17 @@ int main(int argc, char* argv[]) {
     char* matrix = BLOSUM_62;
         
     int maxAlignments = 10;
-    float maxEValue = 1000;
+    float maxEValue = 10;
     
     int cardsLen = -1;
     int* cards = NULL;
     
-    int i;
     char* out = NULL;
+    int outFormat = SW_OUT_DB_BLASTM9;
     
     while (1) {
 
-        char argument = getopt_long(argc, argv, "i:j:g:e:", options, NULL);
+        char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
 
         if (argument == -1) {
             break;
@@ -77,11 +102,13 @@ int main(int argc, char* argv[]) {
             gapExtend = atoi(optarg);
             break;
         case 'c':
-            cardsLen = strlen(optarg);
-            for (i = 0; i < cardsLen; ++i) cards[i] = optarg[i] - '0';
+            getCudaCards(&cards, &cardsLen, optarg);
             break;
         case 'o':
             out = optarg;
+            break;
+        case 't':
+            outFormat = getOutFormat(optarg);
             break;
         case 'M':
             maxAlignments = atoi(optarg);
@@ -99,8 +126,8 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    ASSERT_CALL(queryPath != NULL, help, "missing option -i (query file)");
-    ASSERT_CALL(databasePath != NULL, help, "missing option -j (database file)");
+    ASSERT(queryPath != NULL, "missing option -i (query file)");
+    ASSERT(databasePath != NULL, "missing option -j (database file)");
     
     if (cardsLen == -1) {
         cudaGetCards(&cards, &cardsLen);
@@ -108,8 +135,8 @@ int main(int argc, char* argv[]) {
     
     ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
     
-    ASSERT_CALL(gapExtend > 0 && gapExtend <= gapOpen, help, "invalid gap extend");
-    ASSERT_CALL(maxEValue > 0, help, "invalid evalue");
+    ASSERT(gapExtend > 0 && gapExtend <= gapOpen, "invalid gap extend");
+    ASSERT(maxEValue > 0, "invalid evalue");
     
     Scorer* scorer;
     scorerCreateMatrix(&scorer, matrix, gapOpen, gapExtend);
@@ -122,13 +149,11 @@ int main(int argc, char* argv[]) {
     int databaseLen = 0;
     readFastaChains(&database, &databaseLen, databasePath);
     
-    // MPI sort db for performance
-    qsort(database, databaseLen, sizeof(Chain*), chainCmp);
-    
     ChainDatabase* chainDatabase = chainDatabaseCreate(database, databaseLen);
     
     // MPI create dummy indexes
     int* indexes = (int*) malloc(databaseLen * sizeof(int));
+    int i;
     for (i = 0; i < databaseLen; ++i) {
         indexes[i] = i;
     }
@@ -155,7 +180,7 @@ int main(int argc, char* argv[]) {
 
         // output
         outputShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen, 
-            out, SW_OUT_DB_BLASTM9);
+            out, outFormat);
     } else {
         // send data to master node
         sendMpiData(dbAlignments, dbAlignmentsLen, queries, queriesLen, 
@@ -165,7 +190,7 @@ int main(int argc, char* argv[]) {
     free(indexes);
     
     deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
-    
+
     chainDatabaseDelete(chainDatabase);
     
     deleteFastaChains(queries, queriesLen);
@@ -180,17 +205,32 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+static void getCudaCards(int** cards, int* cardsLen, char* optarg) {
+
+    *cardsLen = strlen(optarg);
+    *cards = (int*) malloc(*cardsLen * sizeof(int));
+    
+    int i;
+    for (i = 0; i < *cardsLen; ++i) {
+        (*cards)[i] = optarg[i] - '0';
+    }
+}
+
+static int getOutFormat(char* optarg) {
+
+    int i;
+    for (i = 0; i < OUT_FORMATS_LEN; ++i) {
+        if (strcmp(outFormats[i].format, optarg) == 0) {
+            return outFormats[i].code;
+        }
+    }
+
+    ASSERT(0, "unknown out format %s", optarg);
+}
+
 static void valueFunction(float* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, void* param) {
     eValues(values, scores, query, database, databaseLen, (Scorer*) param);
-}
-
-static int chainCmp(const void* a_, const void* b_) {
-
-    Chain* a = *((Chain**) a_);
-    Chain* b = *((Chain**) b_);
-
-    return chainGetLength(a) - chainGetLength(b);
 }
 
 static void help() {

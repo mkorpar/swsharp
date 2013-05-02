@@ -104,7 +104,7 @@ extern int scorerGetMaxScore(Scorer* scorer) {
     return scorer->maxScore;
 }
 
-extern char* scorerGetName(Scorer* scorer) {
+extern const char* scorerGetName(Scorer* scorer) {
     return scorer->name;
 }
 

@@ -31,13 +31,35 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
+/*!
+@brief Constant used for defining the semiglobal alignment.
+*/
 #define HW_ALIGN    0
+
+/*!
+@brief Constant used for defining the global alignment.
+*/
 #define NW_ALIGN    1
+
+/*!
+@brief Constant used for defining the local alignment.
+*/
 #define SW_ALIGN    2
 
-#define NO_SCORE    -1000000000
+/*!
+@brief Constant used for defining an unknown score.
+*/
+#define NO_SCORE    -1000000001
+
+/*!
+@brief Constant used for defining score minimum, in other words -infinity.
+*/
 #define SCORE_MIN   -1000000000
 
+//!@{
+/*!
+@brief Similarity matrix table names.
+*/
 #define BLOSUM_45   "BLOSUM_45"
 #define BLOSUM_50   "BLOSUM_50"
 #define BLOSUM_62   "BLOSUM_62"
@@ -47,7 +69,12 @@ extern "C" {
 #define PAM_30      "PAM_30"
 #define PAM_70      "PAM_70"
 #define PAM_250     "PAM_250"
+//!@}
 
+//!@{
+/*!
+@brief Similarity matrix table scores.
+*/
 extern int BLOSUM_45_TABLE[26][26];
 extern int BLOSUM_50_TABLE[26][26];
 extern int BLOSUM_62_TABLE[26][26];
@@ -57,6 +84,7 @@ extern int BLOSUM_90_TABLE[26][26];
 extern int PAM_30_TABLE[26][26];
 extern int PAM_70_TABLE[26][26];
 extern int PAM_250_TABLE[26][26];
+//!@}
 
 #ifdef __cplusplus 
 }

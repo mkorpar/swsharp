@@ -38,7 +38,7 @@ extern "C" {
 #define SWAP(x, y) {\
         struct tempStruct {\
             char c[sizeof(x)];\
-        } swap_tmp;\
+        } __attribute__((__may_alias__)) swap_tmp;\
         swap_tmp = *(struct tempStruct*) &x;\
         *(struct tempStruct*) &x = *(struct tempStruct*) &y;\
         *(struct tempStruct*) &y = swap_tmp;\

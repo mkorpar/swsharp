@@ -37,6 +37,20 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
+/*!
+
+@brief Function returns the subchain of the provided chain.
+
+@param alignment    Input chain.
+@param query        Start index of the subchain.
+@param target       End index of the subchain.
+@param scorer       Scoring object used for alignment
+@param type         see define #SW_ALIGN.
+@param cards        End index of the subchain.
+@param cardsLen     Input chain.
+@param thread       Start index of the subchain.
+
+*/
 extern void alignPair(Alignment** alignment, Chain* query, Chain* target, 
     Scorer* scorer, int type, int* cards, int cardsLen, Thread* thread);
 

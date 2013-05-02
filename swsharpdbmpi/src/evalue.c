@@ -27,6 +27,8 @@ Contact the author by mkorpar@gmail.com.
 
 #include "evalue.h"
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 #define TABLE_LEN (sizeof(table) / sizeof(TableEntry))
 
 typedef struct StatParams {
@@ -212,7 +214,9 @@ static void initStatParams(StatParams* statParams, char* matrix, int gapOpen,
         }
     }
     
-    WARNING(index == 0, "no e-value params found, using default");
+    if (index == 0) {
+        printf("WARNING: no e-value params found, using default");
+    }
     
     statParams->G = G;
     statParams->aUn = aUn;

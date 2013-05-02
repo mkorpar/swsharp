@@ -18,19 +18,24 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 Contact the author by mkorpar@gmail.com.
 */
+/**
+@file
+
+@brief
+*/
 
 #ifndef __SW_SHARP_SWSHARPH__
 #define __SW_SHARP_SWSHARPH__
 
 #include "align.h"
 #include "constants.h"
+#include "cpu_module.h"
 #include "cuda_utils.h"
 #include "database.h"
-#include "error.h"
+#include "gpu_module.h"
 #include "post_proc.h"
 #include "pre_proc.h"
 #include "reconstruct.h"
-#include "utils.h"
 
 #ifdef __cplusplus 
 extern "C" {
