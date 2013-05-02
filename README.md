@@ -23,10 +23,10 @@ Application uses following software:
 ## INSTALLATION
 
 ### LINUX and MAC OS
-Makefile is provided in the project root folder. If mpi is available uncomment the swsharpdbmpi module on the top of the Makefile. After running make and all dependencies are satisfied, include, lib and bin folders will appear. All executables are located in the bin folder. Exposed swsharp core api is located in the include folder, and swsharp core static library is found in the lib folder. 
+Makefile is provided in the project root folder. If mpi is available uncomment the swsharpdbmpi module on the top of the Makefile. After running make and all dependencies are satisfied, include, lib and bin folders will appear. All executables are located in the bin folder. Exposed swsharp core api is located in the include folder, and swsharp core static library is found in the lib folder. An example of using the library can be seen in swsharpn module.
 
 ### WINDOWS
-Download the executables from https://sourceforge.net/projects/swsharp/files/ or download the Visual Studio project from the same location.
+Download the Visual Studio project from https://sourceforge.net/projects/swsharp/files/. Swsharp project is set up as a static library and can be used by additional modules by linking it.
 
 ### MODULES
 
@@ -36,6 +36,55 @@ Currently supported modules are:
 2. swsharpn - Module is used for aligning nucleotide sequnces.
 3. swsharpp - Module is used for aligning protein sequnces.
 4. swsharpnc - Module is used for aligning which searches the best scores on both strands of a nucleotide sequnces.
+
+## EXAMPLES
+
+All examples persume the make command from the project root folder was executed.
+
+### Executables
+
+Simple align of pair of nucleotides in fasta format can be executed on linux platforms from the project root folder with the command:
+
+    ./bin/swsharpn -i input1.fasta -j input2.fasta
+
+### Library
+
+simple.c:
+
+    #include "swsharp/swsharp.h"
+
+    int main(int argc, char* argv[]) {
+    
+        Chain* query = NULL;
+        Chain* target = NULL; 
+        
+        readFastaChain(&query, argv[1]);
+        readFastaChain(&target, argv[2]);
+        
+        int cards[] = { 0 };
+        int cardsLen = 1;
+        
+        Scorer* scorer;
+        scorerCreateConst(&scorer, 1, -3, 5, 2);
+    
+        Alignment* alignment;
+        alignPair(&alignment, query, target, scorer, SW_ALIGN, cards, cardsLen, NULL);
+         
+        outputAlignment(alignment, NULL, SW_OUT_STAT_PAIR);
+        
+        alignmentDelete(alignment);
+    
+        chainDelete(query);
+        chainDelete(target);
+        
+        scorerDelete(scorer);
+        
+        return 0;
+    }
+    
+On linux systems this code can be compiled with:
+
+    nvcc simple.c -I include/ -L lib/ -l swsharp -l pthread
 
 ## NOTES
 
