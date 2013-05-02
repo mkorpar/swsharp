@@ -49,8 +49,9 @@ Simple align of pair of nucleotides in fasta format can be executed on linux pla
 
 ### Library
 
-simple.c:
+Simple library usage can be seen in the following simple.c file. This short program aligns two pair of nucleotides in fasta format. The nucleotides paths are read from the command line as the first two arguments. This examples is for the linux platform.
 
+simple.c:
     #include "swsharp/swsharp.h"
 
     int main(int argc, char* argv[]) {
@@ -82,9 +83,13 @@ simple.c:
         return 0;
     }
     
-On linux systems this code can be compiled with:
+This code can be compiled with:
 
-    nvcc simple.c -I include/ -L lib/ -l swsharp -l pthread
+    nvcc simple.c -I include/ -L lib/ -l swsharp -l pthread -o simple
+
+And the executable can be run with:
+    
+    ./simple input1.fasta input2.fasta
 
 ## NOTES
 
