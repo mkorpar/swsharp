@@ -32,8 +32,31 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
+/*!
+@brief Chain object used for storing named sequnces.
+
+Chain object is created from a named sequences and is used for alignment. 
+Chain characters are coded acording to the ::Scorer object. Chain object
+provides view method for creating subchains and reverse subchains in constant 
+time. On that behalf every chain object uses approximately 2 times more memory 
+than the input sequence. 
+*/
 typedef struct Chain Chain;
 
+/*!
+@brief Chain object constructor.
+
+Method constructs the chain object with a given name and character sequence. 
+All given data is copied. Any non-alphabetical characters in the sequence are 
+ignored. All characters in the sequence are changed to uppercase.
+
+@param name chain name
+@param nameLen chain name length
+@param string chain characters
+@param stringLen chain characters length
+
+@return chain object 
+*/
 extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen);
 
 /*!
@@ -43,7 +66,30 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen);
 */
 extern void chainDelete(Chain* chain);
 
+/*!
+@brief Chain char getter.
+
+Method retrives the char from the index position. Index must be greater or equal 
+to zero and less than chain length.
+
+@param chain chain object 
+@param index chain char index
+
+@return chain char
+*/
 extern char chainGetChar(Chain* chain, int index);
+
+/*!
+@brief Chain code getter.
+
+Method retrives the code from the index position. Index must be greater or equal 
+to zero and less than chain length.
+
+@param chain chain object 
+@param index chain code index
+
+@return chain code
+*/
 extern char chainGetCode(Chain* chain, int index);
 
 /*!

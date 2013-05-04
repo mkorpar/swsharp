@@ -66,18 +66,18 @@ typedef struct TableEntry {
 
 // lambda, k, H, a, C, Alpha, Sigma
 static TableEntry table[] = {
-    { BLOSUM_62, -1, -1, { 0.3176, 0.134, 0.4012, 0.7916, 0.623757, 4.964660, 4.964660 } },
-    { BLOSUM_62, 11, 2, { 0.297, 0.082, 0.27, 1.1, 0.641766, 12.673800, 12.757600 } },
-    { BLOSUM_62, 10, 2, { 0.291, 0.075, 0.23, 1.3, 0.649362, 16.474000, 16.602600 } },
-    { BLOSUM_62, 9, 2, { 0.279, 0.058, 0.19, 1.5, 0.659245, 22.751900, 22.950000 } },
-    { BLOSUM_62, 8, 2, { 0.264, 0.045, 0.15, 1.8, 0.672692, 35.483800, 35.821300 } },
-    { BLOSUM_62, 7, 2, { 0.239, 0.027, 0.10, 2.5, 0.702056, 61.238300, 61.886000 } },
-    { BLOSUM_62, 6, 2, { 0.201, 0.012, 0.061, 3.3, 0.740802, 140.417000, 141.882000 } },
-    { BLOSUM_62, 13, 1, { 0.292, 0.071, 0.23, 1.2, 0.647715, 19.506300, 19.893100 } },
-    { BLOSUM_62, 12, 1, { 0.283, 0.059, 0.19, 1.5, 0.656391, 27.856200, 28.469900 } },
-    { BLOSUM_62, 11, 1, { 0.267, 0.041, 0.14, 1.9, 0.669720, 42.602800, 43.636200 } },
-    { BLOSUM_62, 10, 1, { 0.243, 0.024, 0.10, 2.5, 0.693267, 83.178700, 85.065600 } },
-    { BLOSUM_62, 9, 1, { 0.206, 0.010, 0.052, 4.0, 0.731887, 210.333000, 214.842000 } },
+    { "BLOSUM_62", -1, -1, { 0.3176, 0.134, 0.4012, 0.7916, 0.623757, 4.964660, 4.964660 } },
+    { "BLOSUM_62", 11, 2, { 0.297, 0.082, 0.27, 1.1, 0.641766, 12.673800, 12.757600 } },
+    { "BLOSUM_62", 10, 2, { 0.291, 0.075, 0.23, 1.3, 0.649362, 16.474000, 16.602600 } },
+    { "BLOSUM_62", 9, 2, { 0.279, 0.058, 0.19, 1.5, 0.659245, 22.751900, 22.950000 } },
+    { "BLOSUM_62", 8, 2, { 0.264, 0.045, 0.15, 1.8, 0.672692, 35.483800, 35.821300 } },
+    { "BLOSUM_62", 7, 2, { 0.239, 0.027, 0.10, 2.5, 0.702056, 61.238300, 61.886000 } },
+    { "BLOSUM_62", 6, 2, { 0.201, 0.012, 0.061, 3.3, 0.740802, 140.417000, 141.882000 } },
+    { "BLOSUM_62", 13, 1, { 0.292, 0.071, 0.23, 1.2, 0.647715, 19.506300, 19.893100 } },
+    { "BLOSUM_62", 12, 1, { 0.283, 0.059, 0.19, 1.5, 0.656391, 27.856200, 28.469900 } },
+    { "BLOSUM_62", 11, 1, { 0.267, 0.041, 0.14, 1.9, 0.669720, 42.602800, 43.636200 } },
+    { "BLOSUM_62", 10, 1, { 0.243, 0.024, 0.10, 2.5, 0.693267, 83.178700, 85.065600 } },
+    { "BLOSUM_62", 9, 1, { 0.206, 0.010, 0.052, 4.0, 0.731887, 210.333000, 214.842000 } },
 };
 
 //******************************************************************************
@@ -91,8 +91,8 @@ static TableEntry table[] = {
 static double calculateEValue(StatParams* statParams, int score, int queryLen, 
     int targetLen, int databaseChars);
     
-static void initStatParams(StatParams* statParams, char* matrix, int gapOpen, 
-    int gapExtend);
+static void initStatParams(StatParams* statParams, const char* matrix, 
+    int gapOpen, int gapExtend);
     
 #ifdef _WIN32
 double erf(double x);
@@ -114,7 +114,7 @@ extern void eValues(float* values, int* scores, Chain* query,
         databaseChars += chainGetLength(database[i]);
     }
     
-    char* matrix = scorerGetName(scorer);
+    const char* matrix = scorerGetName(scorer);
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
     
@@ -193,8 +193,8 @@ static double calculateEValue(StatParams* statParams, int score, int queryLen,
     return area * k_ * exp(-lambda_ * y_) * db_scale_factor;
 }
 
-static void initStatParams(StatParams* statParams, char* matrix, int gapOpen, 
-    int gapExtend) {
+static void initStatParams(StatParams* statParams, const char* matrix, 
+    int gapOpen, int gapExtend) {
     
     double alphaUn = table[0].params.alpha;
     double aUn = table[0].params.a;

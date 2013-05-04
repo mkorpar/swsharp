@@ -27,6 +27,7 @@ Contact the author by mkorpar@gmail.com.
 
 #include "chain.h"
 #include "cpu_module.h"
+#include "constants.h"
 #include "error.h"
 #include "gpu_module.h"
 #include "scorer.h"

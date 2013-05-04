@@ -58,32 +58,17 @@ extern "C" {
 
 //!@{
 /*!
-@brief Similarity matrix table names.
-*/
-#define BLOSUM_45   "BLOSUM_45"
-#define BLOSUM_50   "BLOSUM_50"
-#define BLOSUM_62   "BLOSUM_62"
-#define BLOSUM_80   "BLOSUM_80"
-#define BLOSUM_90   "BLOSUM_90"
-
-#define PAM_30      "PAM_30"
-#define PAM_70      "PAM_70"
-#define PAM_250     "PAM_250"
-//!@}
-
-//!@{
-/*!
 @brief Similarity matrix table scores.
 */
-extern int BLOSUM_45_TABLE[26][26];
-extern int BLOSUM_50_TABLE[26][26];
-extern int BLOSUM_62_TABLE[26][26];
-extern int BLOSUM_80_TABLE[26][26];
-extern int BLOSUM_90_TABLE[26][26];
+extern int BLOSUM_45_TABLE[26 * 26];
+extern int BLOSUM_50_TABLE[26 * 26];
+extern int BLOSUM_62_TABLE[26 * 26];
+extern int BLOSUM_80_TABLE[26 * 26];
+extern int BLOSUM_90_TABLE[26 * 26];
 
-extern int PAM_30_TABLE[26][26];
-extern int PAM_70_TABLE[26][26];
-extern int PAM_250_TABLE[26][26];
+extern int PAM_30_TABLE[26 * 26];
+extern int PAM_70_TABLE[26 * 26];
+extern int PAM_250_TABLE[26 * 26];
 //!@}
 
 #ifdef __cplusplus 

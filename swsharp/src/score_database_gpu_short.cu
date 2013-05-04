@@ -222,7 +222,7 @@ extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen) {
         lengths[j * sequencesCols + cx] = n;
         
         chainCopyCodes(chain, sequence);
-        memset(sequence + n, SCORER_MAX_CODE, 4 * sizeof(char));
+        memset(sequence + n, 255, 4 * sizeof(char));
 
         n = n + (4 - n % 4) % 4;
         int n4 = n / 4;
@@ -519,12 +519,12 @@ static void kernelSingle(int* scores, int type, Chain* query,
     char* row = (char*) malloc(rowSize);
     chainCopyCodes(query, row);
 
-    int subLen = SCORER_MAX_CODE + 1;
+    int subLen = scorerGetMaxCode(scorer) + 1;
     size_t subSize = rowsGpu * subLen * sizeof(char);
     char4* subCpu = (char4*) malloc(subSize);
     memset(subCpu, 0, subSize);
     for (int i = 0; i < rowsGpu / 4; ++i) {
-        for (int j = 0; j < SCORER_MAX_CODE; ++j) {
+        for (int j = 0; j < subLen - 1; ++j) {
             char4 scr;
             scr.x = i * 4 + 0 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 0], j);
             scr.y = i * 4 + 1 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 1], j);

@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
     char* queryPath = NULL;
     char* targetPath = NULL;
 
-    char* matrix = BLOSUM_62;
+    char* matrix = "BLOSUM_62";
     
     int gapOpen = 10;
     int gapExtend = 2;

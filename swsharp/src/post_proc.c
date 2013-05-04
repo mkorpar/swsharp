@@ -119,8 +119,6 @@ extern int checkAlignment(Alignment* alignment) {
     for (i = alignmentGetPathLen(alignment) - 1; i >= 0; --i) {
          
         switch (alignmentGetMove(alignment, i)) {
-        case MOVE_STOP:
-            return 0;    
         case MOVE_LEFT:
             
             score -= isTargetGap ? gapExtend : gapOpen;

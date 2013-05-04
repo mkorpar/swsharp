@@ -28,7 +28,6 @@ Contact the author by mkorpar@gmail.com.
 #define __SW_SHARP_DATABASEH__
 
 #include "chain.h"
-#include "constants.h"
 #include "dbAlignment.h"
 #include "scorer.h"
 #include "thread.h"

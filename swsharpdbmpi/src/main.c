@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
     int gapOpen = 10;
     int gapExtend = 2;
     
-    char* matrix = BLOSUM_62;
+    char* matrix = "BLOSUM_62";
         
     int maxAlignments = 10;
     float maxEValue = 10;

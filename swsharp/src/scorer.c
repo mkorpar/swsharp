@@ -33,10 +33,70 @@ struct Scorer {
     
     int gapOpen;
     int gapExtend;
-    int table[SCORER_MAX_CODE][SCORER_MAX_CODE];
     
+    int* table;
+
+    int maxCode;
     int maxScore;
     int scalar;
+};
+
+static const char CODER[] = {
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,   0,   1,   2,   3,   4, 
+      5,   6,   7,   8,   9,  10,  11,  12,  13,  14, 
+     15,  16,  17,  18,  19,  20,  21,  22,  23,  24, 
+     25,  -1,  -1,  -1,  -1,  -1,  -1,   0,   1,   2, 
+      3,   4,   5,   6,   7,   8,   9,  10,  11,  12, 
+     13,  14,  15,  16,  17,  18,  19,  20,  21,  22, 
+     23,  24,  25,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1
+};
+
+static const char DECODER[] = {
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 
+    'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 
+    'U', 'V', 'W', 'X', 'Y', 'Z',  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1,  -1, 
+     -1,  -1,  -1,  -1,  -1
 };
 
 //******************************************************************************
@@ -59,23 +119,24 @@ static int maxScore(Scorer* scorer);
 //------------------------------------------------------------------------------
 // CONSTRUCTOR, DESTRUCTOR
 
-extern Scorer* scorerCreate(const char* name, 
-    int scores[SCORER_MAX_CODE][SCORER_MAX_CODE], int gapOpen, int gapExtend) {
+extern Scorer* scorerCreate(const char* name, int* scores, char maxCode, 
+    int gapOpen, int gapExtend) {
 
     Scorer* scorer = (Scorer*) malloc(sizeof(struct Scorer));
 
-    int nameLen = strlen(name) + 1;
-    scorer->name = (char*) malloc(nameLen * sizeof(char));
-    memcpy(scorer->name, name, (nameLen - 1) * sizeof(char));
-    scorer->name[nameLen - 1] = '\0';
-    
-    scorer->nameLen = nameLen;
-    
-    memcpy(scorer->table, scores, SCORER_MAX_CODE * SCORER_MAX_CODE * sizeof(int));
+    scorer->nameLen = strlen(name) + 1;
+    scorer->name = (char*) malloc(scorer->nameLen * sizeof(char));
+    scorer->name[scorer->nameLen - 1] = '\0';
+    memcpy(scorer->name, name, (scorer->nameLen - 1) * sizeof(char));
 
     scorer->gapOpen = gapOpen;
     scorer->gapExtend = gapExtend;
+    
+    size_t tableSize = maxCode * maxCode * sizeof(int);    
+    scorer->table = (int*) malloc(tableSize);
+    memcpy(scorer->table, scores, tableSize);
 
+    scorer->maxCode = maxCode;
     scorer->maxScore = maxScore(scorer);
     scorer->scalar = isScalar(scorer);
     
@@ -84,6 +145,7 @@ extern Scorer* scorerCreate(const char* name,
 
 extern void scorerDelete(Scorer* scorer) {
     free(scorer->name);
+    free(scorer->table);
     free(scorer);
 }
 
@@ -98,6 +160,10 @@ extern int scorerGetGapExtend(Scorer* scorer) {
 
 extern int scorerGetGapOpen(Scorer* scorer) {
     return scorer->gapOpen;
+}
+
+extern char scorerGetMaxCode(Scorer* scorer) {
+    return scorer->maxCode;
 }
 
 extern int scorerGetMaxScore(Scorer* scorer) {
@@ -118,7 +184,7 @@ extern int scorerIsScalar(Scorer* scorer) {
 // FUNCTIONS
 
 extern int scorerScore(Scorer* scorer, char a, char b) {
-    return scorer->table[(int) a][(int) b];
+    return scorer->table[(unsigned char) a * scorer->maxCode + (unsigned char) b];
 }
 
 extern Scorer* scorerDeserialize(char* bytes) {
@@ -141,9 +207,14 @@ extern Scorer* scorerDeserialize(char* bytes) {
     memcpy(&gapExtend, bytes + ptr, sizeof(int));
     ptr += sizeof(int);
     
-    int table[SCORER_MAX_CODE][SCORER_MAX_CODE];
-    memcpy(table, bytes + ptr, sizeof(table));
-    ptr += sizeof(table);
+    char maxCode;
+    memcpy(&maxCode, bytes + ptr, sizeof(char));
+    ptr += sizeof(char);
+    
+    size_t tableSize = maxCode * maxCode * sizeof(int);
+    int* table = (int*) malloc(tableSize);
+    memcpy(table, bytes + ptr, tableSize);
+    ptr += tableSize;
     
     int maxScore;
     memcpy(&maxScore, bytes + ptr, sizeof(int));
@@ -159,22 +230,25 @@ extern Scorer* scorerDeserialize(char* bytes) {
     scorer->name = name;
     scorer->gapOpen = gapOpen;
     scorer->gapExtend = gapExtend;
+    scorer->maxCode = maxCode;
     scorer->maxScore = maxScore;
     scorer->scalar = scalar;
-    
-    memcpy(scorer->table, table, sizeof(table));
+    scorer->table = table;
     
     return scorer;
 }
 
 extern void scorerSerialize(char** bytes, int* bytesLen, Scorer* scorer) {
 
+    size_t tableSize = scorer->maxCode * scorer->maxCode * sizeof(int);
+    
     *bytesLen = 0;
     *bytesLen += sizeof(int); // nameLen
     *bytesLen += scorer->nameLen; // name
     *bytesLen += sizeof(int); // gapOpen
     *bytesLen += sizeof(int); // gapExtend
-    *bytesLen += sizeof(scorer->table); // table
+    *bytesLen += sizeof(char); // maxCode
+    *bytesLen += tableSize; // table
     *bytesLen += sizeof(int); // maxScore
     *bytesLen += sizeof(int); // scalar
 
@@ -194,14 +268,30 @@ extern void scorerSerialize(char** bytes, int* bytesLen, Scorer* scorer) {
     memcpy(*bytes + ptr, &scorer->gapExtend, sizeof(int));
     ptr += sizeof(int);
     
-    memcpy(*bytes + ptr, scorer->table, sizeof(scorer->table));
-    ptr += sizeof(scorer->table);
+    memcpy(*bytes + ptr, &scorer->maxCode, sizeof(char));
+    ptr += sizeof(char);
+    
+    memcpy(*bytes + ptr, scorer->table, tableSize);
+    ptr += tableSize;
     
     memcpy(*bytes + ptr, &scorer->maxScore, sizeof(int));
     ptr += sizeof(int);
     
     memcpy(*bytes + ptr, &scorer->scalar, sizeof(int));
     ptr += sizeof(int);
+}
+
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// STATIC
+
+extern char scorerDecode(char c) {
+    return DECODER[(unsigned char) c];
+}
+
+extern char scorerEncode(char c) {
+    return CODER[(unsigned char) c];
 }
 
 //------------------------------------------------------------------------------
@@ -213,18 +303,20 @@ extern void scorerSerialize(char** bytes, int* bytesLen, Scorer* scorer) {
 static int isScalar(Scorer* scorer) {
     
     int x, i, j;
-    
-    x = scorer->table[0][0];
-    for (i = 1; i < SCORER_MAX_CODE; ++i) {
-        if (scorer->table[i][i] != x) {
+
+    int scorerLen = scorer->maxCode;
+
+    x = scorer->table[0];
+    for (i = 1; i < scorerLen; ++i) {
+        if (scorer->table[i * scorerLen + i] != x) {
             return 0;
         }
     }
     
-    x = scorer->table[0][1];
-    for (i = 0; i < SCORER_MAX_CODE; ++i) {
-        for (j = 0; j < SCORER_MAX_CODE; ++j) {
-            if (i != j && scorer->table[i][j] != x) {
+    x = scorer->table[1];
+    for (i = 0; i < scorerLen; ++i) {
+        for (j = 0; j < scorerLen; ++j) {
+            if (i != j && scorer->table[i * scorerLen + j] != x) {
                 return 0;
             }
         }
@@ -237,10 +329,12 @@ static int maxScore(Scorer* scorer) {
     
     int i, j;
     
-    int max = scorer->table[0][0];
-    for (i = 0; i < SCORER_MAX_CODE; ++i) {
-        for (j = 0; j < SCORER_MAX_CODE; ++j) {
-            max = MAX(max, scorer->table[i][j]);
+    int scorerLen = scorer->maxCode;
+    
+    int max = scorer->table[0];
+    for (i = 0; i < scorerLen; ++i) {
+        for (j = 0; j < scorerLen; ++j) {
+            max = MAX(max, scorer->table[i * scorerLen + j]);
         }
     }
     

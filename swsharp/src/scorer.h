@@ -32,14 +32,6 @@ extern "C" {
 #endif
 
 /*!
-@brief Upper code limit.
-
-Max code that scorer can score. This value should always be set to less than 
-255 since the codes are coded as chars.
-*/
-#define SCORER_MAX_CODE 26
-
-/*!
 @brief Scorer object used for alignment scoring.
 
 Scorer is organized as a similarity table with additional gap penalties. Affine 
@@ -63,8 +55,8 @@ gap model penalties.
 
 @return scorer object
 */
-extern Scorer* scorerCreate(const char* name, 
-    int scores[SCORER_MAX_CODE][SCORER_MAX_CODE], int gapOpen, int gapExtend);
+extern Scorer* scorerCreate(const char* name, int* scores, char maxCode, 
+    int gapOpen, int gapExtend);
     
 /*!
 @brief Scorer destructor.
@@ -94,6 +86,9 @@ Gap open penalty is defined as a positive integer.
 @return gap open penalty
 */
 extern int scorerGetGapOpen(Scorer* scorer);
+
+
+extern char scorerGetMaxCode(Scorer* scorer);
 
 /*!
 @brief Max score getter.
@@ -165,6 +160,10 @@ Method serializes scorer object to a byte buffer.
 @param scorer scorer object
 */
 extern void scorerSerialize(char** bytes, int* bytesLen, Scorer* scorer);
+
+extern char scorerDecode(char c);
+
+extern char scorerEncode(char c);
 
 #ifdef __cplusplus 
 }

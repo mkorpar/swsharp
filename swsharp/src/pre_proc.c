@@ -36,19 +36,19 @@ Contact the author by mkorpar@gmail.com.
 
 typedef struct ScorerEntry {
     const char* name;
-    int (*table)[26][26];
+    int (*table)[];
 } ScorerEntry;
 
 // to register a scorer just add his name and corresponding table to this array
 static ScorerEntry scorers[] = {
-    { BLOSUM_62, &BLOSUM_62_TABLE }, // default one
-    { BLOSUM_45, &BLOSUM_45_TABLE },
-    { BLOSUM_50, &BLOSUM_50_TABLE },
-    { BLOSUM_80, &BLOSUM_80_TABLE },
-    { BLOSUM_90, &BLOSUM_90_TABLE },
-    { PAM_30, &PAM_30_TABLE },
-    { PAM_70, &PAM_70_TABLE },
-    { PAM_250, &PAM_250_TABLE }
+    { "BLOSUM_62", &BLOSUM_62_TABLE }, // default one
+    { "BLOSUM_45", &BLOSUM_45_TABLE },
+    { "BLOSUM_50", &BLOSUM_50_TABLE },
+    { "BLOSUM_80", &BLOSUM_80_TABLE },
+    { "BLOSUM_90", &BLOSUM_90_TABLE },
+    { "PAM_30", &PAM_30_TABLE },
+    { "PAM_70", &PAM_70_TABLE },
+    { "PAM_250", &PAM_250_TABLE }
 };
 
 //******************************************************************************
@@ -136,7 +136,7 @@ extern void readFastaChain(Chain** chain, const char* path) {
                 } else if (!(nameLen == 0 && c == '>')) {
                     name[nameLen++] = c;                
                 }
-            } else if (isalpha(c)) {
+            } else {
                 str[strLen++] = c;
             }
         }
@@ -202,7 +202,7 @@ extern void readFastaChains(Chain*** chains_, int* chainsLen_, const char* path)
                 } else if (!(nameLen == 0 && c == '>')) {
                     name[nameLen++] = c;                
                 }
-            } else if (isalpha(c)) {
+            } else {
                 if (strLen == strSize) {
                     strSize *= 2;
                     str = (char*) realloc(str, strSize * sizeof(char));
@@ -245,16 +245,16 @@ extern void deleteFastaChains(Chain** chains, int chainsLen) {
 extern void scorerCreateConst(Scorer** scorer, int match, int mismatch, 
     int gapOpen, int gapExtend) {
     
-    int scores[SCORER_MAX_CODE][SCORER_MAX_CODE];
+    int scores[26 * 26];
     
     int i, j;
-    for (i = 0; i < SCORER_MAX_CODE; ++i) {
-        for (j = 0; j < SCORER_MAX_CODE; ++j) {
-            scores[i][j] = i == j ? match : mismatch;
+    for (i = 0; i < 26; ++i) {
+        for (j = 0; j < 26; ++j) {
+            scores[i * 26 + j] = i == j ? match : mismatch;
         }
     }
     
-    *scorer = scorerCreate("CONST", scores, gapOpen, gapExtend);
+    *scorer = scorerCreate("CONST", scores, 26, gapOpen, gapExtend);
 }
 
 extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen, 
@@ -270,13 +270,10 @@ extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen,
         }
     }
     
-    if (index == -1) {
-        index = 0;
-        WARNING(1, "unknown table %s, using %s", name, scorers[index].name);
-    }
+    ASSERT(index == -1, "unknown table %s", name);
     
     ScorerEntry* entry = &(scorers[index]);
-    *scorer = scorerCreate(entry->name, *(entry->table), gapOpen, gapExtend);
+    *scorer = scorerCreate(entry->name, *(entry->table), 26, gapOpen, gapExtend);
 }
 
 //------------------------------------------------------------------------------

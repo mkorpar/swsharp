@@ -57,6 +57,15 @@ extern int dbAlignmentGetTargetIdx(DbAlignment* dbAlignment);
 extern int dbAlignmentGetTargetStart(DbAlignment* dbAlignment);
 extern float dbAlignmentGetValue(DbAlignment* dbAlignment);
 
+/*!
+@brief Copies path to the destination buffer.
+
+Method copies path to the destination buffer which should be at least long as 
+the database alignment path length.
+
+@param dbAlignment dbAlignment object 
+@param dest destination buffer
+*/
 extern void dbAlignmentCopyPath(DbAlignment* dbAlignment, char* dest);
 extern Alignment* dbAlignmentToAlignment(DbAlignment* dbAlignment);
 

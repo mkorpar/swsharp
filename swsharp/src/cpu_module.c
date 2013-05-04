@@ -26,6 +26,7 @@ Contact the author by mkorpar@gmail.com.
 
 #include "alignment.h"
 #include "chain.h"
+#include "constants.h"
 #include "error.h"
 #include "scorer.h"
 #include "utils.h"

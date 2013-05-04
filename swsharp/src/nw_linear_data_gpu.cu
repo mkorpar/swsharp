@@ -597,7 +597,7 @@ static void* kernel(void* params) {
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
     int gapDiff = gapOpen - gapExtend;
-    int scorerLen = SCORER_MAX_CODE;
+    int scorerLen = scorerGetMaxCode(scorer);
     int subLen = scorerLen + 1;
     int scalar = scorerIsScalar(scorer);
     

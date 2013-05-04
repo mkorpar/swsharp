@@ -19,11 +19,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Contact the author by mkorpar@gmail.com.
 */
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "error.h"
+#include "scorer.h"
 
 #include "chain.h"
 
@@ -64,27 +66,33 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
     Chain* chain = (Chain*) malloc(sizeof(struct Chain));
 
     chain->isView = 0;
-    chain->length = stringLen;
     
+    chain->nameLen = nameLen + 1;
     chain->name = (char*) malloc((nameLen + 1) * sizeof(char));
     chain->name[nameLen] = 0;
     memcpy(chain->name, name, nameLen * sizeof(char));
     
-    chain->nameLen = nameLen + 1;
-    
     chain->codes = (char*) malloc(stringLen * sizeof(char));
-    chain->reverseCodes = (char*) malloc(chain->length * sizeof(char));
+    chain->reverseCodes = (char*) malloc(stringLen * sizeof(char));
     
-    int charIdx;
-    for (charIdx = 0; charIdx < stringLen; ++charIdx) {
+    chain->length = 0;
     
-        char code = string[charIdx];
-        code = (code < 91) ? code - 'A' : code - 'a';
+    int i;
+    for (i = 0; i < stringLen; ++i) {
+    
+        char code = scorerEncode(string[i]);
         
-        chain->codes[charIdx] = code;
-        chain->reverseCodes[chain->length - charIdx - 1] = code;
+        if (code != -1) {      
+            chain->codes[chain->length] = code;
+            chain->length++;
+        }
     }
     
+    for (i = 0; i < chain->length; ++i) {
+        chain->reverseCodes[chain->length - i - 1] = chain->codes[i];
+    }
+    
+
     return chain;
 }
 
@@ -106,7 +114,7 @@ extern void chainDelete(Chain* chain) {
 // GETTERS
 
 extern char chainGetChar(Chain* chain, int index) {
-    return chain->codes[index] + 'A';
+    return scorerDecode(chain->codes[index]);
 }
 
 extern char chainGetCode(Chain* chain, int index) {
