@@ -36,7 +36,7 @@ Contact the author by mkorpar@gmail.com.
 
 typedef struct ScorerEntry {
     const char* name;
-    int (*table)[];
+    int (*table)[26 * 26];
 } ScorerEntry;
 
 // to register a scorer just add his name and corresponding table to this array
