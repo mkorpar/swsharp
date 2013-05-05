@@ -11,63 +11,29 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="align.c" />
-    <ClCompile Include="alignment.c" />
-    <ClCompile Include="chain.c" />
-    <ClCompile Include="constants.c" />
-    <ClCompile Include="cpu_module.c" />
-    <ClCompile Include="database.c" />
-    <ClCompile Include="db_alignment.c" />
-    <ClCompile Include="post_proc.c" />
-    <ClCompile Include="pre_proc.c" />
-    <ClCompile Include="reconstruct.c" />
-    <ClCompile Include="scorer.c" />
-    <ClCompile Include="thread.c" />
-    <ClCompile Include="utils.c" />
+    <ClCompile Include="getopt.c" />
+    <ClCompile Include="main.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="align.h" />
-    <ClInclude Include="alignment.h" />
-    <ClInclude Include="chain.h" />
-    <ClInclude Include="constants.h" />
-    <ClInclude Include="cpu_module.h" />
-    <ClInclude Include="cuda_utils.h" />
-    <ClInclude Include="database.h" />
-    <ClInclude Include="db_alignment.h" />
-    <ClInclude Include="error.h" />
-    <ClInclude Include="gpu_module.h" />
-    <ClInclude Include="post_proc.h" />
-    <ClInclude Include="pre_proc.h" />
-    <ClInclude Include="reconstruct.h" />
-    <ClInclude Include="scorer.h" />
-    <ClInclude Include="score_database_gpu_long.h" />
-    <ClInclude Include="score_database_gpu_short.h" />
-    <ClInclude Include="swsharp.h" />
-    <ClInclude Include="thread.h" />
-    <ClInclude Include="utils.h" />
+    <ClInclude Include="getopt.h" />
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="cuda_utils.cu" />
-    <CudaCompile Include="hw_end_data_gpu.cu" />
-    <CudaCompile Include="nw_linear_data_gpu.cu" />
-    <CudaCompile Include="score_database_gpu.cu" />
-    <CudaCompile Include="score_database_gpu_long.cu" />
-    <CudaCompile Include="score_database_gpu_short.cu" />
-    <CudaCompile Include="sw_end_data_gpu.cu" />
-    <CudaCompile Include="sw_find_start_gpu.cu" />
+    <ProjectReference Include="..\swsharp\swsharp.vcxproj">
+      <Project>{18488b71-60d6-4f21-af07-a33640913bad}</Project>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{18488B71-60D6-4F21-AF07-A33640913BAD}</ProjectGuid>
-    <RootNamespace>swsharp</RootNamespace>
+    <ProjectGuid>{2F532BBD-C2AA-4D12-BA32-FF6527D95947}</ProjectGuid>
+    <RootNamespace>swsharpnc</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
@@ -85,6 +51,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
+    <IncludePath>$(VCInstallDir)include;$(VCInstallDir)atlmfc\include;$(WindowsSdkDir)include;$(FrameworkSDKDir)\include;..\;.\</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>true</LinkIncremental>
@@ -111,7 +78,6 @@ copy "$(CudaToolkitBinDir)\cudart*.dll" "$(OutDir)"</Command>
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <CompileAs>CompileAsCpp</CompileAs>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>

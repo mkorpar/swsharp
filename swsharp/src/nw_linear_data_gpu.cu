@@ -107,6 +107,10 @@ extern void nwLinearDataGpu(int** scores, int** affines, Chain* query,
 //******************************************************************************
 // PRIVATE
 
+// With visual c++ compiler and prototypes declared cuda global memory variables
+// do not work. No questions asked.
+#ifndef _WIN32
+
 __device__ static int gap(int idx);
 __device__ static int aff(int idx);
 
@@ -121,6 +125,8 @@ __global__ static void solveShort(int d, VBus vBus, int2* hBus, Sub sub);
 
 template<class Sub>
 __global__ static void solveLong(int d, VBus vBus, int2* hBus, Sub sub);
+
+#endif
 
 static void* kernel(void* params);
     

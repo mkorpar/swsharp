@@ -101,6 +101,11 @@ extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* score,
 //******************************************************************************
 // PRIVATE
 
+
+// With visual c++ compiler and prototypes declared cuda global memory variables
+// do not work. No questions asked.
+#ifndef _WIN32
+
 template<class Sub>
 __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, 
     int3* results, Sub sub);
@@ -116,6 +121,8 @@ __global__ static void solveShort(int d, VBus vBus, int2* hBus, int3* results,
 template<class Sub>
 __global__ static void solveLong(int d, VBus vBus, int2* hBus, int* bBus, 
     int3* results, Sub sub);
+
+#endif
 
 static void* kernel(void* params);
     
