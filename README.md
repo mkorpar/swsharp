@@ -18,7 +18,8 @@ Application uses following software:
 1. gcc 4.*+
 2. nvcc 2.*+
 3. doxygen - for documentation generation (optional)
-4. mpi - for swsharpdbmpi (optional)
+4. graphviz - for documentation generation (optional)
+5. mpi - for swsharpdbmpi (optional)
 
 ## INSTALLATION
 
@@ -60,20 +61,32 @@ simple.c:
         Chain* query = NULL;
         Chain* target = NULL; 
         
+        // read the query as the first command line argument
         readFastaChain(&query, argv[1]);
+        
+        // read the target as the first command line argument
         readFastaChain(&target, argv[2]);
         
+        // use one CUDA card with index 0
         int cards[] = { 0 };
         int cardsLen = 1;
         
+        // create a scorer object
+        // match = 1
+        // mismatch = -3
+        // gap open = 5
+        // gap extend = 2
         Scorer* scorer;
         scorerCreateConst(&scorer, 1, -3, 5, 2);
     
+        // do the pairwise alignment, use Smith-Waterman algorithm
         Alignment* alignment;
         alignPair(&alignment, query, target, scorer, SW_ALIGN, cards, cardsLen, NULL);
          
+        // output the results in emboss stat-pair format
         outputAlignment(alignment, NULL, SW_OUT_STAT_PAIR);
         
+        // clean the memory
         alignmentDelete(alignment);
     
         chainDelete(query);
@@ -83,7 +96,7 @@ simple.c:
         
         return 0;
     }
-    
+
 This code can be compiled with:
 
     nvcc simple.c -I include/ -L lib/ -l swsharp -l pthread -o simple
@@ -91,6 +104,12 @@ This code can be compiled with:
 And the executable can be run with:
     
     ./simple input1.fasta input2.fasta
+
+To build the API documentation, enter the swsharp folder and run the command:
+
+    make docs
+    
+To view the documentation open the file {project_root}/swsharp/doc/html/index.html in a web browser.
 
 ## NOTES
 

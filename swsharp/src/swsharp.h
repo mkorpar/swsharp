@@ -18,6 +18,75 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 Contact the author by mkorpar@gmail.com.
 */
+
+/*! 
+\mainpage 
+
+Simple library usage can be seen in the following simple.c file. This short 
+program aligns two pair of nucleotides in fasta format. The nucleotides paths 
+are read from the command line as the first two arguments. This examples is for 
+the linux platform.
+
+simple.c:
+
+\code{.c}
+#include "swsharp/swsharp.h"
+
+int main(int argc, char* argv[]) {
+
+    Chain* query = NULL;
+    Chain* target = NULL; 
+    
+    // read the query as the first command line argument
+    readFastaChain(&query, argv[1]);
+    
+    // read the target as the first command line argument
+    readFastaChain(&target, argv[2]);
+    
+    // use one CUDA card with index 0
+    int cards[] = { 0 };
+    int cardsLen = 1;
+    
+    // create a scorer object
+    // match = 1
+    // mismatch = -3
+    // gap open = 5
+    // gap extend = 2
+    Scorer* scorer;
+    scorerCreateConst(&scorer, 1, -3, 5, 2);
+
+    // do the pairwise alignment, use Smith-Waterman algorithm
+    Alignment* alignment;
+    alignPair(&alignment, query, target, scorer, SW_ALIGN, cards, cardsLen, NULL);
+     
+    // output the results in emboss stat-pair format
+    outputAlignment(alignment, NULL, SW_OUT_STAT_PAIR);
+    
+    // clean the memory
+    alignmentDelete(alignment);
+
+    chainDelete(query);
+    chainDelete(target);
+    
+    scorerDelete(scorer);
+    
+    return 0;
+}
+\endcode
+
+This code can be compiled with:
+
+\code
+nvcc simple.c -I include/ -L lib/ -l swsharp -l pthread -o simple
+\endcode
+
+And the executable can be run with:
+
+\code
+./simple input1.fasta input2.fasta
+\endcode
+*/
+
 /**
 @file
 
