@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief Project constants definitions header.
 */
 
 #ifndef __SW_SHARP_CONSTANTSH__

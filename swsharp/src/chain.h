@@ -21,8 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief 
-
+@brief Provides object for storing named sequnces.
 */
 
 #ifndef __SW_SHARP_CHAINH__
@@ -36,7 +35,7 @@ extern "C" {
 @brief Chain object used for storing named sequnces.
 
 Chain object is created from a named sequences and is used for alignment. 
-Chain characters are coded acording to the ::Scorer object. Chain object
+Chain characters are coded with scorerEncode(char) function. Chain object
 provides view method for creating subchains and reverse subchains in constant 
 time. On that behalf every chain object uses approximately 2 times more memory 
 than the input sequence. 
@@ -83,7 +82,8 @@ extern char chainGetChar(Chain* chain, int index);
 @brief Chain code getter.
 
 Method retrives the code from the index position. Index must be greater or equal 
-to zero and less than chain length.
+to zero and less than chain length. Chain caracter is coded with the 
+scorerEncode(char) function.
 
 @param chain chain object 
 @param index chain code index

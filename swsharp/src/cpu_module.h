@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief CPU implementation of common functions.
 */
 
 #ifndef __SW_SHARP_CPU_MODULEH__
@@ -35,15 +35,73 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
+/*!
+@brief Pairwise alignment function.
+
+Function aligns query and the target chain with the scorer object.
+
+@param alignment output alignment object
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+*/
 extern void alignPairCpu(Alignment** alignment, int type, Chain* query, 
     Chain* target, Scorer* scorer);
     
+/*!
+@brief Needleman-Wunsch reconstruction implementation.
+
+If the score is provided function uses Ukkonen's banded optimization. 
+QueryFrontGap and targetFrontGap arguments can't both be not equal to 0. 
+QueryBackGap and targetBackGap arguments can't both be not equal to 0. 
+For path format see ::Alignment.
+
+@param path output path
+@param pathLen output path length
+@param outScore output score
+@param query query chain
+@param queryFrontGap if not equal to 0, force that path starts in #MOVE_UP
+@param queryBackGap if not equal to 0, force that path ends in #MOVE_UP
+@param target target chain
+@param targetFrontGap if not equal to 0, force that path starts in #MOVE_LEFT 
+@param targetBackGap if not equal to 0, force that path ends in #MOVE_LEFT 
+@param scorer scorer object used for alignment
+@param score input alignment score if known, otherwise #NO_SCORE 
+*/
 extern void nwReconstructCpu(char** path, int* pathLen, int* outScore, 
     Chain* query, int queryFrontGap, int queryBackGap, Chain* target, 
     int targetFrontGap, int targetBackGap, Scorer* scorer, int score);
     
+/*!
+@brief Pairwise scoring function.
+
+Function provides only the alignment score without any other information.
+Scoring types are equivalent to aligning types.
+
+@param type scoring type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+*/
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
     
+/*!
+@brief Score finding function.
+
+Method uses Needleman-Wunsch algorithm with all of the start conditions set to
+infinity. This assures path contains the first cell and does not start with gaps.
+Function is used for finding the startpoint of the Smith-Waterman provided
+endpoint. If the score is found it return the coordinates of the cell with the 
+provided score, (-1, -1) otherwise.
+
+@param queryStart output, if found query index of found cell, -1 otherwise
+@param targetStart output, if found target index of found cell, -1 otherwise
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param score input alignment score
+*/
 extern void swFindStartCpu(int* queryStart, int* targetStart, Chain* query, 
     Chain* target, Scorer* scorer, int score);
     

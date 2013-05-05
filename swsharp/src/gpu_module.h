@@ -39,17 +39,96 @@ extern "C" {
 //******************************************************************************
 // SINGLE ALIGNMENT
 
+/*!
+@brief GPU implementation of the semiglobal scoring function.
+
+Function provides the semiglobal end data, the position of the maximum score
+on the query and target sequences as well as the maximum score. QueryEnd must
+be equal to the length of the query minus one.
+
+@param queryEnd output, position of the maximum score on the query sequences
+@param targetEnd output, position of the maximum score on the target sequences
+@param score output, maximum score
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param card CUDA card on which the function will be executed
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/
 extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* score, Chain* query, 
     Chain* target, Scorer* scorer, int card, Thread* thread);
     
+/*!
+@brief GPU implementation of Needleman-Wunsch scoring function.
+
+If scores and/or affines pointers are not equal to NULL method provides the last
+row of the scoring matrix and the affine deletion matrix, respectively. Method
+uses Ukkonen's banded optimization with the pLeft and pRight margins. PLeft 
+margin is defined as diagonal left of the diagonal from the (0, 0) cell, and 
+pRight as the right diagonal, respectively. Only the cells lying between those 
+diagonals are calculated.
+
+@param scores output, if not NULL the last row of the scoring matrix
+@param affines output, if not NULL the last row of the affine deletion matrix
+@param query query chain
+@param queryFrontGap if not 0, force that alignments start with a query gap
+@param target target chain
+@param targetFrontGap if not 0, force that alignments start with a target gap
+@param scorer scorer object used for alignment
+@param pLeft left Ukkonen's margin
+@param pRight right Ukkonen's margin
+@param card CUDA card on which the function will be executed
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/
 extern void nwLinearDataGpu(int** scores, int** affines, Chain* query, 
     int queryFrontGap, Chain* target, int targetFrontGap, Scorer* scorer, 
     int pLeft, int pRight, int card, Thread* thread);
     
+/*!
+@brief GPU implementation of Smith-Waterman scoring function.
+
+Function provides the Smith-Waterman end data, the position of the maximum score
+on the query and target sequences as well as the maximum score. Additionally if
+scores and/or affines pointers are not equal to NULL method provides the last
+row of the scoring matrix and the affine deletion matrix, respectively.
+
+@param queryEnd output, position of the maximum score on the query sequences
+@param targetEnd output, position of the maximum score on the target sequences
+@param scores output, if not NULL the last row of the scoring matrix
+@param affines output, if not NULL the last row of the affine deletion matrix
+@param score output, maximum score
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param card CUDA card on which the function will be executed
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/
 extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
     int** scores, int** affines, Chain* query, Chain* target, Scorer* scorer, 
     int card, Thread* thread);
-                         
+
+/*!
+@brief GPU implementation of score finding function.
+
+Method uses Needleman-Wunsch algorithm with all of the start conditions set to
+infinity. This assures path contains the first cell and does not start with gaps.
+Function is used for finding the startpoint of the Smith-Waterman provided
+endpoint. If the score is found it return the coordinates of the cell with the 
+provided score, (-1, -1) otherwise.
+
+@param queryStart output, if found query index of found cell, -1 otherwise
+@param targetStart output, if found target index of found cell, -1 otherwise
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param score input alignment score
+@param card CUDA card on which the function will be executed
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/                 
 extern void swFindStartGpu(int* queryStart, int* targetStart, Chain* query, 
     Chain* target, Scorer* scorer, int score, int card, Thread* thread);
 

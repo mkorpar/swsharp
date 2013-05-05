@@ -28,7 +28,7 @@ Contact the author by mkorpar@gmail.com.
 #include "cpu_module.h"
 #include "chain.h"
 #include "constants.h"
-#include "dbAlignment.h"
+#include "db_alignment.h"
 #include "error.h"
 #include "gpu_module.h"
 #include "post_proc.h"

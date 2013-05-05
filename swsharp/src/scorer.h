@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief Provides object used for alignment scoring.
 */
 
 #ifndef __SWSHARP_SCORERH__
@@ -35,21 +35,22 @@ extern "C" {
 @brief Scorer object used for alignment scoring.
 
 Scorer is organized as a similarity table with additional gap penalties. Affine 
-gap penalty model is used. Scorer codes are defined from 0 to #SCORER_MAX_CODE, 
-which coresponds to the letters of the english alphabet. In other words code 0 
-represents 'A' and 'a' letters, code 2 'B' and 'b' letters and so on. Scorer 
-uses a similarity table where rows and columns correspong to input codes.  
+gap penalty model is used. Scorer codes are defined as characters. Scorer works
+only on input characters coded with the scorerEncode(char) method. 
+
 */
 typedef struct Scorer Scorer;
 
 /*!
 @brief Scorer constructor.
 
-Construct scorer object with a given name, similarity scores table and affine
-gap model penalties.
+Input scores table must be an array which length is equal to maxCode * maxCode.
+Input scores table must be organized so that columns and rows correspond to the
+codes shown in scorerEncode(char).
 
 @param name scorer name, copy is made
-@param scores similarity table
+@param scores similarity table, copy is made
+@param maxCode maximum code that scorer should work with
 @param gapOpen gap open penalty given as a positive integer 
 @param gapExtend gap extend penalty given as a positive integer 
 
@@ -87,7 +88,15 @@ Gap open penalty is defined as a positive integer.
 */
 extern int scorerGetGapOpen(Scorer* scorer);
 
+/*!
+@brief Max code getter.
 
+Max code is defined as the highest code scorer can work with.
+
+@param scorer scorer object
+
+@return max code
+*/
 extern char scorerGetMaxCode(Scorer* scorer);
 
 /*!
@@ -129,7 +138,7 @@ extern int scorerIsScalar(Scorer* scorer);
 @brief Scores two codes.
 
 Given scorer scores two given codes. Both codes should be greater or equal to 0
-and less than #SCORER_MAX_CODE. 
+and less than maxCode. 
 
 @param scorer scorer object
 @param a first code
@@ -161,8 +170,33 @@ Method serializes scorer object to a byte buffer.
 */
 extern void scorerSerialize(char** bytes, int* bytesLen, Scorer* scorer);
 
+/*!
+@brief Scorer static decoding method.
+
+Function is exact inverse of scorerEncode(char). 
+
+@param c input character
+
+@return decoded character
+*/
 extern char scorerDecode(char c);
 
+/*!
+@brief Scorer static encoding method.
+
+Encoding method is case insensitive. Function returns character code which is 
+grater or equal to zero or if the codes are not available -1.
+
+Encoding is done in the following way:
+    - characters 'A'-'Z' are encoded to 0-25
+    - characters 'a'-'z' are encoded to 0-25
+    - characters '0'-'9' are encoded to 26-35
+    - all other input characters cannot be encoded
+    
+@param c input character
+
+@return encoded character or -1 if coding isn't available
+*/
 extern char scorerEncode(char c);
 
 #ifdef __cplusplus 

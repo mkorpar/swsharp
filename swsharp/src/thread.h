@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief Multiplatform threading header.
 */
 
 #ifndef __SW_SHARP_THREADH__
@@ -39,30 +39,139 @@ extern "C" {
 #endif
 
 #ifdef _WIN32
+/*!
+@brief Mutex type.
+*/
 typedef CRITICAL_SECTION Mutex;
+
+/*!
+@brief Semaphore type.
+*/
 typedef HANDLE Semaphore;
+
+/*!
+@brief Thread type.
+*/
 typedef HANDLE Thread;
 #else 
+/*!
+@brief Mutex type.
+*/
 typedef pthread_mutex_t Mutex;
+
+/*!
+@brief Semaphore type.
+*/
 typedef sem_t Semaphore;
+
+/*!
+@brief Thread type.
+*/
 typedef pthread_t Thread;
 #endif
 
+/*!
+@brief Mutex constructor.
+
+@param mutex output mutex object
+*/
 extern void mutexCreate(Mutex* mutex);
+
+/*!
+@brief Mutex destructor.
+
+@param mutex mutex object
+*/
 extern void mutexDelete(Mutex* mutex);
+
+/*!
+@brief Locks the mutex.
+
+@param mutex mutex object
+*/
 extern void mutexLock(Mutex* mutex);
+
+/*!
+@brief Unlocks the mutex.
+
+@param mutex mutex object
+*/
 extern void mutexUnlock(Mutex* mutex);
 
+/*!
+@brief Semaphore constructor.
+
+@param semaphore output semaphore object
+@param value initial semaphore value
+*/
 extern void semaphoreCreate(Semaphore* semaphore, unsigned int value);
+
+/*!
+@brief Semaphore destructor.
+
+@param semaphore semaphore object
+*/
 extern void semaphoreDelete(Semaphore* semaphore);
+
+/*!
+@brief Increases sempahore value.
+
+@param semaphore semaphore object
+*/
 extern void semaphorePost(Semaphore* semaphore);
+
+/*!
+@brief Sempahore value getter.
+
+@param semaphore semaphore object
+
+@return semaphore value
+*/
 extern int semaphoreValue(Semaphore* semaphore);
+
+/*!
+@brief Decreses sempahore value or waits.
+
+Current thread waits until semaphore value isn't greater than zero and then 
+decreases the value and continues the execturion.
+*/
 extern void semaphoreWait(Semaphore* semaphore);
 
+/*!
+@brief Cancels the current thread.
+
+@param thread thread object
+*/
 extern void threadCancel(Thread thread);
+
+/*!
+@brief Thread constructor.
+
+@param thread thread output object
+@param *ruotine routine that the thread executes
+@param args arguments passed to the rutine function
+*/
 extern void threadCreate(Thread* thread, void* (*ruotine)(void*), void* args);
+
+/*!
+@brief Thread getter.
+
+@param thread thread output object
+*/
 extern void threadCurrent(Thread* thread);
+
+/*!
+@brief Waits for thread to finish.
+
+@param thread thread object
+*/
 extern void threadJoin(Thread thread);
+
+/*!
+@brief Sleeps the current thread.
+
+@param ms time to force current thread to sleep in milliseconds
+*/
 extern void threadSleep(unsigned int ms);
 #ifdef __cplusplus 
 }

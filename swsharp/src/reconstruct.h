@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief Reconstruction functions header.
 */
 
 #ifndef __SW_SHARP_RECONSTRUCTH__
@@ -35,6 +35,32 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
+/*!
+@brief Needleman-Wunsch reconstruction implementation.
+
+If the score is provided function uses Ukkonen's banded optimization. Function
+also utilizes Hirschberg's algorithm and therefore is linear in memory. 
+QueryFrontGap and targetFrontGap arguments can't both be not equal to 0. 
+QueryBackGap and targetBackGap arguments can't both be not equal to 0. 
+For path format see ::Alignment.
+If needed function utilzes provided CUDA cards.
+
+@param path output path
+@param pathLen output path length
+@param outScore output score
+@param query query chain
+@param queryFrontGap if not equal to 0, force that path starts in #MOVE_UP
+@param queryBackGap if not equal to 0, force that path ends in #MOVE_UP
+@param target target chain
+@param targetFrontGap if not equal to 0, force that path starts in #MOVE_LEFT 
+@param targetBackGap if not equal to 0, force that path ends in #MOVE_LEFT 
+@param scorer scorer object used for alignment
+@param score input alignment score if known, otherwise #NO_SCORE 
+@param cards cuda cards index array
+@param cardsLen cuda cards index array length
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/
 extern void nwReconstruct(char** path, int* pathLen, int* outScore, 
     Chain* query, int queryFrontGap, int queryBackGap, Chain* target, 
     int targetFrontGap, int targetBackGap, Scorer* scorer, int score, 

@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief Pairwise sequnce alignment result storage header.
 */
 
 #ifndef __SW_SHARP_ALIGNMENTH__

@@ -68,7 +68,22 @@ extern "C" {
         (X).w = (Y).w; \
     } while(0)
 
+/*!
+@brief Gets CUDA card index list.
+
+@param cards output CUDA cards index array
+@param cardsLen output CUDA cards index array length
+*/
 extern void cudaGetCards(int** cards, int* cardsLen);
+
+/*!
+@brief Checks CUDA card index list.
+
+@param cards CUDA cards index array
+@param cardsLen CUDA cards index array length
+
+@return 1 if all input card indices are available, 0 otherwise
+*/
 extern int cudaCheckCards(int* cards, int cardsLen);
 
 #ifdef __cplusplus 

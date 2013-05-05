@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief Pairwise alignment oriented functions header.
 */
 
 #ifndef __SW_SHARP_ALIGNH__
@@ -37,22 +37,42 @@ extern "C" {
 #endif
 
 /*!
+@brief Pairwise alignment function.
 
-@brief Function returns the subchain of the provided chain.
+Function aligns query and the target chain with the scorer object.
+If needed function utilzes provided CUDA cards.
 
-@param alignment    Input chain.
-@param query        Start index of the subchain.
-@param target       End index of the subchain.
-@param scorer       Scoring object used for alignment
-@param type         see define #SW_ALIGN.
-@param cards        End index of the subchain.
-@param cardsLen     Input chain.
-@param thread       Start index of the subchain.
-
+@param alignment output alignment object
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param cards cuda cards index array
+@param cardsLen cuda cards index array length
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
 */
 extern void alignPair(Alignment** alignment, Chain* query, Chain* target, 
     Scorer* scorer, int type, int* cards, int cardsLen, Thread* thread);
 
+/*!
+@brief Best scored pair alignment function.
+
+Function aligns queries and the target chain with the scorer object. 
+Only the best scored pair is aligned and returned. 
+If needed function utilzes provided CUDA cards.
+
+@param alignment output alignment object
+@param queries query chains array
+@param queriesLen query chains array length
+@param target target chain
+@param scorer scorer object used for alignment
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param cards cuda cards index array
+@param cardsLen cuda cards index array length
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/
 extern void alignBest(Alignment** alignment, Chain** queries, int queriesLen, 
     Chain* target, Scorer* scorer, int type, int* cards, int cardsLen, 
     Thread* thread);

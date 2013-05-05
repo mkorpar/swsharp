@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief SW# project wrapper header.
 */
 
 #ifndef __SW_SHARP_SWSHARPH__

@@ -28,7 +28,7 @@ Contact the author by mkorpar@gmail.com.
 #define __SW_SHARP_POST_PROCESH__
 
 #include "alignment.h"
-#include "dbAlignment.h"
+#include "db_alignment.h"
 
 #ifdef __cplusplus 
 extern "C" {
