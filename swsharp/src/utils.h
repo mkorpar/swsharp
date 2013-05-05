@@ -40,9 +40,8 @@ extern "C" {
         char tmp[sizeof(x)];\
         memcpy(tmp, &(x), sizeof(x));\
         memcpy(&(x), &(y), sizeof(x));\
-        memcpy(&(x), tmp, sizeof(x));\
+        memcpy(&(y), tmp, sizeof(x));\
     }
-
 
 #ifdef DEBUG
 #define LOG(fmt, ...) \
