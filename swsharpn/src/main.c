@@ -120,10 +120,11 @@ int main(int argc, char* argv[]) {
     ASSERT(match > 0, "invalid match");
     ASSERT(mismatch < 0, "invalid mismatch");
     
+    ASSERT(gapOpen > 0, "invalid gap open");
     ASSERT(gapExtend > 0 && gapExtend <= gapOpen, "invalid gap extend");
     
     Scorer* scorer;
-    scorerCreateConst(&scorer, match, mismatch, gapOpen, gapExtend);
+    scorerCreateScalar(&scorer, match, mismatch, gapOpen, gapExtend);
     
     Chain* query = NULL;
     Chain* target = NULL; 

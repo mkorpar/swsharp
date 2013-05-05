@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief Preprocessing utilities header.
 */
 
 #ifndef __SW_SHARP_PRE_PROCESH__
@@ -30,15 +30,85 @@ Contact the author by mkorpar@gmail.com.
 #include "chain.h"
 #include "scorer.h"
 
+/*!
+@brief Creates chain complement.
+
+Function persumes the characters in the chain are nucleotides. Every 'A' is 
+turned into 'T', every 'C' to 'G' and vice versa. Any other characters are left
+intact. Also the complement chain is in the reverse order of the original.
+
+@param chain chain object
+
+@return chain complement
+*/
 extern Chain* createChainComplement(Chain* chain);
 
+/*!
+@brief Fasta chain reading function.
+
+Function reads file from the given path, which should be in the fasta format.
+More on fasta format <a>http://en.wikipedia.org/wiki/FASTA_format</a>. Function
+persumes only one chain is in the file. Function persumes that the fasta chain
+name is no more than 1000 characters long.
+
+@param chain output chain object
+@param path file path
+*/
 extern void readFastaChain(Chain** chain, const char* path);
+
+/*!
+@brief Fasta chain reading function.
+
+Function works in the same way as the readFastaChain() but does not persume
+only one chain is in the file.
+
+@param chains output chain array object
+@param chainsLen output chain array length
+@param path file path
+*/
 extern void readFastaChains(Chain*** chains, int* chainsLen, const char* path);
+
+/*!
+@brief Chain array delete utility.
+
+Function calls chainDelete() function on every chain and then deletes the array.
+
+@param chains chain array object
+@param chainsLen chain array length
+*/
 extern void deleteFastaChains(Chain** chains, int chainsLen);
 
-extern void scorerCreateConst(Scorer** scorer, int match, int mismatch, 
+/*!
+@brief Scalar scorer creation utility functions.
+
+Scorer is created with the max score equal to 26. Observing the scorerEncode() 
+method it means this scorer only accepts alphabet characters and it must not be 
+used with no other characters. This scorer is scalar, see scorerIsScalar().
+
+@param scorer output scorer object
+@param match match score for every two equal codes, defined as positive integer
+@param mismatch mismatch penalty for every two unequal codes, defined as 
+    negative integer
+@param gapOpen affine gap open penalty, defined as positive integer
+@param gapExtend affine gap extend penalty, defined as positive integer
+*/
+extern void scorerCreateScalar(Scorer** scorer, int match, int mismatch, 
     int gapOpen, int gapExtend);
-    
+
+/*!
+@brief Nonscalar scorer creation utility functions.
+
+Scorer is created with the max score equal to 26. Observing the scorerEncode() 
+method it means this scorer only accepts alphabet characters and it must not be 
+used with no other characters. This function is used for creating the scorer
+with the most common standard similarity matrices.
+
+@param scorer output scorer object
+@param name name can be one of the "BLOSUM_62", "BLOSUM_45", "BLOSUM_50", 
+    "BLOSUM_80", "BLOSUM_90", "PAM_30", "PAM_70" or "PAM_250"
+@param gapOpen affine gap open penalty, defined as positive integer
+@param gapExtend affine gap extend penalty, defined as positive integer
+*/   
 extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen, 
     int gapExtend);
 

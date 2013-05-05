@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief CPU implementation of common functions.
+@brief CPU implementations of common functions.
 */
 
 #ifndef __SW_SHARP_CPU_MODULEH__

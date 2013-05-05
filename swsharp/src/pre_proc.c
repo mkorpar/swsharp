@@ -242,7 +242,7 @@ extern void deleteFastaChains(Chain** chains, int chainsLen) {
 //------------------------------------------------------------------------------
 // SCORES UTILS
 
-extern void scorerCreateConst(Scorer** scorer, int match, int mismatch, 
+extern void scorerCreateScalar(Scorer** scorer, int match, int mismatch, 
     int gapOpen, int gapExtend) {
     
     int scores[26 * 26];

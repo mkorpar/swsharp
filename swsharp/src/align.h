@@ -43,17 +43,17 @@ Function aligns query and the target chain with the scorer object.
 If needed function utilzes provided CUDA cards.
 
 @param alignment output alignment object
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
 @param query query chain
 @param target target chain
 @param scorer scorer object used for alignment
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
 @param cards cuda cards index array
 @param cardsLen cuda cards index array length
 @param thread thread on which the function will be executed, if NULL function is
     executed on the current thread
 */
-extern void alignPair(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer, int type, int* cards, int cardsLen, Thread* thread);
+extern void alignPair(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int* cards, int cardsLen, Thread* thread);
 
 /*!
 @brief Best scored pair alignment function.
@@ -63,18 +63,18 @@ Only the best scored pair is aligned and returned.
 If needed function utilzes provided CUDA cards.
 
 @param alignment output alignment object
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
 @param queries query chains array
 @param queriesLen query chains array length
 @param target target chain
 @param scorer scorer object used for alignment
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
 @param cards cuda cards index array
 @param cardsLen cuda cards index array length
 @param thread thread on which the function will be executed, if NULL function is
     executed on the current thread
 */
-extern void alignBest(Alignment** alignment, Chain** queries, int queriesLen, 
-    Chain* target, Scorer* scorer, int type, int* cards, int cardsLen, 
+extern void alignBest(Alignment** alignment, int type, Chain** queries, 
+    int queriesLen, Chain* target, Scorer* scorer, int* cards, int cardsLen, 
     Thread* thread);
 
 #ifdef __cplusplus 

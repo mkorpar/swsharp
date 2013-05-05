@@ -21,7 +21,7 @@ Contact the author by mkorpar@gmail.com.
 /**
 @file
 
-@brief
+@brief CUDA utility header.
 */
 
 #ifndef __SW_SHARP_CUDA_UTILSH__
