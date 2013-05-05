@@ -215,7 +215,7 @@ static void initStatParams(StatParams* statParams, const char* matrix,
     }
     
     if (index == 0) {
-        printf("WARNING: no e-value params found, using default");
+        printf("WARNING: no e-value params found, using default\n");
     }
     
     statParams->G = G;

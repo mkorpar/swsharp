@@ -270,7 +270,7 @@ extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen,
         }
     }
     
-    ASSERT(index == -1, "unknown table %s", name);
+    ASSERT(index != -1, "unknown table %s", name);
     
     ScorerEntry* entry = &(scorers[index]);
     *scorer = scorerCreate(entry->name, *(entry->table), 26, gapOpen, gapExtend);
