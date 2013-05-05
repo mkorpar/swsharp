@@ -125,7 +125,7 @@ int main(int argc, char* argv[]) {
     readFastaChain(&target, targetPath);
 
     Alignment* alignment;
-    alignPair(&alignment, query, target, scorer, SW_ALIGN, cards, cardsLen, NULL);
+    alignPair(&alignment, SW_ALIGN, query, target, scorer, cards, cardsLen, NULL);
      
     ASSERT(checkAlignment(alignment), "invalid align");
     

@@ -137,7 +137,7 @@ int main(int argc, char* argv[]) {
     Chain* queries[] = { query, queryComplement };
     
     Alignment* alignment;
-    alignBest(&alignment, queries, 2, target, scorer, SW_ALIGN, cards, 
+    alignBest(&alignment, SW_ALIGN, queries, 2, target, scorer, cards, 
         cardsLen, NULL);
      
     ASSERT(checkAlignment(alignment), "invalid align");

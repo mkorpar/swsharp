@@ -455,7 +455,7 @@ static void* alignThread(void* param) {
 
             // align
             Alignment* alignment;
-            alignPair(&alignment, query, target, scorer, type, cards, 
+            alignPair(&alignment, type, query, target, scorer, cards, 
                 cardsLen, NULL);
             
             // check scores
