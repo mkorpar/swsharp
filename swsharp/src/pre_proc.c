@@ -226,17 +226,6 @@ extern void readFastaChains(Chain*** chains_, int* chainsLen_, const char* path)
     TIMER_STOP;
 }
 
-extern void deleteFastaChains(Chain** chains, int chainsLen) {
-
-    int i;
-    for (i = 0; i < chainsLen; ++i) {
-        chainDelete(chains[i]);
-    }
-    
-    free(chains);
-    chains = NULL;
-}
-
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------

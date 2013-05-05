@@ -39,7 +39,7 @@ static struct option options[] = {
 };
 
 static CharInt outFormats[] = {
-    { "bm1", SW_OUT_DB_BLASTM1 },
+    { "bm0", SW_OUT_DB_BLASTM0 },
     { "bm8", SW_OUT_DB_BLASTM8 },
     { "bm9", SW_OUT_DB_BLASTM9 },
     { "light", SW_OUT_DB_LIGHT }

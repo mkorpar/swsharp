@@ -69,16 +69,6 @@ only one chain is in the file.
 extern void readFastaChains(Chain*** chains, int* chainsLen, const char* path);
 
 /*!
-@brief Chain array delete utility.
-
-Function calls chainDelete() function on every chain and then deletes the array.
-
-@param chains chain array object
-@param chainsLen chain array length
-*/
-extern void deleteFastaChains(Chain** chains, int chainsLen);
-
-/*!
 @brief Scalar scorer creation utility functions.
 
 Scorer is created with the max score equal to 26. Observing the scorerEncode() 

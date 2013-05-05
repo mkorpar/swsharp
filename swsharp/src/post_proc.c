@@ -69,7 +69,7 @@ static OutputDatabaseFunction outputDatabaseFunction(int type);
 static void outputDatabaseLight(DbAlignment** dbAlignments, 
     int dbAlignmentsLen, FILE* file);
     
-static void outputDatabaseBlastM1(DbAlignment** dbAlignments, 
+static void outputDatabaseBlastM0(DbAlignment** dbAlignments, 
     int dbAlignmentsLen, FILE* file);
     
 static void outputDatabaseBlastM8(DbAlignment** dbAlignments, 
@@ -218,6 +218,17 @@ extern void outputShotgunDatabase(DbAlignment*** dbAlignments,
     }
     
     if (file != stdout) fclose(file);
+}
+
+extern void deleteFastaChains(Chain** chains, int chainsLen) {
+
+    int i;
+    for (i = 0; i < chainsLen; ++i) {
+        chainDelete(chains[i]);
+    }
+    
+    free(chains);
+    chains = NULL;
 }
 
 extern void deleteShotgunDatabase(DbAlignment*** dbAlignments, 
@@ -577,8 +588,8 @@ static OutputDatabaseFunction outputDatabaseFunction(int type) {
     switch (type) {
     case SW_OUT_DB_LIGHT:
         return outputDatabaseLight;
-    case SW_OUT_DB_BLASTM1:
-        return outputDatabaseBlastM1;
+    case SW_OUT_DB_BLASTM0:
+        return outputDatabaseBlastM0;
     case SW_OUT_DB_BLASTM8:
         return outputDatabaseBlastM8;
     case SW_OUT_DB_BLASTM9:
@@ -613,7 +624,7 @@ static void outputDatabaseLight(DbAlignment** dbAlignments,
     }
 }
     
-static void outputDatabaseBlastM1(DbAlignment** dbAlignments, 
+static void outputDatabaseBlastM0(DbAlignment** dbAlignments, 
     int dbAlignmentsLen, FILE* file) {
     
     int i, j;
