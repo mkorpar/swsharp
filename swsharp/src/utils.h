@@ -27,6 +27,7 @@ Contact the author by mkorpar@gmail.com.
 #endif
 
 #include <stdio.h>
+#include <string.h>
 
 #ifdef __cplusplus 
 extern "C" {
@@ -36,12 +37,10 @@ extern "C" {
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 #define SWAP(x, y) {\
-        struct tempStruct {\
-            char c[sizeof(x)];\
-        } __attribute__((__may_alias__)) swap_tmp;\
-        swap_tmp = *(struct tempStruct*) &x;\
-        *(struct tempStruct*) &x = *(struct tempStruct*) &y;\
-        *(struct tempStruct*) &y = swap_tmp;\
+        char tmp[sizeof(x)];\
+        memcpy(tmp, &(x), sizeof(x));\
+        memcpy(&(x), &(y), sizeof(x));\
+        memcpy(&(x), tmp, sizeof(x));\
     }
 
 

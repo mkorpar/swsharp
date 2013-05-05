@@ -24,16 +24,18 @@ CP_FLAGS = $(CC_FLAGS)
 CU_FLAGS = $(I_CMD) -O3 -arch sm_13
 LD_FLAGS = $(I_CMD) $(L_CMD) -lswsharp -lm -lcudart -lpthread
 
+API = $(addprefix $(SRC_DIR)/, )
+
 SRC = $(shell find $(SRC_DIR) -type f -regex ".*\.\(cu\|c\|cpp\)")
+HDR = $(shell find $(SRC_DIR) -type f -regex ".*\.\(h\)")
 OBJ = $(subst $(SRC_DIR), $(OBJ_DIR), $(addsuffix .o, $(basename $(SRC))))
 DEP = $(OBJ:.o=.d)
-API = $(shell find $(SRC_DIR) -type f -regex ".*.h")
 INC = $(subst $(SRC_DIR), $(INC_DIR), $(API))
 LIB = $(LIB_DIR)/lib$(NAME).a
 EXC = $(NAME)
 BIN = $(EXC_DIR)/$(EXC)
 DOC = $(DOC_DIR)/Doxyfile
-WIN = $(subst $(SRC_DIR), $(WIN_DIR), $(API) $(SRC))
+WIN = $(subst $(SRC_DIR), $(WIN_DIR), $(HDR) $(SRC))
 
 debug: CC_FLAGS := $(CC_FLAGS) -DDEBUG -DTIMERS
 debug: CP_FLAGS := $(CP_FLAGS) -DDEBUG -DTIMERS
