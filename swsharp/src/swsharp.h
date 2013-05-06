@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     // gap open = 5
     // gap extend = 2
     Scorer* scorer;
-    scorerCreateConst(&scorer, 1, -3, 5, 2);
+    scorerCreateScalar(&scorer, 1, -3, 5, 2);
 
     // do the pairwise alignment, use Smith-Waterman algorithm
     Alignment* alignment;
