@@ -194,6 +194,30 @@ extern void outputAlignment(Alignment* alignment, char* path, int type) {
     if (file != stdout) fclose(file);
 }
 
+extern void outputScore(int score, Chain* query, Chain* target, Scorer* scorer, 
+    char* path) {
+    
+    FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
+
+    fprintf(file, "########################################\n");
+    fprintf(file, "#\n");
+    fprintf(file, "# Aligned: \n");
+    fprintf(file, "# 1: %.80s\n", chainGetName(query));
+    fprintf(file, "# 2: %.80s\n", chainGetName(target));
+    fprintf(file, "#\n");
+    fprintf(file, "# Gap open: %d\n", scorerGetGapOpen(scorer));
+    fprintf(file, "# Gap extend: %d\n", scorerGetGapExtend(scorer));
+    fprintf(file, "#\n");
+    fprintf(file, "# Query length: %d\n", chainGetLength(query));
+    fprintf(file, "# Target length: %d\n", chainGetLength(target));
+    fprintf(file, "#\n");
+    fprintf(file, "# Score: %d\n", score);
+    fprintf(file, "#\n");
+    fprintf(file, "########################################\n");
+
+    if (file != stdout) fclose(file);
+}
+
 extern void outputDatabase(DbAlignment** dbAlignments, int dbAlignmentsLen, 
     char* path, int type) {
 

@@ -28,7 +28,9 @@ Contact the author by mkorpar@gmail.com.
 #define __SW_SHARP_POST_PROCESH__
 
 #include "alignment.h"
+#include "chain.h"
 #include "db_alignment.h"
+#include "scorer.h"
 
 #ifdef __cplusplus 
 extern "C" {
@@ -135,6 +137,18 @@ extern Alignment* readAlignment(char* path);
 extern void outputAlignment(Alignment* alignment, char* path, int type);
 
 /*!
+@brief Score only output function.
+
+@param score alignment score
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param path output file path, if NULL output goes to standard output
+*/
+extern void outputScore(int score, Chain* query, Chain* target, Scorer* scorer, 
+    char* path);
+
+/*!
 @brief Database alignment output function.
 
 @param dbAlignments database alignments array
@@ -145,7 +159,7 @@ extern void outputAlignment(Alignment* alignment, char* path, int type);
 */
 extern void outputDatabase(DbAlignment** dbAlignments, int dbAlignmentsLen, 
     char* path, int type);
-    
+
 /*!
 @brief Shotgun database alignment output function.
 

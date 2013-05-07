@@ -76,6 +76,25 @@ If needed function utilzes provided CUDA cards.
 extern void alignBest(Alignment** alignment, int type, Chain** queries, 
     int queriesLen, Chain* target, Scorer* scorer, int* cards, int cardsLen, 
     Thread* thread);
+    
+/*!
+@brief Pairwise scoring function.
+
+Function only returns the score of the alignment.
+If needed function utilzes provided CUDA cards.
+
+@param score output score
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param cards cuda cards index array
+@param cardsLen cuda cards index array length
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/
+extern void scorePair(int* score, int type, Chain* query, Chain* target, 
+    Scorer* scorer, int* cards, int cardsLen, Thread* thread);
 
 #ifdef __cplusplus 
 }

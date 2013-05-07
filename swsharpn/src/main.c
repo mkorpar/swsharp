@@ -27,6 +27,7 @@ static struct option options[] = {
     {"gap-extend", required_argument, 0, 'e'},
     {"match", required_argument, 0, 'a'},
     {"mismatch", required_argument, 0, 'b'},
+    {"score", no_argument, 0, 's'},
     {"cards", required_argument, 0, 'c'},
     {"out", required_argument, 0, 'o'},
     {"outfmt", required_argument, 0, 't'},
@@ -58,6 +59,8 @@ int main(int argc, char* argv[]) {
     
     int gapOpen = 5;
     int gapExtend = 2;
+    
+    int scoreOnly = 0;
     
     int cardsLen = -1;
     int* cards = NULL;
@@ -91,6 +94,9 @@ int main(int argc, char* argv[]) {
             break;
         case 'b':
             mismatch = atoi(optarg);
+            break;
+        case 's':
+            scoreOnly = 1;
             break;
         case 'c':
             getCudaCards(&cards, &cardsLen, optarg);
@@ -132,15 +138,27 @@ int main(int argc, char* argv[]) {
     readFastaChain(&query, queryPath);
     readFastaChain(&target, targetPath);
 
-    Alignment* alignment;
-    alignPair(&alignment, SW_ALIGN, query, target, scorer, cards, cardsLen, NULL);
-     
-    ASSERT(checkAlignment(alignment), "invalid align");
+    if (scoreOnly) {
     
-    outputAlignment(alignment, out, outFormat);
-    
-    alignmentDelete(alignment);
+        int score;
+        scorePair(&score, SW_ALIGN, query, target, scorer, cards, 
+            cardsLen, NULL);
 
+        outputScore(score, query, target, scorer, out);
+                
+    } else {
+    
+        Alignment* alignment;
+        alignPair(&alignment, SW_ALIGN, query, target, scorer, cards, 
+            cardsLen, NULL);
+         
+        ASSERT(checkAlignment(alignment), "invalid align");
+        
+        outputAlignment(alignment, out, outFormat);
+        
+        alignmentDelete(alignment);
+    }
+    
     chainDelete(query);
     chainDelete(target);
     
