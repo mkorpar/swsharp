@@ -26,6 +26,9 @@ arguments:
         default: all available CUDA cards
         list of cards should be given as an array of card indexes delimited with
         nothing, for example usage of first two cards is given as --cards 01
+    --score
+        if given only the score without the alignment is outputed, also
+        --outfmt option is ignored
     --out <string>
         default: stdout
         output file for the alignment
