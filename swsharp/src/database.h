@@ -59,7 +59,7 @@ should have smaller value.
 @param databaseLen target chain array length
 @param param additional parameters for the value function
 */
-typedef void (*ValueFunction)(float* values, int* scores, Chain* query, 
+typedef void (*ValueFunction)(double* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, void* param);
 
 /*!
@@ -111,7 +111,7 @@ with given indexes will be considered, other will be ignored.
 extern void alignDatabase(DbAlignment*** dbAlignments, int* dbAlignmentsLen, 
     int type, Chain* query, ChainDatabase* chainDatabase, Scorer* scorer, 
     int maxAlignments, ValueFunction valueFunction, void* valueFunctionParam, 
-    float valueThreshold, int* indexes, int indexesLen, int* cards, 
+    double valueThreshold, int* indexes, int indexesLen, int* cards, 
     int cardsLen, Thread* thread);
     
 /*!
@@ -146,7 +146,7 @@ alignDatabase() for every query separately.
 extern void shotgunDatabase(DbAlignment**** dbAlignments, int** dbAlignmentsLen, 
     int type, Chain** queries, int queriesLen, ChainDatabase* chainDatabase, 
     Scorer* scorer, int maxAlignments, ValueFunction valueFunction, 
-    void* valueFunctionParam, float valueThreshold, int* indexes, 
+    void* valueFunctionParam, double valueThreshold, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
 #ifdef __cplusplus 

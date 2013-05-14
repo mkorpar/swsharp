@@ -38,7 +38,7 @@ struct DbAlignment {
     int targetStart;
     int targetEnd;
     int targetIdx;
-    float value;
+    double value;
     int score;
     Scorer* scorer;
     char* path;
@@ -62,7 +62,7 @@ struct DbAlignment {
 
 extern DbAlignment* dbAlignmentCreate(Chain* query, int queryStart, int queryEnd,
     int queryIdx, Chain* target, int targetStart, int targetEnd, int targetIdx, 
-    float value, int score, Scorer* scorer, char* path, int pathLen) {
+    double value, int score, Scorer* scorer, char* path, int pathLen) {
     
     DbAlignment* dbAlignment = (DbAlignment*) malloc(sizeof(struct DbAlignment));
 
@@ -142,7 +142,7 @@ extern int dbAlignmentGetTargetStart(DbAlignment* dbAlignment) {
     return dbAlignment->targetStart;
 }
 
-extern float dbAlignmentGetValue(DbAlignment* dbAlignment) {
+extern double dbAlignmentGetValue(DbAlignment* dbAlignment) {
     return dbAlignment->value;
 }
 

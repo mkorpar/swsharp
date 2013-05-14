@@ -52,7 +52,7 @@ typedef struct Context {
     int maxAlignments;
     ValueFunction valueFunction;
     void* valueFunctionParam;
-    float valueThreshold;
+    double valueThreshold;
     int* indexes;
     int indexesLen;
     int* cards;
@@ -63,7 +63,7 @@ typedef struct Context {
 typedef struct DbAlignmentData {
     int idx;
     int score;
-    float value;
+    double value;
 } DbAlignmentData;
 
 typedef struct AlignContext {
@@ -92,15 +92,15 @@ typedef struct ExtractContext {
     int maxAlignments;
     ValueFunction valueFunction;
     void* valueFunctionParam;
-    float valueThreshold;
+    double valueThreshold;
     int thread;
     int threads;
 } ExtractContext;
 
-typedef struct IntFloat {
+typedef struct IntDouble {
     int x;
-    float y;
-} IntFloat;
+    double y;
+} IntDouble;
 
 struct ChainDatabase {
     ChainDatabaseGpu* chainDatabaseGpu;
@@ -118,13 +118,13 @@ extern void chainDatabaseDelete(ChainDatabase* chainDatabase);
 extern void alignDatabase(DbAlignment*** dbAlignments, int* dbAlignmentsLen, 
     int type, Chain* query, ChainDatabase* chainDatabase, Scorer* scorer, 
     int maxAlignments, ValueFunction valueFunction, void* valueFunctionParam, 
-    float valueThreshold, int* indexes, int indexesLen, int* cards, 
+    double valueThreshold, int* indexes, int indexesLen, int* cards, 
     int cardsLen, Thread* thread);
     
 extern void shotgunDatabase(DbAlignment**** dbAlignments, int** dbAlignmentsLen, 
     int type, Chain** queries, int queriesLen, ChainDatabase* chainDatabase, 
     Scorer* scorer, int maxAlignments, ValueFunction valueFunction, 
-    void* valueFunctionParam, float valueThreshold, int* indexes, 
+    void* valueFunctionParam, double valueThreshold, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
 //******************************************************************************
@@ -135,7 +135,7 @@ extern void shotgunDatabase(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
 static void databaseSearch(DbAlignment*** dbAlignments, int* dbAlignmentsLen, 
     int type, Chain** queries, int queriesLen, ChainDatabase* chainDatabase, 
     Scorer* scorer, int maxAlignments, ValueFunction valueFunction, 
-    void* valueFunctionParam, float valueThreshold, int* indexes, 
+    void* valueFunctionParam, double valueThreshold, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
 static void* databaseSearchThread(void* param);
@@ -148,7 +148,7 @@ static void scoreDatabasesCpu(int** scores, int type, Chain** queries,
     int queriesLen, Chain** database, int databaseLen, Scorer* scorer, 
     int* indexes, int indexesLen);
 
-static int intFloatCmp(const void* a_, const void* b_);
+static int intDoubleCmp(const void* a_, const void* b_);
 
 //******************************************************************************
 
@@ -195,7 +195,7 @@ extern void chainDatabaseDelete(ChainDatabase* chainDatabase) {
 extern void alignDatabase(DbAlignment*** dbAlignments, int* dbAlignmentsLen, 
     int type, Chain* query, ChainDatabase* chainDatabase, Scorer* scorer, 
     int maxAlignments, ValueFunction valueFunction, void* valueFunctionParam, 
-    float valueThreshold, int* indexes, int indexesLen, int* cards, 
+    double valueThreshold, int* indexes, int indexesLen, int* cards, 
     int cardsLen, Thread* thread) {
 
     databaseSearch(dbAlignments, dbAlignmentsLen, type, &query, 1,
@@ -206,7 +206,7 @@ extern void alignDatabase(DbAlignment*** dbAlignments, int* dbAlignmentsLen,
 extern void shotgunDatabase(DbAlignment**** dbAlignments, int** dbAlignmentsLen, 
     int type, Chain** queries, int queriesLen, ChainDatabase* chainDatabase, 
     Scorer* scorer, int maxAlignments, ValueFunction valueFunction, 
-    void* valueFunctionParam, float valueThreshold, int* indexes, 
+    void* valueFunctionParam, double valueThreshold, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread) {
 
     *dbAlignments = (DbAlignment***) malloc(queriesLen * sizeof(DbAlignment**));
@@ -228,7 +228,7 @@ extern void shotgunDatabase(DbAlignment**** dbAlignments, int** dbAlignmentsLen,
 static void databaseSearch(DbAlignment*** dbAlignments, int* dbAlignmentsLen, 
     int type, Chain** queries, int queriesLen, ChainDatabase* chainDatabase, 
     Scorer* scorer, int maxAlignments, ValueFunction valueFunction, 
-    void* valueFunctionParam, float valueThreshold, int* indexes, 
+    void* valueFunctionParam, double valueThreshold, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread) {
     
     Context* param = (Context*) malloc(sizeof(Context));
@@ -270,7 +270,7 @@ static void* databaseSearchThread(void* param) {
     int maxAlignments = context->maxAlignments;
     ValueFunction valueFunction = context->valueFunction;
     void* valueFunctionParam = context->valueFunctionParam;
-    float valueThreshold = context->valueThreshold;
+    double valueThreshold = context->valueThreshold;
     int* indexes = context->indexes;
     int indexesLen = context->indexesLen; 
     int* cards = context->cards;
@@ -503,13 +503,13 @@ static void* extractThread(void* param) {
     int maxAlignments = context->maxAlignments;
     ValueFunction valueFunction = context->valueFunction;
     void* valueFunctionParam = context->valueFunctionParam;
-    float valueThreshold = context->valueThreshold;
+    double valueThreshold = context->valueThreshold;
     int thread = context->thread;
     int threads = context->threads;
     
     
-    IntFloat* packed = (IntFloat*) malloc(databaseLen * sizeof(IntFloat));
-    float* vals = (float*) malloc(databaseLen * sizeof(float));
+    IntDouble* packed = (IntDouble*) malloc(databaseLen * sizeof(IntDouble));
+    double* vals = (double*) malloc(databaseLen * sizeof(double));
     
     int i, j;
     
@@ -518,8 +518,10 @@ static void* extractThread(void* param) {
         Chain* query = queries[i];
         int* queryScores = scores + i * databaseLen;
         
+        TIMER_START("value");
         valueFunction(vals, queryScores, query, database, databaseLen, 
             valueFunctionParam);
+        TIMER_STOP;
 
         int thresholded = 0;
     
@@ -535,8 +537,8 @@ static void* extractThread(void* param) {
         
         int k = MIN(thresholded, maxAlignments);
         
-        qselect((void*) packed, databaseLen, sizeof(IntFloat), k, intFloatCmp);
-        qsort((void*) packed, k, sizeof(IntFloat), intFloatCmp);
+        qselect((void*) packed, databaseLen, sizeof(IntDouble), k, intDoubleCmp);
+        qsort((void*) packed, k, sizeof(IntDouble), intDoubleCmp);
         
         size_t dbAlignmentsDataSize = k * sizeof(DbAlignmentData);
         dbAlignmentsData[i] = (DbAlignmentData*) malloc(dbAlignmentsDataSize);
@@ -620,10 +622,10 @@ static void scoreDatabasesCpu(int** scores, int type, Chain** queries,
 //------------------------------------------------------------------------------
 // UTILS
 
-static int intFloatCmp(const void* a_, const void* b_) {
+static int intDoubleCmp(const void* a_, const void* b_) {
 
-    IntFloat a = *((IntFloat*) a_);
-    IntFloat b = *((IntFloat*) b_);
+    IntDouble a = *((IntDouble*) a_);
+    IntDouble b = *((IntDouble*) b_);
     
     if (a.y < b.y) return -1;
     if (a.y > b.y) return 1;

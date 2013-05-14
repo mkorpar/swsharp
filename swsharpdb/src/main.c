@@ -21,6 +21,11 @@ typedef struct CharInt {
     const int code;
 } CharInt;
 
+typedef struct ValueFunctionParam {
+    Scorer* scorer;
+    int totalLength;
+} ValueFunctionParam;
+
 static struct option options[] = {
     {"cards", required_argument, 0, 'c'},
     {"gap-extend", required_argument, 0, 'e'},
@@ -49,7 +54,7 @@ static void getCudaCards(int** cards, int* cardsLen, char* optarg);
 
 static int getOutFormat(char* optarg);
 
-static void valueFunction(float* values, int* scores, Chain* query, 
+static void valueFunction(double* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, void* param);
 
 int main(int argc, char* argv[]) {
@@ -141,6 +146,8 @@ int main(int argc, char* argv[]) {
     int databaseLen = 0;
     readFastaChains(&database, &databaseLen, databasePath);
     
+    EValueParams* eValueParams = createEValueParams(database, databaseLen, scorer);
+        
     ChainDatabase* chainDatabase = chainDatabaseCreate(database, databaseLen);
 
     DbAlignment*** dbAlignments;
@@ -148,7 +155,7 @@ int main(int argc, char* argv[]) {
 
     shotgunDatabase(&dbAlignments, &dbAlignmentsLen, SW_ALIGN, queries, 
         queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
-        (void*) scorer, maxEValue, NULL, 0, cards, cardsLen, NULL);
+        (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
       
     outputShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen, 
         out, outFormat);
@@ -157,13 +164,15 @@ int main(int argc, char* argv[]) {
 
     chainDatabaseDelete(chainDatabase);
     
+    deleteEValueParams(eValueParams);
+    
     deleteFastaChains(queries, queriesLen);
     deleteFastaChains(database, databaseLen);
     
     scorerDelete(scorer);
     
     free(cards);
-
+    
     return 0;
 }
 
@@ -189,10 +198,12 @@ static int getOutFormat(char* optarg) {
 
     ASSERT(0, "unknown out format %s", optarg);
 }
-
-static void valueFunction(float* values, int* scores, Chain* query, 
-    Chain** database, int databaseLen, void* param) {
-    eValues(values, scores, query, database, databaseLen, (Scorer*) param);
+       
+static void valueFunction(double* values, int* scores, Chain* query, 
+    Chain** database, int databaseLen, void* param_ ) {
+    
+    EValueParams* eValueParams = (EValueParams*) param_;
+    eValues(values, scores, query, database, databaseLen, eValueParams);
 }
 
 static void help() {

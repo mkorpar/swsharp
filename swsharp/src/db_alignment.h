@@ -72,7 +72,7 @@ via the constructor.
 */
 extern DbAlignment* dbAlignmentCreate(Chain* query, int queryStart, int queryEnd,
     int queryIdx, Chain* target, int targetStart, int targetEnd, int targetIdx, 
-    float value, int score, Scorer* scorer, char* path, int pathLen);
+    double value, int score, Scorer* scorer, char* path, int pathLen);
 
 /*!
 @brief DbAlignment destructor.
@@ -200,7 +200,7 @@ extern int dbAlignmentGetTargetStart(DbAlignment* dbAlignment);
 
 @return value
 */
-extern float dbAlignmentGetValue(DbAlignment* dbAlignment);
+extern double dbAlignmentGetValue(DbAlignment* dbAlignment);
 
 /*!
 @brief Copies path to the destination buffer.

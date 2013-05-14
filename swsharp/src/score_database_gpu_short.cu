@@ -539,8 +539,8 @@ static void kernelSingle(int* scores, int type, Chain* query,
     CUDA_SAFE_CALL(cudaMallocArray(&subArray, &subTexture.channelDesc, subLen, subH)); 
     CUDA_SAFE_CALL(cudaMemcpyToArray (subArray, 0, 0, subCpu, subSize, TO_GPU));
     CUDA_SAFE_CALL(cudaBindTextureToArray(subTexture, subArray));
-    subTexture.addressMode[0] = cudaAddressModeClamp;
-    subTexture.addressMode[1] = cudaAddressModeClamp;
+    subTexture.addressMode[0] = cudaAddressModeBorder;
+    subTexture.addressMode[1] = cudaAddressModeBorder;
     subTexture.filterMode = cudaFilterModePoint;
     subTexture.normalized = false;
 

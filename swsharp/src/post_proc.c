@@ -50,6 +50,8 @@ typedef void (*OutputDatabaseFunction) (DbAlignment** dbAlignments,
 static void aligmentStr(char** queryStr, char** targetStr, 
     Alignment* alignment, const char gapItem);
     
+static void printFastaName(const char* name, FILE* file);
+
 // single output
 static OutputFunction outputFunction(int type);
 
@@ -337,6 +339,30 @@ static void aligmentStr(char** queryStr, char** targetStr,
         (*queryStr)[i] = queryChr;
         (*targetStr)[i] = targetChr;
     }
+}
+
+static void printFastaName(const char* name, FILE* file) {
+
+    char* pp = (char*) name;
+    char* p = strchr(name, ' ');
+    int len = 0;
+    
+    while (p != NULL) {
+        
+        len += p - pp;
+        
+        if (len > 70) {
+            len = p - pp;
+            fprintf(file, "\n");
+        }
+        
+        fprintf(file, "%.*s", (int) (p - pp + 1), pp);
+        
+        pp = p + 1;
+        p = strchr(p + 1, ' ');
+    }
+    
+    fprintf(file, "%s\n", pp);
 }
 
 //------------------------------------------------------------------------------
@@ -655,7 +681,13 @@ static void outputDatabaseBlastM0(DbAlignment** dbAlignments,
     
     const char gapItem = '-';
     
-    fprintf(file, "\n%s", "Sequences producing significant alignments:");
+    Chain* query = dbAlignmentGetQuery(dbAlignments[0]);
+    
+    fprintf(file, "\nQuery= ");
+    printFastaName(chainGetName(query), file);
+    fprintf(file, "\nLength=%d\n\n", chainGetLength(query));
+        
+    fprintf(file, "%s", "Sequences producing significant alignments:");
     fprintf(file, "%27.27s", "Score");
     fprintf(file, "%10.10s\n\n", "Value");
     
@@ -663,12 +695,12 @@ static void outputDatabaseBlastM0(DbAlignment** dbAlignments,
     
         const char* name = chainGetName(dbAlignmentGetTarget(dbAlignments[i]));
         int score = dbAlignmentGetScore(dbAlignments[i]);
-        float value = dbAlignmentGetValue(dbAlignments[i]);
+        double value = dbAlignmentGetValue(dbAlignments[i]);
         
         if (strlen(name) > 57) {
-            fprintf(file, " %.56s...%10d%10.0e\n", name, score, value);
+            fprintf(file, "  %.55s...%10d%10.0e\n", name, score, value);
         } else {
-            fprintf(file, " %.59s%10d%10.0e\n", name, score, value);
+            fprintf(file, "  %.58s%10d%10.0e\n", name, score, value);
         }
     }
     
@@ -680,7 +712,8 @@ static void outputDatabaseBlastM0(DbAlignment** dbAlignments,
         Chain* target = dbAlignmentGetTarget(dbAlignments[i]);
         Scorer* scorer = dbAlignmentGetScorer(dbAlignments[i]);
        
-        fprintf(file, "> %.78s\n", chainGetName(target));   
+        fprintf(file, "> ");
+        printFastaName(chainGetName(target), file);
         fprintf(file, "Length=%d\n\n", chainGetLength(target));
         
         fprintf(file, " Score = %d,", dbAlignmentGetScore(dbAlignments[i]));
@@ -799,6 +832,12 @@ static void outputDatabaseBlastM0(DbAlignment** dbAlignments,
         free(queryStr);
         free(targetStr);
     }
+    
+    Scorer* scorer = dbAlignmentGetScorer(dbAlignments[0]);
+
+    fprintf(file, "Matrix: %s\n", scorerGetName(scorer));
+    fprintf(file, "Gap Penalties: Existence: %d, Extension: %d\n",
+        scorerGetGapOpen(scorer), scorerGetGapExtend(scorer));
 }
     
 static void outputDatabaseBlastM8(DbAlignment** dbAlignments, 
@@ -867,7 +906,7 @@ static void outputDatabaseBlastM8(DbAlignment** dbAlignments,
         fprintf(file, "%d\t", dbAlignmentGetQueryEnd(dbAlignments[i]));
         fprintf(file, "%d\t", dbAlignmentGetTargetStart(dbAlignments[i]));
         fprintf(file, "%d\t", dbAlignmentGetTargetEnd(dbAlignments[i]));
-        fprintf(file, "%.0e\t", dbAlignmentGetValue(dbAlignments[i]));
+        fprintf(file, "%.2e\t", dbAlignmentGetValue(dbAlignments[i]));
         fprintf(file, "%-d ", dbAlignmentGetScore(dbAlignments[i]));
         fprintf(file, "\n");
     }
