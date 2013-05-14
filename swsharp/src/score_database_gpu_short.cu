@@ -222,7 +222,7 @@ extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen) {
         lengths[j * sequencesCols + cx] = n;
         
         chainCopyCodes(chain, sequence);
-        memset(sequence + n, 255, 4 * sizeof(char));
+        memset(sequence + n, 127, 4 * sizeof(char));
 
         n = n + (4 - n % 4) % 4;
         int n4 = n / 4;
@@ -539,8 +539,8 @@ static void kernelSingle(int* scores, int type, Chain* query,
     CUDA_SAFE_CALL(cudaMallocArray(&subArray, &subTexture.channelDesc, subLen, subH)); 
     CUDA_SAFE_CALL(cudaMemcpyToArray (subArray, 0, 0, subCpu, subSize, TO_GPU));
     CUDA_SAFE_CALL(cudaBindTextureToArray(subTexture, subArray));
-    subTexture.addressMode[0] = cudaAddressModeBorder;
-    subTexture.addressMode[1] = cudaAddressModeBorder;
+    subTexture.addressMode[0] = cudaAddressModeClamp;
+    subTexture.addressMode[1] = cudaAddressModeClamp;
     subTexture.filterMode = cudaFilterModePoint;
     subTexture.normalized = false;
 
