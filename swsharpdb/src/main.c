@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
     char* databasePath = NULL;
 
     int gapOpen = 10;
-    int gapExtend = 2;
+    int gapExtend = 1;
     
     char* matrix = "BLOSUM_62";
         
@@ -207,5 +207,53 @@ static void valueFunction(double* values, int* scores, Chain* query,
 }
 
 static void help() {
-    printf("help\n");
+    printf(
+    "usage: swsharpdb -i <query db file> -j <target db file> [arguments ...]\n"
+    "\n"
+    "arguments:\n"
+    "    -i, --query <file>\n"
+    "        (required)\n"
+    "        input fasta database query file\n"
+    "    -j, --target <file>\n"
+    "        (required)\n"
+    "        input fasta database target file\n"
+    "    -g, --gap-open <int>\n"
+    "        default: 10\n"
+    "        gap opening penalty, must be given as a positive integer \n"
+    "    -e, --gap-extend <int>\n"
+    "        default: 1\n"
+    "        gap extension penalty, must be given as a positive integer\n"
+    "    --matrix <string>\n"
+    "        default: BLOSUM_62\n"
+    "        similarity matrix, can be one of the following:\n"
+    "            BLOSUM_45\n"
+    "            BLOSUM_50\n"
+    "            BLOSUM_62\n"
+    "            BLOSUM_80\n"
+    "            BLOSUM_90\n"
+    "            BLOSUM_30\n"
+    "            BLOSUM_70\n"
+    "            BLOSUM_250\n"
+    "    --evalue <float>\n"
+    "        default: 10.0\n"
+    "        evalue threshold, alignments with higher evalue are filtered\n"
+    "    --max-aligns <int>\n"
+    "        default: 10\n"
+    "        maximum number of alignments to be outputted\n"
+    "    --cards <ints>\n"
+    "        default: all available CUDA cards\n"
+    "        list of cards should be given as an array of card indexes delimited with\n"
+    "        nothing, for example usage of first two cards is given as --cards 01\n"
+    "    --out <string>\n"
+    "        default: stdout\n"
+    "        output file for the alignment\n"
+    "    --outfmt <string>\n"
+    "        default: bm8\n"
+    "        out format for the output file, must be one of the following:\n"
+    "            bm0      - blast m0 output format\n"
+    "            bm8      - blast m8 tabular output format\n"
+    "            bm9      - blast m9 commented tabular output format\n"
+    "            light    - score-name tabbed output\n"
+    "    -h, -help\n"
+    "        prints out the help\n");
 }
