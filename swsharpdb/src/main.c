@@ -133,6 +133,7 @@ int main(int argc, char* argv[]) {
     
     ASSERT(gapOpen > 0, "invalid gap open");
     ASSERT(gapExtend > 0 && gapExtend <= gapOpen, "invalid gap extend");
+    
     ASSERT(maxEValue > 0, "invalid evalue");
     
     Scorer* scorer;
@@ -222,7 +223,8 @@ static void help() {
     "        gap opening penalty, must be given as a positive integer \n"
     "    -e, --gap-extend <int>\n"
     "        default: 1\n"
-    "        gap extension penalty, must be given as a positive integer\n"
+    "        gap extension penalty, must be given as a positive integer and\n"
+    "        must be less or equal to gap opening penalty\n" 
     "    --matrix <string>\n"
     "        default: BLOSUM_62\n"
     "        similarity matrix, can be one of the following:\n"
@@ -236,7 +238,8 @@ static void help() {
     "            BLOSUM_250\n"
     "    --evalue <float>\n"
     "        default: 10.0\n"
-    "        evalue threshold, alignments with higher evalue are filtered\n"
+    "        evalue threshold, alignments with higher evalue are filtered,\n"
+    "        must be given as a positive float\n"
     "    --max-aligns <int>\n"
     "        default: 10\n"
     "        maximum number of alignments to be outputted\n"

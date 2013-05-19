@@ -243,7 +243,10 @@ extern void scorerCreateScalar(Scorer** scorer, int match, int mismatch,
         }
     }
     
-    *scorer = scorerCreate("CONST", scores, 26, gapOpen, gapExtend);
+    char name[100];
+    sprintf(name, "match/mismatch +%d/%d", match, mismatch);
+    
+    *scorer = scorerCreate(name, scores, 26, gapOpen, gapExtend);
 }
 
 extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen, 

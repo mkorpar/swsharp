@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
     char* matrix = "BLOSUM_62";
     
     int gapOpen = 10;
-    int gapExtend = 2;
+    int gapExtend = 1;
     
     int cardsLen = -1;
     int* cards = NULL;
@@ -181,8 +181,9 @@ static void help() {
     "        default: 10\n"
     "        gap opening penalty, must be given as a positive integer \n"
     "    -e, --gap-extend <int>\n"
-    "        default: 2\n"
-    "        gap extension penalty, must be given as a positive integer\n"
+    "        default: 1\n"
+    "        gap extension penalty, must be given as a positive integer and\n"
+    "        must be less or equal to gap opening penalty\n" 
     "    -m, --matrix <string>\n"
     "        default: BLOSUM_62\n"
     "        substitution matrix, can be one of the following: BLOSUM_45, BLOSUM_50,\n"

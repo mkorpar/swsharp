@@ -607,6 +607,7 @@ static void outputStat(Alignment* alignment, FILE* file) {
     fprintf(file, "# 1: %.80s\n", chainGetName(query));
     fprintf(file, "# 2: %.80s\n", chainGetName(target));
     fprintf(file, "#\n");
+    fprintf(file, "# Scorer: %s\n", scorerGetName(scorer));
     fprintf(file, "# Gap open: %d\n", scorerGetGapOpen(scorer));
     fprintf(file, "# Gap extend: %d\n", scorerGetGapExtend(scorer));
     fprintf(file, "#\n");
