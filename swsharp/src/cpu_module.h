@@ -50,6 +50,24 @@ extern void alignPairCpu(Alignment** alignment, int type, Chain* query,
     Chain* target, Scorer* scorer);
     
 /*!
+@brief Score finding function.
+
+Method uses Needleman-Wunsch algorithm with all of the start conditions set to
+infinity. This assures path contains the first cell and does not start with gaps.
+If the score is found it return the coordinates of the cell with the provided 
+score, (-1, -1) otherwise.
+
+@param queryStart output, if found query index of found cell, -1 otherwise
+@param targetStart output, if found target index of found cell, -1 otherwise
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param score input alignment score
+*/
+extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score);
+    
+/*!
 @brief Needleman-Wunsch reconstruction implementation.
 
 If the score is provided function uses Ukkonen's banded optimization. 
@@ -85,25 +103,6 @@ Scoring types are equivalent to aligning types.
 @param scorer scorer object used for alignment
 */
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
-    
-/*!
-@brief Score finding function.
-
-Method uses Needleman-Wunsch algorithm with all of the start conditions set to
-infinity. This assures path contains the first cell and does not start with gaps.
-Function is used for finding the startpoint of the Smith-Waterman provided
-endpoint. If the score is found it return the coordinates of the cell with the 
-provided score, (-1, -1) otherwise.
-
-@param queryStart output, if found query index of found cell, -1 otherwise
-@param targetStart output, if found target index of found cell, -1 otherwise
-@param query query chain
-@param target target chain
-@param scorer scorer object used for alignment
-@param score input alignment score
-*/
-extern void swFindStartCpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score);
     
 #ifdef __cplusplus 
 }

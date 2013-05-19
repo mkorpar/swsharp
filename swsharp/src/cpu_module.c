@@ -50,14 +50,14 @@ typedef struct HBus {
 extern void alignPairCpu(Alignment** alignment, int type, Chain* query, 
     Chain* target, Scorer* scorer);
     
+extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score);
+    
 extern void nwReconstructCpu(char** path, int* pathLen, int* outScore, 
     Chain* query, int queryFrontGap, int queryBackGap, Chain* target, 
     int targetFrontGap, int targetBackGap, Scorer* scorer, int score);
     
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
-    
-extern void swFindStartCpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score);
     
 //******************************************************************************
 
@@ -356,12 +356,7 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
     free(moves);
 }
 
-//------------------------------------------------------------------------------
-
-//------------------------------------------------------------------------------
-// SW MODULES
-
-extern void swFindStartCpu(int* queryStart, int* targetStart, Chain* query, 
+extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
     Chain* target, Scorer* scorer, int score) {
     
     *queryStart = -1;

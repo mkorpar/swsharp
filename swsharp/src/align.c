@@ -158,6 +158,9 @@ static int nwScorePairGpu(void** data, Chain* query, Chain* target,
 static void nwReconstructPairGpu(Alignment** alignment, void* data, 
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
     
+static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
+    
 // sw
 static int swScorePairGpuSingle(void** data, Chain* query, Chain* target, 
     Scorer* scorer, int* cards, int cardsLen);
@@ -171,9 +174,6 @@ static int swScorePairGpuDual(void** data, Chain* query, Chain* target,
 static void swReconstructPairGpuDual(Alignment** alignment, void* data, 
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
     
-static void swFindStartSpecific(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
-
 //******************************************************************************
 
 //******************************************************************************
@@ -649,6 +649,24 @@ static void nwReconstructPairGpu(Alignment** alignment, void* data_,
         score, scorer, path, pathLen);
 }
 
+static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int card, Thread* thread) {
+    
+    int rows = chainGetLength(query);
+    int cols = chainGetLength(target);
+    
+    double cells = (double) rows * cols;
+    
+    if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS) {
+        nwFindScoreCpu(queryStart, targetStart, query, target, scorer, score);
+    } else {
+        nwFindScoreGpu(queryStart, targetStart, query, target, scorer, score, 
+            card, thread);
+    }
+    
+    ASSERT(*queryStart != -1, "Score not found %d", score);
+}
+
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
@@ -695,7 +713,7 @@ static void swReconstructPairGpuSingle(Alignment** alignment, void* data_,
     int queryStart;
     int targetStart;
 
-    swFindStartSpecific(&queryStart, &targetStart, queryFind, targetFind, 
+    nwFindScoreSpecific(&queryStart, &targetStart, queryFind, targetFind, 
         scorer, score, card, NULL);
 
     queryStart = chainGetLength(queryFind) - queryStart - 1;
@@ -880,18 +898,18 @@ static void swReconstructPairGpuDual(Alignment** alignment, void* data_,
         
         if (cardsLen == 1) {
         
-            swFindStartSpecific(&queryStart, &targetStart,  upQueryFind, 
+            nwFindScoreSpecific(&queryStart, &targetStart,  upQueryFind, 
                 upTargetFind, scorer, middleScoreUp, cards[0], NULL);
                 
-            swFindStartSpecific(&queryEnd, &targetEnd,  downQueryFind, 
+            nwFindScoreSpecific(&queryEnd, &targetEnd,  downQueryFind, 
                 downTargetFind, scorer, middleScoreDown, cards[0], NULL);
         
         } else {
         
-            swFindStartSpecific(&queryStart, &targetStart, upQueryFind, 
+            nwFindScoreSpecific(&queryStart, &targetStart, upQueryFind, 
                 upTargetFind, scorer, middleScoreUp, cards[1], &thread);
                 
-            swFindStartSpecific(&queryEnd, &targetEnd,  downQueryFind, 
+            nwFindScoreSpecific(&queryEnd, &targetEnd,  downQueryFind, 
                 downTargetFind, scorer, middleScoreDown, cards[0], NULL);
                 
             threadJoin(thread);
@@ -962,7 +980,7 @@ static void swReconstructPairGpuDual(Alignment** alignment, void* data_,
         Chain* queryFind = chainCreateView(query, 0, queryEnd, 1);
         Chain* targetFind = chainCreateView(target, 0, targetEnd, 1);
         
-        swFindStartSpecific(&queryStart, &targetStart, queryFind, targetFind, 
+        nwFindScoreSpecific(&queryStart, &targetStart, queryFind, targetFind, 
             scorer, score, cards[0], NULL);
             
         queryStart = chainGetLength(queryFind) - queryStart - 1;
@@ -988,7 +1006,7 @@ static void swReconstructPairGpuDual(Alignment** alignment, void* data_,
         Chain* queryFind = chainCreateView(query, queryStart, rows - 1, 0);
         Chain* targetFind = chainCreateView(target, targetStart, cols - 1, 0);
         
-        swFindStartSpecific(&queryEnd, &targetEnd, queryFind, targetFind, 
+        nwFindScoreSpecific(&queryEnd, &targetEnd, queryFind, targetFind, 
             scorer, score, cards[0], NULL);
             
         queryEnd = queryStart + queryEnd;
@@ -1013,23 +1031,5 @@ static void swReconstructPairGpuDual(Alignment** alignment, void* data_,
         targetStart, targetEnd, score, scorer, path, pathLen);
 }
     
-static void swFindStartSpecific(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread) {
-    
-    int rows = chainGetLength(query);
-    int cols = chainGetLength(target);
-    
-    double cells = (double) rows * cols;
-    
-    if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS) {
-        swFindStartCpu(queryStart, targetStart, query, target, scorer, score);
-    } else {
-        swFindStartGpu(queryStart, targetStart, query, target, scorer, score, 
-            card, thread);
-    }
-    
-    ASSERT(*queryStart != -1, "Score not found %d", score);
-}
-
 //------------------------------------------------------------------------------
 //******************************************************************************

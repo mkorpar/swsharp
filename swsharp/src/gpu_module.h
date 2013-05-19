@@ -60,6 +60,27 @@ extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* score, Chain* query
     Chain* target, Scorer* scorer, int card, Thread* thread);
     
 /*!
+@brief GPU implementation of score finding function.
+
+Method uses Needleman-Wunsch algorithm with all of the start conditions set to
+infinity. This assures path contains the first cell and does not start with gaps.
+If the score is found it return the coordinates of the cell with the provided 
+score, (-1, -1) otherwise.
+
+@param queryStart output, if found query index of found cell, -1 otherwise
+@param targetStart output, if found target index of found cell, -1 otherwise
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param score input alignment score
+@param card CUDA card on which the function will be executed
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/                 
+extern void nwFindScoreGpu(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
+
+/*!
 @brief GPU implementation of Needleman-Wunsch scoring function.
 
 If scores and/or affines pointers are not equal to NULL method provides the last
@@ -113,28 +134,6 @@ row of the scoring matrix and the affine deletion matrix, respectively.
 extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
     int** scores, int** affines, Chain* query, Chain* target, Scorer* scorer, 
     int card, Thread* thread);
-
-/*!
-@brief GPU implementation of score finding function.
-
-Method uses Needleman-Wunsch algorithm with all of the start conditions set to
-infinity. This assures path contains the first cell and does not start with gaps.
-Function is used for finding the startpoint of the Smith-Waterman provided
-endpoint. If the score is found it return the coordinates of the cell with the 
-provided score, (-1, -1) otherwise.
-
-@param queryStart output, if found query index of found cell, -1 otherwise
-@param targetStart output, if found target index of found cell, -1 otherwise
-@param query query chain
-@param target target chain
-@param scorer scorer object used for alignment
-@param score input alignment score
-@param card CUDA card on which the function will be executed
-@param thread thread on which the function will be executed, if NULL function is
-    executed on the current thread
-*/                 
-extern void swFindStartGpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
 
 //******************************************************************************
 
