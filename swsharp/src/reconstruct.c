@@ -349,9 +349,9 @@ static void* hirschberg(void* param) {
 
     int row = rows / 2;
 
-    // inclusive
-    int pLeft = p + rows - cols + 1; 
-    int pRight = p + 1;
+    // inclusive, don't assume rows > cols
+    int pLeft = rows > cols ? p + rows - cols + 1 : p + 1; 
+    int pRight = rows > cols ? p + 1 : p + cols - rows + 1;
     
     Chain* uRow = chainCreateView(rowChain, 0, row, 0);
     Chain* dRow = chainCreateView(rowChain, row + 1, rows - 1, 1);
@@ -435,7 +435,7 @@ static void* hirschberg(void* param) {
     free(uAff);
     free(dScr);
     free(dAff);
-
+    
     if (block->score != NO_SCORE) {
         ASSERT(maxScr == block->score, "score: %d, found: %d", block->score, maxScr);
     }
