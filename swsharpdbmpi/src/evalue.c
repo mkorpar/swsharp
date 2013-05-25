@@ -20,6 +20,7 @@ Contact the author by mkorpar@gmail.com.
 */
 
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -29,9 +30,9 @@ Contact the author by mkorpar@gmail.com.
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-#define TABLE_LEN (sizeof(table) / sizeof(TableEntry))
+#define SCORER_CONSTANTS_LEN (sizeof(scorerConstants) / sizeof(ScorerConstants))
 
-typedef struct StatParams {
+typedef struct EValueParams {
     double lambda;
     double K;
     double H;
@@ -45,9 +46,13 @@ typedef struct StatParams {
     double G;
     double aUn;
     double alphaUn;
-} StatParams;
+    int length;
+} EValueParams;
 
-typedef struct Params {
+typedef struct ScorerConstants {
+    const char* matrix;
+    int gapOpen;
+    int gapExtend;
     double lambda;
     double K;
     double H;
@@ -55,29 +60,22 @@ typedef struct Params {
     double C;
     double alpha;
     double sigma;
-} Params;
-
-typedef struct TableEntry {
-    const char* matrix;
-    int gapOpen;
-    int gapExtend;
-    Params params;
-} TableEntry;
+} ScorerConstants;
 
 // lambda, k, H, a, C, Alpha, Sigma
-static TableEntry table[] = {
-    { "BLOSUM_62", -1, -1, { 0.3176, 0.134, 0.4012, 0.7916, 0.623757, 4.964660, 4.964660 } },
-    { "BLOSUM_62", 11, 2, { 0.297, 0.082, 0.27, 1.1, 0.641766, 12.673800, 12.757600 } },
-    { "BLOSUM_62", 10, 2, { 0.291, 0.075, 0.23, 1.3, 0.649362, 16.474000, 16.602600 } },
-    { "BLOSUM_62", 9, 2, { 0.279, 0.058, 0.19, 1.5, 0.659245, 22.751900, 22.950000 } },
-    { "BLOSUM_62", 8, 2, { 0.264, 0.045, 0.15, 1.8, 0.672692, 35.483800, 35.821300 } },
-    { "BLOSUM_62", 7, 2, { 0.239, 0.027, 0.10, 2.5, 0.702056, 61.238300, 61.886000 } },
-    { "BLOSUM_62", 6, 2, { 0.201, 0.012, 0.061, 3.3, 0.740802, 140.417000, 141.882000 } },
-    { "BLOSUM_62", 13, 1, { 0.292, 0.071, 0.23, 1.2, 0.647715, 19.506300, 19.893100 } },
-    { "BLOSUM_62", 12, 1, { 0.283, 0.059, 0.19, 1.5, 0.656391, 27.856200, 28.469900 } },
-    { "BLOSUM_62", 11, 1, { 0.267, 0.041, 0.14, 1.9, 0.669720, 42.602800, 43.636200 } },
-    { "BLOSUM_62", 10, 1, { 0.243, 0.024, 0.10, 2.5, 0.693267, 83.178700, 85.065600 } },
-    { "BLOSUM_62", 9, 1, { 0.206, 0.010, 0.052, 4.0, 0.731887, 210.333000, 214.842000 } },
+static ScorerConstants scorerConstants[] = {
+    { "BLOSUM_62", -1, -1, 0.3176, 0.134, 0.4012, 0.7916, 0.623757, 4.964660, 4.964660 },
+    { "BLOSUM_62", 11, 2, 0.297, 0.082, 0.27, 1.1, 0.641766, 12.673800, 12.757600 },
+    { "BLOSUM_62", 10, 2, 0.291, 0.075, 0.23, 1.3, 0.649362, 16.474000, 16.602600 },
+    { "BLOSUM_62", 9, 2, 0.279, 0.058, 0.19, 1.5, 0.659245, 22.751900, 22.950000 },
+    { "BLOSUM_62", 8, 2, 0.264, 0.045, 0.15, 1.8, 0.672692, 35.483800, 35.821300 },
+    { "BLOSUM_62", 7, 2, 0.239, 0.027, 0.10, 2.5, 0.702056, 61.238300, 61.886000 },
+    { "BLOSUM_62", 6, 2, 0.201, 0.012, 0.061, 3.3, 0.740802, 140.417000, 141.882000 },
+    { "BLOSUM_62", 13, 1, 0.292, 0.071, 0.23, 1.2, 0.647715, 19.506300, 19.893100 },
+    { "BLOSUM_62", 12, 1, 0.283, 0.059, 0.19, 1.5, 0.656391, 27.856200, 28.469900 },
+    { "BLOSUM_62", 11, 1, 0.267, 0.041, 0.14, 1.9, 0.669720, 42.602800, 43.636200 },
+    { "BLOSUM_62", 10, 1, 0.243, 0.024, 0.10, 2.5, 0.693267, 83.178700, 85.065600 },
+    { "BLOSUM_62", 9, 1, 0.206, 0.010, 0.052, 4.0, 0.731887, 210.333000, 214.842000 },
 };
 
 //******************************************************************************
@@ -88,11 +86,8 @@ static TableEntry table[] = {
 //******************************************************************************
 // PRIVATE
 
-static double calculateEValue(StatParams* statParams, int score, int queryLen, 
-    int targetLen, int databaseChars);
-    
-static void initStatParams(StatParams* statParams, const char* matrix, 
-    int gapOpen, int gapExtend);
+static double calculateEValue(int score, int queryLen, int targetLen, 
+    EValueParams* params);
     
 #ifdef _WIN32
 double erf(double x);
@@ -103,33 +98,78 @@ double erf(double x);
 //******************************************************************************
 // PUBLIC
 
-extern void eValues(float* values, int* scores, Chain* query, 
-    Chain** database, int databaseLen, Scorer* scorer) {
-    
+extern EValueParams* createEValueParams(Chain** database, int databaseLen, 
+    Scorer* scorer) {
+
     int i;
     
-    // calculate db length in chars
-    int databaseChars = 0;
+    int length = 0;
     for (i = 0; i < databaseLen; ++i) {
-        databaseChars += chainGetLength(database[i]);
+        length += chainGetLength(database[i]);
     }
     
     const char* matrix = scorerGetName(scorer);
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
     
-    StatParams statParams;
-    initStatParams(&statParams, matrix, gapOpen, gapExtend);
+    double alphaUn = scorerConstants[0].alpha;
+    double aUn = scorerConstants[0].a;
+    double G = gapOpen + gapExtend;
+    
+    int index = -1;
+    for (i = 0; i < SCORER_CONSTANTS_LEN; ++i) {
 
+        ScorerConstants entry = scorerConstants[i];
+        
+        if (entry.gapOpen == gapOpen && entry.gapExtend == gapExtend &&
+            strncmp(entry.matrix, matrix, strlen(entry.matrix)) == 0) {
+            index = i;
+            break;
+        }
+    }
+    
+    if (index == -1) {
+        index = 0;
+        printf("WARNING: no e-value params found, using defaults\n");
+    }
+    
+    EValueParams* params = (EValueParams*) malloc(sizeof(struct EValueParams));
+    
+    params->G = G;
+    params->aUn = aUn;
+    params->alphaUn = alphaUn;
+    params->lambda = scorerConstants[index].lambda;
+    params->K = scorerConstants[index].K;
+    params->H = scorerConstants[index].H;
+    params->a = scorerConstants[index].a;
+    params->C = scorerConstants[index].C;
+    params->alpha = scorerConstants[index].alpha;
+    params->sigma = scorerConstants[index].sigma;
+    params->b = 2.0 * G * (params->aUn - params->a);
+    params->beta = 2.0 * G * (params->alphaUn - params->alpha);
+    params->tau = 2.0 * G * (params->alphaUn - params->sigma);
+    params->length = length;
+    
+    return params;
+}
+
+extern void deleteEValueParams(EValueParams* eValueParams) {
+    free(eValueParams);
+    eValueParams = NULL;
+}
+
+extern void eValues(double* values, int* scores, Chain* query, 
+    Chain** database, int databaseLen, EValueParams* eValueParams) {
+    
     int queryLen = chainGetLength(query);
 
+    int i;
     for (i = 0; i < databaseLen; ++i) {
         
         int score = scores[i];
         int targetLen = chainGetLength(database[i]);
             
-        values[i] = (float) calculateEValue(&statParams, score, queryLen, 
-            targetLen, databaseChars);
+        values[i] = calculateEValue(score, queryLen, targetLen, eValueParams);
     }
 }
 
@@ -138,8 +178,8 @@ extern void eValues(float* values, int* scores, Chain* query,
 //******************************************************************************
 // PRIVATE
 
-static double calculateEValue(StatParams* statParams, int score, int queryLen, 
-    int targetLen, int databaseChars) {
+static double calculateEValue(int score, int queryLen, int targetLen, 
+    EValueParams* params) {
     
     // code taken from blast
     // pile of statistical crap
@@ -149,16 +189,16 @@ static double calculateEValue(StatParams* statParams, int score, int queryLen,
     int n_ = targetLen;
     
     // the pair-wise e-value must be scaled back to db-wise e-value
-    double db_scale_factor = (double) databaseChars / (double) n_;
+    double db_scale_factor = (double) params->length / (double) n_;
 
-    double lambda_    = statParams->lambda;
-    double k_         = statParams->K;
-    double ai_hat_    = statParams->a;
-    double bi_hat_    = statParams->b;
-    double alphai_hat_= statParams->alpha;
-    double betai_hat_ = statParams->beta;
-    double sigma_hat_ = statParams->sigma;
-    double tau_hat_   = statParams->tau;
+    double lambda_    = params->lambda;
+    double k_         = params->K;
+    double ai_hat_    = params->a;
+    double bi_hat_    = params->b;
+    double alphai_hat_= params->alpha;
+    double betai_hat_ = params->beta;
+    double sigma_hat_ = params->sigma;
+    double tau_hat_   = params->tau;
 
     // here we consider symmetric matrix only
     double aj_hat_    = ai_hat_;
@@ -191,46 +231,6 @@ static double calculateEValue(StatParams* statParams, int score, int queryLen,
     area = p1 * p2 + c_y * P_m_F * P_n_F;
 
     return area * k_ * exp(-lambda_ * y_) * db_scale_factor;
-}
-
-static void initStatParams(StatParams* statParams, const char* matrix, 
-    int gapOpen, int gapExtend) {
-    
-    double alphaUn = table[0].params.alpha;
-    double aUn = table[0].params.a;
-    double G = gapOpen + gapExtend;
-    
-    int index = 0;
-    
-    int i;
-    for (i = 1; i < TABLE_LEN; ++i) {
-
-        TableEntry entry = table[i];
-        
-        if (entry.gapOpen == gapOpen && entry.gapExtend == gapExtend &&
-            strncmp(entry.matrix, matrix, strlen(entry.matrix)) == 0) {
-            index = i;
-            break;
-        }
-    }
-    
-    if (index == 0) {
-        printf("WARNING: no e-value params found, using default\n");
-    }
-    
-    statParams->G = G;
-    statParams->aUn = aUn;
-    statParams->alphaUn = alphaUn;
-    statParams->lambda = table[index].params.lambda;
-    statParams->K = table[index].params.K;
-    statParams->H = table[index].params.H;
-    statParams->a = table[index].params.a;
-    statParams->C = table[index].params.C;
-    statParams->alpha = table[index].params.alpha;
-    statParams->sigma = table[index].params.sigma;
-    statParams->b = 2.0 * G * (statParams->aUn - statParams->a);
-    statParams->beta = 2.0 * G * (statParams->alphaUn - statParams->alpha);
-    statParams->tau = 2.0 * G * (statParams->alphaUn - statParams->sigma);
 }
 
 #ifdef _WIN32

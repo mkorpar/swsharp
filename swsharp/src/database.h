@@ -66,11 +66,14 @@ typedef void (*ValueFunction)(double* values, int* scores, Chain* query,
 @brief ChainDatabase constructor.
 
 @param database chain array
-@param databaseLen chain array length
+@param databaseStart index of the first chain to solve
+@param databaseLen length offset from databaseStart to last chain that needs to 
+    be solved
 
 @return chainDatabase object
 */
-extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseLen);
+extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseStart, 
+    int databaseLen);
 
 /*!
 @brief ChainDatabase destructor.
@@ -96,7 +99,8 @@ with given indexes will be considered, other will be ignored.
 @param query query chain
 @param chainDatabase chain database object
 @param scorer scorer object used for alignment
-@param maxAlignments maximum number of alignments to return
+@param maxAlignments maximum number of alignments to return, if negative number
+    of alignments wont be limited
 @param valueFunction function for valueing the alignment scores
 @param valueThreshold maximum value of returned alignments
 @param valueFunctionParam additional parameters for the value function
@@ -131,7 +135,8 @@ alignDatabase() for every query separately.
 @param queriesLen query chains array length
 @param chainDatabase chain database object
 @param scorer scorer object used for alignment
-@param maxAlignments maximum number of alignments to return
+@param maxAlignments maximum number of alignments to return, if negative number
+    of alignments wont be limited
 @param valueFunction function for valueing the alignment scores
 @param valueThreshold maximum value of returned alignments
 @param valueFunctionParam additional parameters for the value function

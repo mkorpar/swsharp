@@ -74,6 +74,7 @@ typedef struct AlignContext {
     Chain** queries;
     int queriesLen;
     Chain** database;
+    int databaseStart;
     Scorer* scorer;
     int* cards;
     int cardsLen;
@@ -87,6 +88,7 @@ typedef struct ExtractContext {
     Chain** queries;
     int queriesLen;
     Chain** database;
+    int databaseStart;
     int databaseLen;
     int* scores;
     int maxAlignments;
@@ -105,13 +107,15 @@ typedef struct IntDouble {
 struct ChainDatabase {
     ChainDatabaseGpu* chainDatabaseGpu;
     Chain** database;
+    int databaseStart;
     int databaseLen;
 };
 
 //******************************************************************************
 // PUBLIC
 
-extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseLen);
+extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseStart, 
+    int databaseLen);
 
 extern void chainDatabaseDelete(ChainDatabase* chainDatabase);
 
@@ -148,6 +152,9 @@ static void scoreDatabasesCpu(int** scores, int type, Chain** queries,
     int queriesLen, Chain** database, int databaseLen, Scorer* scorer, 
     int* indexes, int indexesLen);
 
+static void filterIndexesArray(int** indexesNew, int* indexesNewLen, 
+    int* indexes, int indexesLen, int minIndex, int maxIndex);
+
 static int intDoubleCmp(const void* a_, const void* b_);
 
 //******************************************************************************
@@ -155,11 +162,16 @@ static int intDoubleCmp(const void* a_, const void* b_);
 //******************************************************************************
 // PUBLIC
 
-extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseLen) {
-
+extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseStart, 
+    int databaseLen) {
+    
     ChainDatabase* db = (ChainDatabase*) malloc(sizeof(struct ChainDatabase));
     
     TIMER_START("Creating database");
+    
+    db->database = database;
+    db->databaseStart = databaseStart;
+    db->databaseLen = databaseLen;
     
     int i;
     
@@ -171,11 +183,9 @@ extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseLen) {
     if (n < GPU_DB_MIN_LEN) {
         db->chainDatabaseGpu = NULL;
     } else {
-        db->chainDatabaseGpu = chainDatabaseGpuCreate(database, databaseLen);
+        Chain** databaseGpu = database + databaseStart;
+        db->chainDatabaseGpu = chainDatabaseGpuCreate(databaseGpu, databaseLen);
     }
-    
-    db->database = database;
-    db->databaseLen = databaseLen;
     
     TIMER_STOP;
     
@@ -271,26 +281,45 @@ static void* databaseSearchThread(void* param) {
     ValueFunction valueFunction = context->valueFunction;
     void* valueFunctionParam = context->valueFunctionParam;
     double valueThreshold = context->valueThreshold;
-    int* indexes = context->indexes;
-    int indexesLen = context->indexesLen; 
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
     
     Chain** database = chainDatabase->database;
+    int databaseStart = chainDatabase->databaseStart;
     int databaseLen = chainDatabase->databaseLen;
     ChainDatabaseGpu* chainDatabaseGpu = chainDatabase->chainDatabaseGpu;
     
-    if (maxAlignments < 0) {
-        maxAlignments = databaseLen;
-    }
+    TIMER_START("Database search");
+    
+    int i;
+    
+    //**************************************************************************
+    // FIX INDEXES 
+    
+    int* indexes;
+    int indexesLen;
+    
+    filterIndexesArray(&indexes, &indexesLen, context->indexes, 
+        context->indexesLen, databaseStart, databaseStart + databaseLen - 1);
+
+    for (i = 0; i < indexesLen; ++i) {
+        indexes[i] -= databaseStart;
+    }    
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // FIX ARGUMENTS 
     
     if (indexes != NULL) {
         maxAlignments = MIN(indexesLen, maxAlignments);
     }
     
-    TIMER_START("Database search");
+    if (maxAlignments < 0) {
+        maxAlignments = databaseLen;
+    }
     
-    int i;
+    //**************************************************************************
     
     //**************************************************************************
     // CALCULATE SCORES
@@ -298,8 +327,8 @@ static void* databaseSearchThread(void* param) {
     int* scores;
     
     if (chainDatabaseGpu == NULL || cardsLen == 0) {
-        scoreDatabasesCpu(&scores, type, queries, queriesLen, database, 
-            databaseLen, scorer, indexes, indexesLen);
+        scoreDatabasesCpu(&scores, type, queries, queriesLen, 
+            database + databaseStart, databaseLen, scorer, indexes, indexesLen);
     } else {
         scoreDatabasesGpu(&scores, type, queries, queriesLen, chainDatabaseGpu, 
             scorer, indexes, indexesLen, cards, cardsLen, NULL);
@@ -327,6 +356,7 @@ static void* databaseSearchThread(void* param) {
         extractContexts[i].queries = queries;
         extractContexts[i].queriesLen = queriesLen;
         extractContexts[i].database = database;
+        extractContexts[i].databaseStart = databaseStart;
         extractContexts[i].databaseLen = databaseLen;
         extractContexts[i].scores = scores;
         extractContexts[i].maxAlignments = maxAlignments;
@@ -373,6 +403,7 @@ static void* databaseSearchThread(void* param) {
         alignContexts[i].queries = queries;
         alignContexts[i].queriesLen = queriesLen;
         alignContexts[i].database = database;
+        alignContexts[i].databaseStart = databaseStart;
         alignContexts[i].scorer = scorer;
         alignContexts[i].cards = cards;
         alignContexts[i].cardsLen = cardsLen;
@@ -406,6 +437,7 @@ static void* databaseSearchThread(void* param) {
     free(alignThreads);
     free(alignContexts);
     
+    free(indexes); // copy
     free(scores);
 
     free(param);
@@ -432,6 +464,7 @@ static void* alignThread(void* param) {
     Chain** queries = context->queries;
     int queriesLen = context->queriesLen;
     Chain** database = context->database;
+    int databaseStart = context->databaseStart;
     Scorer* scorer = context->scorer;
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
@@ -451,7 +484,9 @@ static void* alignThread(void* param) {
         for (j = thread; j < dbAlignmentsLen[i]; j+= threads) {
         
             DbAlignmentData* data = &(dbAlignmentsData[i][j]);
-            Chain* target = database[data->idx];
+            
+            int targetIdx = databaseStart + data->idx;
+            Chain* target = database[targetIdx];
 
             // align
             Alignment* alignment;
@@ -479,7 +514,7 @@ static void* alignThread(void* param) {
             
             // create db alignment
             DbAlignment* dbAlignment = dbAlignmentCreate(query, queryStart, 
-                queryEnd, i, target, targetStart, targetEnd, data->idx, 
+                queryEnd, i, target, targetStart, targetEnd, targetIdx, 
                 data->value, data->score, scorer, path, pathLen);
     
             dbAlignments[i][j] = dbAlignment;
@@ -498,6 +533,7 @@ static void* extractThread(void* param) {
     Chain** queries = context->queries;
     int queriesLen = context->queriesLen;
     Chain** database = context->database;
+    int databaseStart = context->databaseStart;
     int databaseLen = context->databaseLen;
     int* scores = context->scores;
     int maxAlignments = context->maxAlignments;
@@ -518,10 +554,8 @@ static void* extractThread(void* param) {
         Chain* query = queries[i];
         int* queryScores = scores + i * databaseLen;
         
-        TIMER_START("value");
-        valueFunction(vals, queryScores, query, database, databaseLen, 
-            valueFunctionParam);
-        TIMER_STOP;
+        valueFunction(vals, queryScores, query, database + databaseStart, 
+            databaseLen, valueFunctionParam);
 
         int thresholded = 0;
     
@@ -621,6 +655,30 @@ static void scoreDatabasesCpu(int** scores, int type, Chain** queries,
 
 //------------------------------------------------------------------------------
 // UTILS
+
+static void filterIndexesArray(int** indexesNew, int* indexesNewLen, 
+    int* indexes, int indexesLen, int minIndex, int maxIndex) {
+    
+    if (indexes == NULL) {
+        *indexesNew = NULL;
+        *indexesNewLen = 0;
+        return;
+    }
+    
+    *indexesNew = (int*) malloc(indexesLen * sizeof(int));
+    *indexesNewLen = 0;
+    
+    int i;
+    for (i = 0; i < indexesLen; ++i) {
+    
+        int idx = indexes[i];
+        
+        if (idx >= minIndex && idx <= maxIndex) {
+            (*indexesNew)[*indexesNewLen] = idx;
+            (*indexesNewLen)++;
+        }
+    }
+}
 
 static int intDoubleCmp(const void* a_, const void* b_) {
 

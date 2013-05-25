@@ -28,8 +28,15 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
-extern void eValues(float* values, int* scores, Chain* query, 
-    Chain** database, int databaseLen, Scorer* scorer);
+typedef struct EValueParams EValueParams;
+
+extern EValueParams* createEValueParams(Chain** database, int databaseLen, 
+    Scorer* scorer);
+
+extern void deleteEValueParams(EValueParams* eValueParams);
+
+extern void eValues(double* values, int* scores, Chain* query, 
+    Chain** database, int databaseLen, EValueParams* eValueParams);
 
 #ifdef __cplusplus 
 }

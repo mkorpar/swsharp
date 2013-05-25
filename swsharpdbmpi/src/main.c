@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "database_utils.h"
 #include "evalue.h"
 #include "mpi_module.h"
 #include "swsharp/swsharp.h"
@@ -22,6 +23,11 @@ typedef struct CharInt {
     const char* format;
     const int code;
 } CharInt;
+
+typedef struct ValueFunctionParam {
+    Scorer* scorer;
+    int totalLength;
+} ValueFunctionParam;
 
 static struct option options[] = {
     {"cards", required_argument, 0, 'c'},
@@ -51,23 +57,23 @@ static void getCudaCards(int** cards, int* cardsLen, char* optarg);
 
 static int getOutFormat(char* optarg);
 
-static void valueFunction(float* values, int* scores, Chain* query, 
+static void valueFunction(double* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, void* param);
 
 int main(int argc, char* argv[]) {
 
-    int rank;
-    int nodes;
+    int mpiRank = 0;
+    int mpiNodes = 1;
     
     MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nodes);
-    
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpiRank);
+    MPI_Comm_size(MPI_COMM_WORLD, &mpiNodes);
+
     char* queryPath = NULL;
     char* databasePath = NULL;
 
     int gapOpen = 10;
-    int gapExtend = 2;
+    int gapExtend = 1;
     
     char* matrix = "BLOSUM_62";
         
@@ -79,7 +85,7 @@ int main(int argc, char* argv[]) {
     
     char* out = NULL;
     int outFormat = SW_OUT_DB_BLASTM9;
-    
+
     while (1) {
 
         char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
@@ -137,6 +143,7 @@ int main(int argc, char* argv[]) {
     
     ASSERT(gapOpen > 0, "invalid gap open");
     ASSERT(gapExtend > 0 && gapExtend <= gapOpen, "invalid gap extend");
+    
     ASSERT(maxEValue > 0, "invalid evalue");
     
     Scorer* scorer;
@@ -150,49 +157,84 @@ int main(int argc, char* argv[]) {
     int databaseLen = 0;
     readFastaChains(&database, &databaseLen, databasePath);
     
-    ChainDatabase* chainDatabase = chainDatabaseCreate(database, databaseLen);
-    
-    // MPI create dummy indexes
-    int* indexes = (int*) malloc(databaseLen * sizeof(int));
-    int i;
-    for (i = 0; i < databaseLen; ++i) {
-        indexes[i] = i;
-    }
-    
-    // MPI calculate indexes to solve
-    int indexesOffset = rank * (databaseLen / nodes);
-    int lastNode = rank == nodes - 1;
-    int indexesLen = lastNode ? databaseLen - indexesOffset : databaseLen / nodes;
+    EValueParams* eValueParams = createEValueParams(database, databaseLen, 
+        scorer);
+
+    // mpi data
+    int mpiDbStep = databaseLen / mpiNodes;
+    int mpiDbOff = mpiRank * mpiDbStep;
+    int mpiDbLen = mpiRank == mpiNodes - 1 ? databaseLen - mpiDbOff : mpiDbStep;
+
+    ChainDatabase* chainDatabase = chainDatabaseCreate(database, mpiDbOff, mpiDbLen);
 
     DbAlignment*** dbAlignments;
-    int* dbAlignmentsLen;
+    int* dbAlignmentsLens;
 
-    shotgunDatabase(&dbAlignments, &dbAlignmentsLen, SW_ALIGN, queries, 
+    shotgunDatabase(&dbAlignments, &dbAlignmentsLens, SW_ALIGN, queries, 
         queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
-        (void*) scorer, maxEValue, indexes + indexesOffset, indexesLen, cards, 
-        cardsLen, NULL);
-        
+        (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
+
     // master node gathers and outputs data
-    if (rank == MASTER_NODE) {
-    
-        // recieve and join
-        gatherMpiData(&dbAlignments, &dbAlignmentsLen, queries, queriesLen, 
-            database, databaseLen, scorer, maxAlignments);
+    int masterNode = 0;
+    if (mpiRank == masterNode) {
 
+        int i;
+        size_t size;
+        
+        size = mpiNodes * sizeof(DbAlignment***);
+        DbAlignment**** dbAlignmentsMpi = (DbAlignment****) malloc(size); 
+        
+        size = mpiNodes * sizeof(int**);
+        int** dbAlignmentsLensMpi = (int**) malloc(size);
+         
+        size = mpiNodes * sizeof(int*);
+        int* dbAlignmentsLenMpi = (int*) malloc(size);
+        
+        dbAlignmentsMpi[mpiRank] = dbAlignments;
+        dbAlignmentsLensMpi[mpiRank] = dbAlignmentsLens;
+        dbAlignmentsLenMpi[mpiRank] = queriesLen;
+        
+        for (i = 0; i < mpiNodes; ++i) {
+            if (i != mpiRank) {
+                recieveMpiData(&(dbAlignmentsMpi[i]), &(dbAlignmentsLensMpi[i]), 
+                    &(dbAlignmentsLenMpi[i]), queries, database, scorer, i);
+            }
+        }
+        
+        int dbAlignmentsLen;
+        joinShotgunDatabases(&dbAlignments, &dbAlignmentsLens, &dbAlignmentsLen, 
+            dbAlignmentsMpi, dbAlignmentsLensMpi, dbAlignmentsLenMpi, 
+            mpiNodes, maxAlignments);
+           
         // output
-        outputShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen, 
+        outputShotgunDatabase(dbAlignments, dbAlignmentsLens, dbAlignmentsLen, 
             out, outFormat);
+        
+        // delete real data
+        for (i = 0; i < mpiNodes; ++i) {
+            deleteShotgunDatabase(dbAlignmentsMpi[i], dbAlignmentsLensMpi[i], 
+                dbAlignmentsLenMpi[i]);
+        }
+        
+        // delete placeholders
+        for (i = 0; i < dbAlignmentsLen; ++i) {
+            free(dbAlignments[i]);
+        }
+        free(dbAlignments);
+        free(dbAlignmentsLens);
+        
+        free(dbAlignmentsMpi);
+        free(dbAlignmentsLensMpi);
+        free(dbAlignmentsLenMpi);
+        
     } else {
-        // send data to master node
-        sendMpiData(dbAlignments, dbAlignmentsLen, queries, queriesLen, 
-            database, databaseLen);
+        sendMpiData(dbAlignments, dbAlignmentsLens, queriesLen, masterNode);
+        deleteShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen);
     }
-    
-    free(indexes);
-    
-    deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
-
+        
     chainDatabaseDelete(chainDatabase);
+
+    deleteEValueParams(eValueParams);
     
     deleteFastaChains(queries, queriesLen);
     deleteFastaChains(database, databaseLen);
@@ -200,9 +242,9 @@ int main(int argc, char* argv[]) {
     scorerDelete(scorer);
     
     free(cards);
-
+    
     MPI_Finalize();
-
+    
     return 0;
 }
 
@@ -228,12 +270,64 @@ static int getOutFormat(char* optarg) {
 
     ASSERT(0, "unknown out format %s", optarg);
 }
-
-static void valueFunction(float* values, int* scores, Chain* query, 
-    Chain** database, int databaseLen, void* param) {
-    eValues(values, scores, query, database, databaseLen, (Scorer*) param);
+       
+static void valueFunction(double* values, int* scores, Chain* query, 
+    Chain** database, int databaseLen, void* param_ ) {
+    
+    EValueParams* eValueParams = (EValueParams*) param_;
+    eValues(values, scores, query, database, databaseLen, eValueParams);
 }
 
 static void help() {
-    printf("help\n");
+    printf(
+    "usage: swsharpdb -i <query db file> -j <target db file> [arguments ...]\n"
+    "\n"
+    "arguments:\n"
+    "    -i, --query <file>\n"
+    "        (required)\n"
+    "        input fasta database query file\n"
+    "    -j, --target <file>\n"
+    "        (required)\n"
+    "        input fasta database target file\n"
+    "    -g, --gap-open <int>\n"
+    "        default: 10\n"
+    "        gap opening penalty, must be given as a positive integer \n"
+    "    -e, --gap-extend <int>\n"
+    "        default: 1\n"
+    "        gap extension penalty, must be given as a positive integer and\n"
+    "        must be less or equal to gap opening penalty\n" 
+    "    --matrix <string>\n"
+    "        default: BLOSUM_62\n"
+    "        similarity matrix, can be one of the following:\n"
+    "            BLOSUM_45\n"
+    "            BLOSUM_50\n"
+    "            BLOSUM_62\n"
+    "            BLOSUM_80\n"
+    "            BLOSUM_90\n"
+    "            BLOSUM_30\n"
+    "            BLOSUM_70\n"
+    "            BLOSUM_250\n"
+    "    --evalue <float>\n"
+    "        default: 10.0\n"
+    "        evalue threshold, alignments with higher evalue are filtered,\n"
+    "        must be given as a positive float\n"
+    "    --max-aligns <int>\n"
+    "        default: 10\n"
+    "        maximum number of alignments to be outputted\n"
+    "    --cards <ints>\n"
+    "        default: all available CUDA cards\n"
+    "        list of cards should be given as an array of card indexes delimited with\n"
+    "        nothing, for example usage of first two cards is given as --cards 01\n"
+    "    --out <string>\n"
+    "        default: stdout\n"
+    "        output file for the alignment\n"
+    "    --outfmt <string>\n"
+    "        default: bm9\n"
+    "        out format for the output file, must be one of the following:\n"
+    "            bm0      - blast m0 output format\n"
+    "            bm8      - blast m8 tabular output format\n"
+    "            bm9      - blast m9 commented tabular output format\n"
+    "            light    - score-name tabbed output\n"
+    "    -h, -help\n"
+    "        prints out the help\n");
 }

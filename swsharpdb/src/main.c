@@ -147,24 +147,25 @@ int main(int argc, char* argv[]) {
     int databaseLen = 0;
     readFastaChains(&database, &databaseLen, databasePath);
     
-    EValueParams* eValueParams = createEValueParams(database, databaseLen, scorer);
+    EValueParams* eValueParams = createEValueParams(database, databaseLen, 
+        scorer);
         
-    ChainDatabase* chainDatabase = chainDatabaseCreate(database, databaseLen);
-
+    ChainDatabase* chainDatabase = chainDatabaseCreate(database, 0, databaseLen);
+    
     DbAlignment*** dbAlignments;
-    int* dbAlignmentsLen;
+    int* dbAlignmentsLens;
 
-    shotgunDatabase(&dbAlignments, &dbAlignmentsLen, SW_ALIGN, queries, 
+    shotgunDatabase(&dbAlignments, &dbAlignmentsLens, SW_ALIGN, queries, 
         queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
         (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
       
-    outputShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen, 
-        out, outFormat);
+    outputShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen, out, 
+        outFormat);
     
-    deleteShotgunDatabase(dbAlignments, dbAlignmentsLen, queriesLen);
+    deleteShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen);
 
     chainDatabaseDelete(chainDatabase);
-    
+
     deleteEValueParams(eValueParams);
     
     deleteFastaChains(queries, queriesLen);
@@ -251,7 +252,7 @@ static void help() {
     "        default: stdout\n"
     "        output file for the alignment\n"
     "    --outfmt <string>\n"
-    "        default: bm8\n"
+    "        default: bm9\n"
     "        out format for the output file, must be one of the following:\n"
     "            bm0      - blast m0 output format\n"
     "            bm8      - blast m8 tabular output format\n"

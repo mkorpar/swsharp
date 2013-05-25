@@ -30,12 +30,12 @@ Contact the author by mkorpar@gmail.com.
 //******************************************************************************
 // PUBLIC
 
-extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen, 
-    Chain** queries, int queriesLen, Chain** database, int databaseLen, 
-    Scorer* scorer, int maxAlignments);
-
-extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLen, 
-    Chain** queries, int queriesLen, Chain** database, int databaseLen);
+extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLens, 
+    int dbAlignmentsLen, int node);
+    
+extern void recieveMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLens, 
+    int* dbAlignmentsLen, Chain** queries, Chain** database, Scorer* scorer, 
+    int node);
     
 //******************************************************************************
 
@@ -48,153 +48,63 @@ static DbAlignment* dbAlignmentFromBytes(char* bytes, Chain** queries,
 static void dbAlignmentToBytes(char** bytes, size_t* size, 
     DbAlignment* dbAlignment);
 
-static int dbAlignmentCmp(const void* a_, const void* b_);
-
-static int dbAlignmentsCmp(const void* a_, const void* b_);
-
 //******************************************************************************
 
 //******************************************************************************
 // PUBLIC
 
-extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen, 
-    Chain** queries, int queriesLen, Chain** database, int databaseLen, 
-    Scorer* scorer, int maxAlignments) {
-    
-    int nodes;
-    MPI_Comm_size(MPI_COMM_WORLD, &nodes);
-        
-    int i, j, k;
-    
-    //**************************************************************************
-    // INIT STRUCTURES
-    
-    DbAlignment**** all = 
-        (DbAlignment****) malloc(nodes * sizeof(DbAlignment***));
-        
-    int** allLens = (int**) malloc(nodes * sizeof(int*));
-    
-    all[MASTER_NODE] = *dbAlignments;
-    allLens[MASTER_NODE] = *dbAlignmentsLen;
-    
-    //**************************************************************************
-    
-    //**************************************************************************
-    // RECIEVE
-    
+extern void recieveMpiData(DbAlignment**** dbAlignments_, 
+    int** dbAlignmentsLens_, int* dbAlignmentsLen_, Chain** queries, 
+    Chain** database, Scorer* scorer, int node) {
+
+    int i, j;
     MPI_Status status;
     
-    for (i = 0; i < nodes; ++i) {
+    size_t size;
+    MPI_Recv(&size, sizeof(size), MPI_CHAR, node, 1, MPI_COMM_WORLD, &status);
+
+    char* buffer = (char*) malloc(size);
+    MPI_Recv(buffer, size, MPI_CHAR, node, 0, MPI_COMM_WORLD, &status);
+      
+    size_t ptr = 0;
     
-        if (i == MASTER_NODE) {
-            continue;
-        }
+    int dbAlignmentsLen;
+    memcpy(&dbAlignmentsLen, buffer + ptr, sizeof(int));
+    ptr += sizeof(int);  
+    
+    size = dbAlignmentsLen * sizeof(DbAlignment**);
+    DbAlignment*** dbAlignments = (DbAlignment***) malloc(size);
+    
+    size = dbAlignmentsLen * sizeof(int*);
+    int* dbAlignmentsLens = (int*) malloc(size);
+    
+    for (i = 0; i < dbAlignmentsLen; ++i) {
+    
+        memcpy(&(dbAlignmentsLens[i]), buffer + ptr, sizeof(int));
+        ptr += sizeof(int);
         
-        size_t size;
-        MPI_Recv(&size, sizeof(size), MPI_CHAR, i, 1, MPI_COMM_WORLD, &status);
-
-        char* buffer = (char*) malloc(size);
-        MPI_Recv(buffer, size, MPI_CHAR, i, 0, MPI_COMM_WORLD, &status);
-
-        size_t ptr = 0;
+        size = dbAlignmentsLens[i] * sizeof(DbAlignment*);
+        dbAlignments[i] = (DbAlignment**) malloc(size);
         
-        DbAlignment*** aligns = 
-            (DbAlignment***) malloc(queriesLen * sizeof(DbAlignment**));
-        int* lengths = (int*) malloc(queriesLen * sizeof(int));
+        for (j = 0; j < dbAlignmentsLens[i]; ++j) {
         
-        for (j = 0; j < queriesLen; ++j) {
-        
-            int length;
-            memcpy(&length, buffer + ptr, sizeof(int));
-            ptr += sizeof(int);
+            size_t bytesSize;
+            memcpy(&bytesSize, buffer + ptr, sizeof(size_t));
+            ptr += sizeof(size_t);
             
-            lengths[j] = length;
-            aligns[j] = (DbAlignment**) malloc(length * sizeof(DbAlignment*));
-
-            for (k = 0; k < length; ++k) {
-            
-                size_t bytesSize;
-                memcpy(&bytesSize, buffer + ptr, sizeof(size_t));
-                ptr += sizeof(size_t);
-              
-                aligns[j][k] = dbAlignmentFromBytes(buffer + ptr, queries, 
-                    database, scorer);
-                    
-                ptr += bytesSize;
-            }
+            dbAlignments[i][j] = dbAlignmentFromBytes(buffer + ptr, queries, 
+                database, scorer);
+            ptr += bytesSize;
         }
-        
-        all[i] = aligns;
-        allLens[i] = lengths;
     }
     
-    //**************************************************************************
-
-    //**************************************************************************
-    // JOIN
-
-    *dbAlignments = (DbAlignment***) malloc(queriesLen * sizeof(DbAlignment**));
-    *dbAlignmentsLen = (int*) malloc(queriesLen * sizeof(int));
-    
-    for (i = 0; i < queriesLen; ++i) {
-        
-        int length = 0;
-        for (j = 0; j < nodes; ++j) {
-            length += allLens[j][i];
-        }
-        
-        (*dbAlignments)[i] = (DbAlignment**) malloc(length * sizeof(DbAlignment*));
-        
-        int offset = 0;
-        
-        for (j = 0; j < nodes; ++j) {
-            
-            size_t size = allLens[j][i] * sizeof(DbAlignment*);
-            memcpy((*dbAlignments)[i] + offset, all[j][i], size);
-            
-            offset += allLens[j][i];
-        }
-        
-        // sort joined
-        qsort((*dbAlignments)[i], length, sizeof(DbAlignment*), dbAlignmentCmp);
-        
-        // delete unnecessary
-        if (length >= maxAlignments) {
-            
-            for (j = maxAlignments; j < length; ++j) {
-                dbAlignmentDelete((*dbAlignments)[i][j]);
-            }
-            
-            length = maxAlignments;
-        }
-        
-        (*dbAlignmentsLen)[i] = length;
-    }
-    
-    qsort(*dbAlignments, queriesLen, sizeof(DbAlignment**), dbAlignmentsCmp);
-    
-    //**************************************************************************
-    
-    //**************************************************************************
-    // CLEAN MEMORY
-    
-    for (i = 0; i < nodes; ++i) {
-    
-        int j;
-        for (j = 0; j < queriesLen; ++j) {
-            free(all[i][j]);
-        }
-        
-        free(all[i]);
-        free(allLens[i]);
-    }
-    free(allLens);
-    
-    //**************************************************************************
+    *dbAlignments_ = dbAlignments;
+    *dbAlignmentsLens_ = dbAlignmentsLens;
+    *dbAlignmentsLen_ = dbAlignmentsLen; 
 }
 
-extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLen, 
-    Chain** queries, int queriesLen, Chain** database, int databaseLen) {
+extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLens, 
+    int dbAlignmentsLen, int node) {
     
     int i, j;
     
@@ -206,19 +116,23 @@ extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLen,
 
     size_t ptr = 0;
 
-    for (i = 0; i < queriesLen; ++i) {
+    memcpy(buffer + ptr, &dbAlignmentsLen, sizeof(int));
+    ptr += sizeof(int);
+    realSize += sizeof(int);
+
+    for (i = 0; i < dbAlignmentsLen; ++i) {
         
-        realSize += sizeof(int); // dbAlignmentsLen[i]
+        realSize += sizeof(int); // dbAlignmentsLens[i]
         
         if (realSize >= bufferSize) {
             bufferSize += (realSize - bufferSize) + bufferStep;
             buffer = (char*) realloc(buffer, bufferSize);
         }
 
-        memcpy(buffer + ptr, &(dbAlignmentsLen[i]), sizeof(int));
+        memcpy(buffer + ptr, &(dbAlignmentsLens[i]), sizeof(int));
         ptr += sizeof(int);
 
-        for (j = 0; j < dbAlignmentsLen[i]; ++j) {
+        for (j = 0; j < dbAlignmentsLens[i]; ++j) {
         
             size_t bytesSize;
             char* bytes;
@@ -241,8 +155,8 @@ extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLen,
         }
     }
     
-    MPI_Send(&realSize, sizeof(size_t), MPI_CHAR, MASTER_NODE, 1, MPI_COMM_WORLD);
-    MPI_Send(buffer, realSize, MPI_CHAR, MASTER_NODE, 0, MPI_COMM_WORLD);
+    MPI_Send(&realSize, sizeof(size_t), MPI_CHAR, node, 1, MPI_COMM_WORLD);
+    MPI_Send(buffer, realSize, MPI_CHAR, node, 0, MPI_COMM_WORLD);
     
     free(buffer);
 }
@@ -288,9 +202,9 @@ static DbAlignment* dbAlignmentFromBytes(char* bytes, Chain** queries,
     memcpy(&score, bytes + ptr, sizeof(int));
     ptr += sizeof(int);
     
-    float value;
-    memcpy(&value, bytes + ptr, sizeof(float));
-    ptr += sizeof(float);
+    double value;
+    memcpy(&value, bytes + ptr, sizeof(double));
+    ptr += sizeof(double);
     
     int pathLen;
     memcpy(&pathLen, bytes + ptr, sizeof(int));
@@ -315,10 +229,10 @@ static void dbAlignmentToBytes(char** bytes, size_t* size,
     // int 3 query
     // int 3 target
     // int 1 score
-    // float 1 value
+    // double 1 value
     // int 1 pathLen
     // char pathLen path
-    *size = sizeof(int) * 8 + sizeof(float) + dbAlignmentGetPathLen(dbAlignment);
+    *size = sizeof(int) * 8 + sizeof(double) + dbAlignmentGetPathLen(dbAlignment);
     *bytes = (char*) malloc(*size);
 
     int ptr = 0;
@@ -351,9 +265,9 @@ static void dbAlignmentToBytes(char** bytes, size_t* size,
     memcpy(*bytes + ptr, &score, sizeof(int));
     ptr += sizeof(int);
     
-    float value = dbAlignmentGetValue(dbAlignment);
-    memcpy(*bytes + ptr, &value, sizeof(float));
-    ptr += sizeof(float);
+    double value = dbAlignmentGetValue(dbAlignment);
+    memcpy(*bytes + ptr, &value, sizeof(double));
+    ptr += sizeof(double);
     
     int pathLen = dbAlignmentGetPathLen(dbAlignment);
     memcpy(*bytes + ptr, &pathLen, sizeof(int));
@@ -361,37 +275,6 @@ static void dbAlignmentToBytes(char** bytes, size_t* size,
 
     dbAlignmentCopyPath(dbAlignment, *bytes + ptr);
     ptr += pathLen;
-}
-
-//------------------------------------------------------------------------------
-
-//------------------------------------------------------------------------------
-// UTILS
-
-static int dbAlignmentCmp(const void* a_, const void* b_) {
-
-    DbAlignment* a = *((DbAlignment**) a_);
-    DbAlignment* b = *((DbAlignment**) b_);
-    
-    float va = dbAlignmentGetValue(a);
-    float vb = dbAlignmentGetValue(b);
-
-    if (va < vb) return -1;
-    if (va > vb) return 1;
-    return 0;
-}
-
-static int dbAlignmentsCmp(const void* a_, const void* b_) {
-
-    DbAlignment** a = *((DbAlignment***) a_);
-    DbAlignment** b = *((DbAlignment***) b_);
-    
-    float va = dbAlignmentGetValue(a[0]);
-    float vb = dbAlignmentGetValue(b[0]);
-
-    if (va < vb) return -1;
-    if (va > vb) return 1;
-    return 0;
 }
 
 //------------------------------------------------------------------------------

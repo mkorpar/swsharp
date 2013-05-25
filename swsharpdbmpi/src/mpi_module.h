@@ -28,15 +28,13 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
-#define MASTER_NODE 0
+extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLens, 
+    int dbAlignmentsLen, int node);
 
-extern void sendMpiData(DbAlignment*** dbAlignments, int* dbAlignmentsLen, 
-    Chain** queries, int queriesLen, Chain** database, int databaseLen);
-
-extern void gatherMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLen, 
-    Chain** queries, int queriesLen, Chain** database, int databaseLen, 
-    Scorer* scorer, int maxAlignments);
-
+extern void recieveMpiData(DbAlignment**** dbAlignments, int** dbAlignmentsLens, 
+    int* dbAlignmentsLen, Chain** queries, Chain** database, Scorer* scorer, 
+    int node);
+    
 #ifdef __cplusplus 
 }
 #endif
