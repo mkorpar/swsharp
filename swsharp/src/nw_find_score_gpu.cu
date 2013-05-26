@@ -628,13 +628,11 @@ static void* kernel(void* params) {
 
     int diagonals = blocks + (int) ceil((float) rowsGpu / cellHeight);
 
-    int distance = score / scorerGetMaxScore(scorer);
-    int p1 = min(rows, cols);
-    int p2 = min(p1 + (p1 - distance) / gapExtend, max(rows, cols));
-    int p = (int) ceil(0.5 * (2 * p1 - distance - p2)) + 1;
+    int t = max(rows, cols) - score / scorerGetMaxScore(scorer);
+    int p = (t - abs(rows - cols)) / 2;
 
-    int pLeft = cols > rows ? p : p + rows - cols;
-    int pRight = (cols > rows ? p + cols - rows : p) + 1;
+    int pLeft = (cols > rows ? p : p + rows - cols) + 1 + dRow;
+    int pRight = (cols > rows ? p + cols - rows : p) + 1 + dRow;
     
     int memoryUsedGpu = 0;
     int memoryUsedCpu = 0;
