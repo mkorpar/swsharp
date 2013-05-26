@@ -802,11 +802,8 @@ static int swScorePairGpuDual(void** data_, Chain* query, Chain* target,
     
         int scr = upScores[up] + downScores[down];
         int aff = upAffines[up] + downAffines[down] + gapOpen - gapExtend;
-        
-        int isScrAff = (upScores[up] == upAffines[up]) && 
-                       (downScores[down] ==  downAffines[down]);
-        
-        if (scr > middleScore || (scr == middleScore && !isScrAff)) {
+
+        if (scr > middleScore) {
             middleScoreUp = upScores[up];
             middleScoreDown = downScores[down];
             middleScore = scr;
