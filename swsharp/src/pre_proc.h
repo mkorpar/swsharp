@@ -30,6 +30,10 @@ Contact the author by mkorpar@gmail.com.
 #include "chain.h"
 #include "scorer.h"
 
+#ifdef __cplusplus 
+extern "C" {
+#endif
+
 /*!
 @brief Creates chain complement.
 
@@ -102,4 +106,7 @@ with the most common standard similarity matrices.
 extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen, 
     int gapExtend);
 
+#ifdef __cplusplus 
+}
+#endif
 #endif // __SW_SHARP_PRE_PROCESH__
