@@ -38,8 +38,8 @@ Contact the author by mkorpar@gmail.com.
 
 #include "database.h"
 
-#define THREADS               4
-#define GPU_DB_MIN_LEN        40000l
+#define THREADS         4
+#define GPU_MIN_CELLS   10000000.0
 
 typedef struct Context {
     DbAlignment*** dbAlignments;
@@ -109,6 +109,7 @@ struct ChainDatabase {
     Chain** database;
     int databaseStart;
     int databaseLen;
+    long databaseElems;
 };
 
 //******************************************************************************
@@ -174,18 +175,14 @@ extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseStart,
     db->databaseLen = databaseLen;
     
     int i;
-    
-    long n = 0;
+    long databaseElems = 0;
     for (i = 0; i < databaseLen; ++i) {
-        n += chainGetLength(database[i]);
+        databaseElems += chainGetLength(database[databaseStart + i]);
     }
+    db->databaseElems = databaseElems;
     
-    if (n < GPU_DB_MIN_LEN) {
-        db->chainDatabaseGpu = NULL;
-    } else {
-        Chain** databaseGpu = database + databaseStart;
-        db->chainDatabaseGpu = chainDatabaseGpuCreate(databaseGpu, databaseLen);
-    }
+    Chain** databaseGpu = database + databaseStart;
+    db->chainDatabaseGpu = chainDatabaseGpuCreate(databaseGpu, databaseLen);
     
     TIMER_STOP;
     
@@ -194,9 +191,7 @@ extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseStart,
 
 extern void chainDatabaseDelete(ChainDatabase* chainDatabase) {
 
-    if (chainDatabase->chainDatabaseGpu != NULL) {
-        chainDatabaseGpuDelete(chainDatabase->chainDatabaseGpu);
-    }
+    chainDatabaseGpuDelete(chainDatabase->chainDatabaseGpu);
     
     free(chainDatabase); 
     chainDatabase = NULL;
@@ -287,6 +282,7 @@ static void* databaseSearchThread(void* param) {
     Chain** database = chainDatabase->database;
     int databaseStart = chainDatabase->databaseStart;
     int databaseLen = chainDatabase->databaseLen;
+    long databaseElems = chainDatabase->databaseElems;
     ChainDatabaseGpu* chainDatabaseGpu = chainDatabase->chainDatabaseGpu;
     
     TIMER_START("Database search");
@@ -322,11 +318,34 @@ static void* databaseSearchThread(void* param) {
     //**************************************************************************
     
     //**************************************************************************
+    // CALCULATE CELL NUMBER
+    
+    long queriesElems = 0;
+    for (i = 0; i < queriesLen; ++i) {
+        queriesElems += chainGetLength(queries[i]);
+    }
+    
+    if (indexes != NULL) {
+    
+        databaseElems = 0;
+        
+        for (i = 0; i < indexesLen; ++i) {
+            databaseElems += chainGetLength(database[databaseStart + indexes[i]]);
+        }
+    }
+    
+    double cells = (double) queriesElems * databaseElems;
+    
+    printf("%ld %ld %lf\n", queriesElems, databaseElems, cells);
+    
+    //**************************************************************************
+    
+    //**************************************************************************
     // CALCULATE SCORES
     
     int* scores;
     
-    if (chainDatabaseGpu == NULL || cardsLen == 0) {
+    if (cells < GPU_MIN_CELLS || cardsLen == 0) {
         scoreDatabasesCpu(&scores, type, queries, queriesLen, 
             database + databaseStart, databaseLen, scorer, indexes, indexesLen);
     } else {
