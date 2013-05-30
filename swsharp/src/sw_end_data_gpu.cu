@@ -759,9 +759,9 @@ static void* kernel(void* params) {
             pruneLow = 0;
             for (int i = 0; i < blocks; ++i) {
                 int row = (diagonal + 1 + i - blocks + 1) * (threads * 4);
-                int col = cellWidth * (blocks - i - 1);
-                if (row + (4 * threads) < cols - (col - threads)) continue;
-                if (row > rowsGpu) continue;
+                int col = cellWidth * (blocks - i - 1) - threads;
+                if (row + (threads * 4) < cols - col) continue;
+                if (row >= rowsGpu) continue;
                 int d = colsGpu - col;
                 if ((bCpu[i] + d * pruneFactor) < best) pruneLow = i;
                 else break;
@@ -774,7 +774,7 @@ static void* kernel(void* params) {
                 for (int i = blocks - 1; i >= 0; --i) {
                     int row = (diagonal + 1 + i - blocks + 1) * (threads * 4);
                     if (row < rowsGpu / 2) break;
-                    if (row > rowsGpu) continue;
+                    if (row >= rowsGpu) continue;
                     int d = rowsGpu - row;
                     if ((bCpu[i] + d * pruneFactor) < best) pruneHigh = i;
                     else break;
