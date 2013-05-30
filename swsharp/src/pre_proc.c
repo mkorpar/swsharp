@@ -134,7 +134,9 @@ extern void readFastaChain(Chain** chain, const char* path) {
                     name[nameLen] = 0;
                     isName = 0;
                 } else if (!(nameLen == 0 && (c == '>' || isspace(c)))) {
-                    name[nameLen++] = c;                
+                    if (c != '\r') {
+                        name[nameLen++] = c;
+                    }         
                 }
             } else {
                 str[strLen++] = c;
@@ -200,7 +202,9 @@ extern void readFastaChains(Chain*** chains_, int* chainsLen_, const char* path)
                     name[nameLen] = 0;
                     isName = 0;
                 } else if (!(nameLen == 0 && (c == '>' || isspace(c)))) {
-                    name[nameLen++] = c;                
+                    if (c != '\r') {
+                        name[nameLen++] = c;
+                    }              
                 }
             } else {
                 if (strLen == strSize) {
