@@ -336,8 +336,6 @@ static void* databaseSearchThread(void* param) {
     
     double cells = (double) queriesElems * databaseElems;
     
-    printf("%ld %ld %lf\n", queriesElems, databaseElems, cells);
-    
     //**************************************************************************
     
     //**************************************************************************
