@@ -734,7 +734,8 @@ static void* kernel(void* params) {
     int best = 0;
     int pruning = 1;
     int pruned = 0;
-    
+    int pruneHighOld = pruneHigh;
+
     // TIMER_START("Kernel");
     
     for (int diagonal = 0; diagonal < diagonals; ++diagonal) {
@@ -749,9 +750,10 @@ static void* kernel(void* params) {
 
         if (pruning) {
         
+            size_t bSize = pruneHigh * sizeof(int);
             CUDA_SAFE_CALL(cudaMemcpy(bCpu, bGpu, bSize, FROM_GPU));
 
-            for (int i = 0; i < blocks; ++i) {
+            for (int i = 0; i < pruneHigh; ++i) {
                 best = max(best, bCpu[i]);
             }
 
@@ -760,21 +762,23 @@ static void* kernel(void* params) {
             for (int i = 0; i < blocks; ++i) {
                 int row = (diagonal + 1 + i - blocks + 1) * (threads * 4);
                 int col = cellWidth * (blocks - i - 1) - threads;
-                if (row + (threads * 4) < cols - col) continue;
-                if (row >= rowsGpu) continue;
+                if (row >= rowsGpu) break;
+                if (rowsGpu - row < colsGpu - col) break;
                 int d = colsGpu - col;
                 if ((bCpu[i] + d * pruneFactor) < best) pruneLow = i;
                 else break;
             }
 
             // delta i pruning
-            pruneHigh = blocks;
             // watch out for extracting the final row
+            pruneHighOld = pruneHigh;
             if (scores == NULL || affines == NULL) {
-                for (int i = blocks - 1; i >= 0; --i) {
+                for (int i = pruneHighOld - 1; i >= 0; --i) {
                     int row = (diagonal + 1 + i - blocks + 1) * (threads * 4);
+                    int col = cellWidth * (blocks - i - 1) - threads;
                     if (row < rowsGpu / 2) break;
                     if (row >= rowsGpu) continue;
+                    if (rowsGpu - row > colsGpu - col) break;
                     int d = rowsGpu - row;
                     if ((bCpu[i] + d * pruneFactor) < best) pruneHigh = i;
                     else break;
@@ -790,12 +794,18 @@ static void* kernel(void* params) {
             CUDA_SAFE_CALL(cudaMemcpyToSymbol(pruneLow_, &pruneLow, sizeof(int)));
             CUDA_SAFE_CALL(cudaMemcpyToSymbol(pruneHigh_, &pruneHigh, sizeof(int)));
           
-            size_t sizeLow = (blocks - pruneHigh) * cellWidth * sizeof(int2);
-            CUDA_SAFE_CALL(cudaMemset(hBusGpu, 0, sizeLow));
+            int offset;
+            size_t size;
             
-            int offset = (blocks - pruneLow) * cellWidth;
-            size_t sizeHigh = pruneLow * cellWidth * sizeof(int2);
-            CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, sizeHigh));
+            if (pruneHighOld != pruneHigh) {
+                offset = (blocks - pruneHighOld) * cellWidth;
+                size = (pruneHighOld - pruneHigh) * cellWidth * sizeof(int2);
+                CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, size));
+            }
+            
+            offset = (blocks - pruneLow) * cellWidth;
+            size = pruneLow * cellWidth * sizeof(int2);
+            CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, size));
         } 
     }
     

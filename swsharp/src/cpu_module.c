@@ -779,6 +779,11 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
     int endRow = 0;
     int endCol = 0;
     
+    int pruning = 1;
+    int pruneLow = 0;
+    int pruneHigh = cols;
+    int pruneFactor = scorerGetMaxScore(scorer);
+    
     for (row = 0; row < rows; ++row) {
     
         int iScr = 0;
@@ -786,7 +791,39 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         
         int diag = 0;
         
-        for (col = 0; col < cols; ++col) {
+        if (pruning && row > rows / 2) {
+        
+            for (col = pruneLow; rows - row <= cols - col; ++col) {
+                if (hBus[col].scr + (rows - row) * pruneFactor < score) {
+                    pruneLow++;
+                } else {
+                    break;
+                }
+            }
+
+            if (pruneLow != 0) {
+                diag = hBus[pruneLow - 1].scr;
+            }
+        }
+        
+        if (pruning) {
+        
+            pruneHigh = cols;
+            for (col = cols - 1; cols - col <= rows - row; --col) {
+                if (hBus[col].scr + (cols - col) * pruneFactor < score) {
+                    pruneHigh = col + 1;
+                } else {
+                    break;
+                }
+            }
+            
+            if (pruneHigh < cols) {
+                hBus[pruneHigh].scr = 0;
+                hBus[pruneHigh].aff = SCORE_MIN;
+            }
+        }
+        
+        for (col = pruneLow; col < pruneHigh; ++col) {
         
             int moveIdx = row * cols + col;
 
@@ -933,6 +970,11 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
         hBus[col].aff = SCORE_MIN;
     }
     
+    int pruning = 1;
+    int pruneLow = 0;
+    int pruneHigh = cols;
+    int pruneFactor = scorerGetMaxScore(scorer);
+    
     for (row = 0; row < rows; ++row) {
     
         int iScr = 0;
@@ -940,6 +982,38 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
         
         int diag = 0;
         
+        if (pruning && row > rows / 2) {
+        
+            for (col = pruneLow; rows - row <= cols - col; ++col) {
+                if (hBus[col].scr + (rows - row) * pruneFactor < max) {
+                    pruneLow++;
+                } else {
+                    break;
+                }
+            }
+
+            if (pruneLow != 0) {
+                diag = hBus[pruneLow - 1].scr;
+            }
+        }
+        
+        if (pruning) {
+        
+            pruneHigh = cols;
+            for (col = cols - 1; cols - col <= rows - row; --col) {
+                if (hBus[col].scr + (cols - col) * pruneFactor < max) {
+                    pruneHigh = col + 1;
+                } else {
+                    break;
+                }
+            }
+            
+            if (pruneHigh < cols) {
+                hBus[pruneHigh].scr = 0;
+                hBus[pruneHigh].aff = SCORE_MIN;
+            }
+        }
+
         for (col = 0; col < cols; ++col) {
         
             // MATCHING
