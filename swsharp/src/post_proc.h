@@ -185,6 +185,17 @@ Function calls chainDelete() function on every chain and then deletes the array.
 extern void deleteFastaChains(Chain** chains, int chainsLen);
 
 /*!
+@brief Database delete utility.
+
+Function calls dbAlignmentDelete() function on every dbAlignment object in 
+dbAlignments array and then deletes the array.
+
+@param dbAlignments database alignments array
+@param dbAlignmentsLen database alignments array length
+*/
+extern void deleteDatabase(DbAlignment** dbAlignments, int dbAlignmentsLen);
+
+/*!
 @brief Shotgun database delete utility.
 
 Function calls dbAlignmentDelete() function on every dbAlignment object in 
