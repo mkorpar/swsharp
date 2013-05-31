@@ -39,7 +39,7 @@ Contact the author by mkorpar@gmail.com.
 #include "database.h"
 
 #define THREADS         4
-#define GPU_MIN_CELLS   10000000.0
+#define GPU_MIN_CELLS   49000000.0
 
 typedef struct Context {
     DbAlignment*** dbAlignments;
