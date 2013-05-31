@@ -168,7 +168,12 @@ extern void eValues(double* values, int* scores, Chain* query,
         
         int score = scores[i];
         int targetLen = chainGetLength(database[i]);
-            
+
+        if (score == NO_SCORE) {
+            values[i] = INFINITY;
+            continue;
+        }
+        
         values[i] = calculateEValue(score, queryLen, targetLen, eValueParams);
     }
 }
