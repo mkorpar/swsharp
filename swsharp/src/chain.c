@@ -92,7 +92,6 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
         chain->reverseCodes[chain->length - i - 1] = chain->codes[i];
     }
     
-
     return chain;
 }
 
@@ -183,8 +182,14 @@ extern Chain* chainDeserialize(char* bytes) {
     chain->nameLen = nameLen;
     chain->length = length;
     chain->codes = codes;
-    chain->reverseCodes = NULL;
     chain->isView = 0;
+    
+    chain->reverseCodes = (char*) malloc(chain->length * sizeof(char));
+    
+    int i;
+    for (i = 0; i < chain->length; ++i) {
+        chain->reverseCodes[chain->length - i - 1] = chain->codes[i];
+    }
     
     return chain;
 }
