@@ -39,8 +39,9 @@ Contact the author by mkorpar@gmail.com.
 
 #include "database.h"
 
-#define THREADS         4
-#define GPU_MIN_CELLS   49000000.0
+#define THREADS             4
+#define GPU_DB_MIN_CELLS    49000000ll
+#define CPU_PAIR_MAX_CELLS  4000000ll
 
 typedef struct Context {
     DbAlignment*** dbAlignments;
@@ -67,21 +68,27 @@ typedef struct DbAlignmentData {
     double value;
 } DbAlignmentData;
 
+typedef struct AlignData {
+    int queryPos;
+    int targetPos;
+    long long cells;
+} AlignData;
+
 typedef struct AlignContext {
     DbAlignment*** dbAlignments;
     DbAlignmentData** dbAlignmentsData;
-    int* dbAlignmentsLen;
+    AlignData* alignData;
+    int alignDataLen;
     int type;
     Chain** queries;
     int queriesStart;
-    int queriesLen;
     Chain** database;
     int databaseStart;
     Scorer* scorer;
     int* cards;
     int cardsLen;
-    int thread;
-    int threads;
+    int start;
+    int step;
 } AlignContext;
 
 typedef struct ExtractContext {
@@ -96,8 +103,8 @@ typedef struct ExtractContext {
     ValueFunction valueFunction;
     void* valueFunctionParam;
     double valueThreshold;
-    int thread;
-    int threads;
+    int start;
+    int step;
 } ExtractContext;
 
 typedef struct IntDouble {
@@ -161,8 +168,14 @@ static void scoreDatabasesCpu(int** scores, int type, Chain** queries,
     int queriesLen, Chain** database, int databaseLen, Scorer* scorer, 
     int* indexes, int indexesLen);
 
+static void createAlignData(AlignData** alignData_, int* alignDataLen_, 
+    DbAlignmentData** dbAlignmentsData, int* dbAlignmentsLens, 
+    Chain** queries, int queriesLen, Chain** database, int databaseLen);
+
 static void filterIndexesArray(int** indexesNew, int* indexesNewLen, 
     int* indexes, int indexesLen, int minIndex, int maxIndex);
+
+static int alignDataCmp(const void* a_, const void* b_);
 
 static int intDoubleCmp(const void* a_, const void* b_);
 
@@ -393,7 +406,7 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
         }
     }
     
-    double cells = (double) queriesElems * databaseElems;
+    long long cells = (long long) queriesElems * databaseElems;
     
     //**************************************************************************
     
@@ -402,7 +415,7 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
     
     int* scores;
     
-    if (cells < GPU_MIN_CELLS || cardsLen == 0) {
+    if (cells < GPU_DB_MIN_CELLS || cardsLen == 0) {
         scoreDatabasesCpu(&scores, type, queries, queriesLen, database, 
             databaseLen, scorer, indexes, indexesLen);
     } else {
@@ -438,8 +451,8 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
         extractContexts[i].valueFunction = valueFunction;
         extractContexts[i].valueFunctionParam = valueFunctionParam;
         extractContexts[i].valueThreshold = valueThreshold;
-        extractContexts[i].thread = i;
-        extractContexts[i].threads = extractThreadsNmr;
+        extractContexts[i].start = i;
+        extractContexts[i].step = extractThreadsNmr;
     }
     
     for (i = 0; i < extractThreadsNmr - 1; ++i) {
@@ -468,7 +481,32 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
             (DbAlignment**) malloc(dbAlignmentsLen[i] * sizeof(DbAlignment*));
     }
     
-    int alignThreadsNmr = cardsLen + THREADS;
+    // create data
+    AlignData* alignData;
+    int alignDataLen;
+    
+    createAlignData(&alignData, &alignDataLen, dbAlignmentsData, 
+        dbAlignmentsLen, queries, queriesLen, database, databaseLen);
+    
+    qsort((void*) alignData, alignDataLen, sizeof(AlignData), alignDataCmp);
+
+    for (i = 0; i < alignDataLen; ++i) {
+        if (alignData[i].cells > CPU_PAIR_MAX_CELLS) {
+            break;
+        }
+    }
+
+    AlignData* alignDataCpu = alignData;
+    int alignDataCpuLen = i;
+    
+    AlignData* alignDataGpu = alignData + alignDataCpuLen;
+    int alignDataGpuLen = alignDataLen - i;
+    
+    // use gpu threads only if needed 
+    int alignThreadsGpuNmr = MIN(alignDataGpuLen, cardsLen);
+
+    // create contexts
+    int alignThreadsNmr = THREADS + alignThreadsGpuNmr;
     Thread* alignThreads = 
         (Thread*) malloc((alignThreadsNmr - 1) * sizeof(Thread));
     
@@ -476,20 +514,23 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
         (AlignContext*) malloc(alignThreadsNmr * sizeof(AlignContext));
   
     for (i = 0; i < alignThreadsNmr; ++i) {
+
         alignContexts[i].dbAlignments = dbAlignments;
         alignContexts[i].dbAlignmentsData = dbAlignmentsData;
-        alignContexts[i].dbAlignmentsLen = dbAlignmentsLen;
         alignContexts[i].type = type;
         alignContexts[i].queries = queries;
         alignContexts[i].queriesStart = queriesStart;
-        alignContexts[i].queriesLen = queriesLen;
         alignContexts[i].database = database;
         alignContexts[i].databaseStart = databaseStart;
         alignContexts[i].scorer = scorer;
-        alignContexts[i].thread = i;
-        alignContexts[i].threads = alignThreadsNmr;
-        alignContexts[i].cards = cards;
-        alignContexts[i].cardsLen = cardsLen;
+        
+        int gpu = i >= THREADS;
+        alignContexts[i].alignData = gpu ? alignDataGpu : alignDataCpu;
+        alignContexts[i].alignDataLen = gpu ? alignDataGpuLen : alignDataCpuLen;
+        alignContexts[i].cards = cards + (i - THREADS);
+        alignContexts[i].cardsLen = gpu;
+        alignContexts[i].start = gpu ? i - THREADS : i;
+        alignContexts[i].step = gpu ? alignThreadsGpuNmr : THREADS;
     }
     
     for (i = 0; i < alignThreadsNmr - 1; ++i) {
@@ -519,6 +560,7 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
     free(extractContexts);
     free(alignThreads);
     free(alignContexts);
+    free(alignData);
     
     // scores freed before
 
@@ -535,68 +577,62 @@ static void* alignThread(void* param) {
     
     DbAlignment*** dbAlignments = context->dbAlignments;
     DbAlignmentData** dbAlignmentsData = context->dbAlignmentsData;
-    int* dbAlignmentsLen = context->dbAlignmentsLen;
+    AlignData* alignData = context->alignData;
+    int alignDataLen = context->alignDataLen;
     int type = context->type;
     Chain** queries = context->queries;
     int queriesStart = context->queriesStart;
-    int queriesLen = context->queriesLen;
     Chain** database = context->database;
     int databaseStart = context->databaseStart;
     Scorer* scorer = context->scorer;
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
-    int thread = context->thread;
-    int threads = context->threads;
-
-    // distribute cards
-    cards = cards + thread;
-    cardsLen = thread < cardsLen;
-
+    int start = context->start;
+    int step = context->step;
+    
     int i;
-    for (i = 0; i < queriesLen; ++i) {
+    for (i = start; i < alignDataLen; i += step) {
     
-        Chain* query = queries[i];
+        int queryPos = alignData[i].queryPos;
+        int targetPos = alignData[i].targetPos;
         
-        int j;
-        for (j = thread; j < dbAlignmentsLen[i]; j+= threads) {
+        DbAlignmentData* data = &(dbAlignmentsData[queryPos][targetPos]);
         
-            DbAlignmentData* data = &(dbAlignmentsData[i][j]);
-            Chain* target = database[data->idx];
+        Chain* query = queries[queryPos];
+        Chain* target = database[data->idx];
+        
+        // align
+        Alignment* alignment;
+        alignPair(&alignment, type, query, target, scorer, cards, cardsLen, NULL);
+        
+        // check scores
+        int s1 = alignmentGetScore(alignment);
+        int s2 = data->score;
+        
+        ASSERT(s1 == s2, "Scores don't match %d %d", s1, s2);
+        
+        // extract info
+        int queryStart = alignmentGetQueryStart(alignment);
+        int queryEnd = alignmentGetQueryEnd(alignment);
+        int targetStart = alignmentGetTargetStart(alignment); 
+        int targetEnd = alignmentGetTargetEnd(alignment);
+        Scorer* scorer = alignmentGetScorer(alignment);
+        int pathLen = alignmentGetPathLen(alignment);
+        
+        int queryIdx = queriesStart + queryPos;
+        int targetIdx = databaseStart + data->idx;
+        
+        char* path = (char*) malloc(pathLen);
+        alignmentCopyPath(alignment, path);
+        
+        alignmentDelete(alignment);
+        
+        // create db alignment
+        DbAlignment* dbAlignment = dbAlignmentCreate(query, queryStart, 
+            queryEnd, queryIdx, target, targetStart, targetEnd, targetIdx, 
+            data->value, data->score, scorer, path, pathLen);
 
-            // align
-            Alignment* alignment;
-            alignPair(&alignment, type, query, target, scorer, cards, 
-                cardsLen, NULL);
-            
-            // check scores
-            int s1 = alignmentGetScore(alignment);
-            int s2 = data->score;
-            
-            ASSERT(s1 == s2, "Scores don't match %d %d", s1, s2);
-            
-            // extract info
-            int queryStart = alignmentGetQueryStart(alignment);
-            int queryEnd = alignmentGetQueryEnd(alignment);
-            int targetStart = alignmentGetTargetStart(alignment); 
-            int targetEnd = alignmentGetTargetEnd(alignment);
-            Scorer* scorer = alignmentGetScorer(alignment);
-            int pathLen = alignmentGetPathLen(alignment);
-            
-            int queryIdx = queriesStart + i;
-            int targetIdx = databaseStart + data->idx;
-            
-            char* path = (char*) malloc(pathLen);
-            alignmentCopyPath(alignment, path);
-            
-            alignmentDelete(alignment);
-            
-            // create db alignment
-            DbAlignment* dbAlignment = dbAlignmentCreate(query, queryStart, 
-                queryEnd, queryIdx, target, targetStart, targetEnd, targetIdx, 
-                data->value, data->score, scorer, path, pathLen);
-    
-            dbAlignments[i][j] = dbAlignment;
-        }
+        dbAlignments[queryPos][targetPos] = dbAlignment;
     }
 
     return NULL;
@@ -617,15 +653,15 @@ static void* extractThread(void* param) {
     ValueFunction valueFunction = context->valueFunction;
     void* valueFunctionParam = context->valueFunctionParam;
     double valueThreshold = context->valueThreshold;
-    int thread = context->thread;
-    int threads = context->threads;
+    int start = context->start;
+    int step = context->step;
     
     IntDouble* packed = (IntDouble*) malloc(databaseLen * sizeof(IntDouble));
     double* vals = (double*) malloc(databaseLen * sizeof(double));
     
     int i, j;
     
-    for (i = thread; i < queriesLen; i += threads) {
+    for (i = start; i < queriesLen; i += step) {
     
         Chain* query = queries[i];
         int* queryScores = scores + i * databaseLen;
@@ -732,6 +768,44 @@ static void scoreDatabasesCpu(int** scores, int type, Chain** queries,
 //------------------------------------------------------------------------------
 // UTILS
 
+static void createAlignData(AlignData** alignData_, int* alignDataLen_, 
+    DbAlignmentData** dbAlignmentsData, int* dbAlignmentsLens, 
+    Chain** queries, int queriesLen, Chain** database, int databaseLen) {
+    
+    int i, j;
+    
+    int alignDataLen = 0;
+    for (i = 0; i < queriesLen; ++i) {
+        alignDataLen += dbAlignmentsLens[i];
+    }
+    
+    AlignData* alignData = (AlignData*) malloc(alignDataLen * sizeof(AlignData));
+    
+    int current = 0;
+    for (i = 0; i < queriesLen; ++i) {
+    
+        Chain* query = queries[i];
+        int queryLen = chainGetLength(query);
+        
+        for (j = 0; j < dbAlignmentsLens[i]; ++j) {
+
+            Chain* target = database[dbAlignmentsData[i][j].idx];
+            int targetLen = chainGetLength(target);
+            
+            long long cells = (long long) queryLen * targetLen;
+            
+            alignData[current].queryPos = i;
+            alignData[current].targetPos = j;
+            alignData[current].cells = cells;
+            
+            current++;
+        }
+    }
+    
+    *alignData_ = alignData;
+    *alignDataLen_ = alignDataLen;
+}
+
 static void filterIndexesArray(int** indexesNew, int* indexesNewLen, 
     int* indexes, int indexesLen, int minIndex, int maxIndex) {
     
@@ -756,13 +830,21 @@ static void filterIndexesArray(int** indexesNew, int* indexesNewLen,
     }
 }
 
+static int alignDataCmp(const void* a_, const void* b_) {
+
+    AlignData* a = (AlignData*) a_;
+    AlignData* b = (AlignData*) b_;
+    
+    return a->cells - b->cells;
+}
+
 static int intDoubleCmp(const void* a_, const void* b_) {
 
-    IntDouble a = *((IntDouble*) a_);
-    IntDouble b = *((IntDouble*) b_);
+    IntDouble* a = (IntDouble*) a_;
+    IntDouble* b = (IntDouble*) b_;
     
-    if (a.y < b.y) return -1;
-    if (a.y > b.y) return 1;
+    if (a->y < b->y) return -1;
+    if (a->y > b->y) return 1;
     return 0;
 }
 
