@@ -794,8 +794,14 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         if (pruning && row > rows / 2) {
         
             for (col = pruneLow; rows - row <= cols - col; ++col) {
-                if (hBus[col].scr + (rows - row) * pruneFactor < score) {
-                    pruneLow++;
+            
+                int scr = hBus[col].scr; 
+                if (col > 0) {
+                    scr = MAX(scr, hBus[col - 1].scr);
+                }
+                
+                if (scr + (rows - row) * pruneFactor < score) {
+                    pruneLow = col;
                 } else {
                     break;
                 }
@@ -810,8 +816,14 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         
             pruneHigh = cols;
             for (col = cols - 1; cols - col <= rows - row; --col) {
-                if (hBus[col].scr + (cols - col) * pruneFactor < score) {
-                    pruneHigh = col + 1;
+            
+                int scr = hBus[col].scr; 
+                if (col > 0) {
+                    scr = MAX(scr, hBus[col - 1].scr);
+                }
+                
+                if (scr + (cols - col) * pruneFactor < score) {
+                    pruneHigh = col;
                 } else {
                     break;
                 }
@@ -985,8 +997,14 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
         if (pruning && row > rows / 2) {
         
             for (col = pruneLow; rows - row <= cols - col; ++col) {
-                if (hBus[col].scr + (rows - row) * pruneFactor < max) {
-                    pruneLow++;
+            
+                int scr = hBus[col].scr; 
+                if (col > 0) {
+                    scr = MAX(scr, hBus[col - 1].scr);
+                }
+                
+                if (scr + (rows - row) * pruneFactor < max) {
+                    pruneLow = col;
                 } else {
                     break;
                 }
@@ -1001,8 +1019,14 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
         
             pruneHigh = cols;
             for (col = cols - 1; cols - col <= rows - row; --col) {
-                if (hBus[col].scr + (cols - col) * pruneFactor < max) {
-                    pruneHigh = col + 1;
+            
+                int scr = hBus[col].scr; 
+                if (col > 0) {
+                    scr = MAX(scr, hBus[col - 1].scr);
+                }
+                
+                if (scr + (cols - col) * pruneFactor < max) {
+                    pruneHigh = col;
                 } else {
                     break;
                 }

@@ -196,7 +196,7 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
     row -= (col < 0) * (gridDim.x * blockDim.x * 4);
     col += (col < 0) * cols_;
     
-    if (pruneLow_ > 0 && pruneHigh_ < gridDim.x) {
+    if (pruneLow_ >= 0 && pruneHigh_ < gridDim.x) {
     
         row = row + gridDim.x * blockDim.x * 4;
         
@@ -332,7 +332,7 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus,
 
     if (row < 0 || row >= rows_) return;
     
-    if (blockIdx.x < pruneLow_ || blockIdx.x >= pruneHigh_) {
+    if ((int) blockIdx.x <= pruneLow_ || blockIdx.x >= pruneHigh_) {
     
         vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = 0;
         vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = INT4_ZERO;
@@ -449,7 +449,7 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, int* bBus,
     
     if (row < 0 || row >= rows_) return;
     
-    if (blockIdx.x < pruneLow_ || blockIdx.x >= pruneHigh_) {
+    if ((int) blockIdx.x <= pruneLow_ || blockIdx.x >= pruneHigh_) {
     
         vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = 0;
         vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = INT4_ZERO;
@@ -619,7 +619,7 @@ static void* kernel(void* params) {
 
     int diagonals = blocks + (rowsGpu / cellHeight);
 
-    int pruneLow = 0;
+    int pruneLow = -1;
     int pruneHigh = blocks;
     int pruneFactor = scorerGetMaxScore(scorer);
 
@@ -758,14 +758,15 @@ static void* kernel(void* params) {
             }
 
             // delta j pruning
-            pruneLow = 0;
+            pruneLow = -1;
             for (int i = 0; i < blocks; ++i) {
                 int row = (diagonal + 1 + i - blocks + 1) * (threads * 4);
                 int col = cellWidth * (blocks - i - 1) - threads;
                 if (row >= rowsGpu) break;
                 if (rowsGpu - row < colsGpu - col) break;
                 int d = colsGpu - col;
-                if ((bCpu[i] + d * pruneFactor) < best) pruneLow = i;
+                int scr = i == blocks - 1 ? bCpu[i] : max(bCpu[i], bCpu[i + 1]);
+                if ((scr + d * pruneFactor) < best) pruneLow = i;
                 else break;
             }
 
@@ -780,12 +781,13 @@ static void* kernel(void* params) {
                     if (row >= rowsGpu) continue;
                     if (rowsGpu - row > colsGpu - col) break;
                     int d = rowsGpu - row;
-                    if ((bCpu[i] + d * pruneFactor) < best) pruneHigh = i;
+                    int scr = i == blocks - 1 ? bCpu[i] : max(bCpu[i], bCpu[i + 1]);
+                    if ((scr + d * pruneFactor) < best) pruneHigh = i;
                     else break;
                 }
             }
 
-            pruned += blocks - (pruneHigh - pruneLow);
+            pruned += blocks - (pruneHigh - pruneLow - 1);
             
             if (pruneLow >= pruneHigh) {
                 break;
@@ -794,18 +796,17 @@ static void* kernel(void* params) {
             CUDA_SAFE_CALL(cudaMemcpyToSymbol(pruneLow_, &pruneLow, sizeof(int)));
             CUDA_SAFE_CALL(cudaMemcpyToSymbol(pruneHigh_, &pruneHigh, sizeof(int)));
           
-            int offset;
-            size_t size;
-            
             if (pruneHighOld != pruneHigh) {
-                offset = (blocks - pruneHighOld) * cellWidth;
-                size = (pruneHighOld - pruneHigh) * cellWidth * sizeof(int2);
+                int offset = (blocks - pruneHighOld) * cellWidth;
+                size_t size = (pruneHighOld - pruneHigh) * cellWidth * sizeof(int2);
                 CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, size));
             }
             
-            offset = (blocks - pruneLow) * cellWidth;
-            size = pruneLow * cellWidth * sizeof(int2);
-            CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, size));
+            if (pruneLow >= 0) {
+                int offset = (blocks - pruneLow) * cellWidth;
+                size_t size = pruneLow * cellWidth * sizeof(int2);
+                CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, size));
+            }
         } 
     }
     
