@@ -41,7 +41,7 @@ Contact the author by mkorpar@gmail.com.
 
 #define THREADS             4
 #define GPU_DB_MIN_CELLS    49000000ll
-#define CPU_PAIR_MAX_CELLS  4000000ll
+#define CPU_PAIR_MAX_CELLS  6000000ll
 
 typedef struct Context {
     DbAlignment*** dbAlignments;
@@ -495,12 +495,15 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
             break;
         }
     }
-
+    
     AlignData* alignDataCpu = alignData;
     int alignDataCpuLen = i;
     
     AlignData* alignDataGpu = alignData + alignDataCpuLen;
     int alignDataGpuLen = alignDataLen - i;
+    
+    LOG("Aligning %d pairs, %d cpu, %d gpu", alignDataLen, alignDataCpuLen,
+        alignDataGpuLen);
     
     // use gpu threads only if needed 
     int alignThreadsGpuNmr = MIN(alignDataGpuLen, cardsLen);
@@ -509,6 +512,8 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
     int alignThreadsNmr = THREADS + alignThreadsGpuNmr;
     Thread* alignThreads = 
         (Thread*) malloc((alignThreadsNmr - 1) * sizeof(Thread));
+    
+    LOG("Aligning with %d threads", alignThreadsNmr);
     
     AlignContext* alignContexts = 
         (AlignContext*) malloc(alignThreadsNmr * sizeof(AlignContext));
@@ -589,7 +594,7 @@ static void* alignThread(void* param) {
     int cardsLen = context->cardsLen;
     int start = context->start;
     int step = context->step;
-    
+
     int i;
     for (i = start; i < alignDataLen; i += step) {
     
@@ -609,7 +614,11 @@ static void* alignThread(void* param) {
         int s1 = alignmentGetScore(alignment);
         int s2 = data->score;
         
-        ASSERT(s1 == s2, "Scores don't match %d %d", s1, s2);
+        int queryIdx = queriesStart + queryPos;
+        int targetIdx = databaseStart + data->idx;
+        
+        ASSERT(s1 == s2, "Scores don't match %d %d, (%d %d)", s1, s2, 
+            queryIdx, targetIdx);
         
         // extract info
         int queryStart = alignmentGetQueryStart(alignment);
@@ -618,9 +627,6 @@ static void* alignThread(void* param) {
         int targetEnd = alignmentGetTargetEnd(alignment);
         Scorer* scorer = alignmentGetScorer(alignment);
         int pathLen = alignmentGetPathLen(alignment);
-        
-        int queryIdx = queriesStart + queryPos;
-        int targetIdx = databaseStart + data->idx;
         
         char* path = (char*) malloc(pathLen);
         alignmentCopyPath(alignment, path);
