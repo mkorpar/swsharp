@@ -188,6 +188,10 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
     __shared__ int hBusScrShr[MAX_THREADS];
     __shared__ int hBusAffShr[MAX_THREADS];
     
+    if (pruneLow_ >= 0 && pruneHigh_ < gridDim.x) {
+        return;
+    }
+    
     int row = (d + blockIdx.x - gridDim.x + 1) * (blockDim.x * 4) + threadIdx.x * 4;
     int col = cellWidth_ * (gridDim.x - blockIdx.x - 1) - threadIdx.x;
 
@@ -196,19 +200,6 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
     row -= (col < 0) * (gridDim.x * blockDim.x * 4);
     col += (col < 0) * cols_;
     
-    if (pruneLow_ >= 0 && pruneHigh_ < gridDim.x) {
-    
-        row = row + gridDim.x * blockDim.x * 4;
-        
-        if (row >= 0 && row < rows_) {
-            vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = 0;
-            vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = INT4_ZERO;
-            vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)] = INT4_ZERO;
-        }
-
-        return;
-    }
-
     Atom atom;
     
     if (0 <= row && row < rows_ && col > 0) {
@@ -326,20 +317,15 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus,
     
     __shared__ int hBusScrShr[MAX_THREADS];
     __shared__ int hBusAffShr[MAX_THREADS];
+
+    if ((int) blockIdx.x <= pruneLow_ || blockIdx.x >= pruneHigh_) {
+        return;
+    }
     
     int row = (d + blockIdx.x - gridDim.x + 1) * (blockDim.x * 4) + threadIdx.x * 4;
     int col = cellWidth_ * (gridDim.x - blockIdx.x - 1) - threadIdx.x;
 
     if (row < 0 || row >= rows_) return;
-    
-    if ((int) blockIdx.x <= pruneLow_ || blockIdx.x >= pruneHigh_) {
-    
-        vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = 0;
-        vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = INT4_ZERO;
-        vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)] = INT4_ZERO;
-
-        return;
-    }
     
     Atom atom;
     atom.mch = vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)];
@@ -443,18 +429,25 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, int* bBus,
     __shared__ int hBusAffShr[MAX_THREADS];
     
     hBusScrShr[threadIdx.x] = 0;
-    
+
+    if ((int) blockIdx.x <= pruneLow_ || blockIdx.x > pruneHigh_) {
+        return;
+    }
+
     int row = (d + blockIdx.x - gridDim.x + 1) * (blockDim.x * 4) + threadIdx.x * 4;
     int col = cellWidth_ * (gridDim.x - blockIdx.x - 1) - threadIdx.x + blockDim.x;
     
     if (row < 0 || row >= rows_) return;
     
-    if ((int) blockIdx.x <= pruneLow_ || blockIdx.x >= pruneHigh_) {
+    if (blockIdx.x == pruneHigh_) {
     
+        // clear only the last steepness
         vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = 0;
         vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = INT4_ZERO;
         vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)] = INT4_ZERO;
-
+        
+        VEC2_ASSIGN(hBus[col + cellWidth_ - blockDim.x - 1], make_int2(0, 0));
+        
         return;
     }
     
@@ -546,12 +539,19 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, int* bBus,
     __syncthreads();
     
     int score = 0;
+    int idx = 0;
+    
     for (int i = 0; i < blockDim.x; ++i) {
-        score = max(score, hBusScrShr[i]);
+    
+        int shr = hBusScrShr[i];
+        
+        if (shr > score) {
+            score = shr;
+            idx = i;
+        }
     }
     
-    // acceptable collison
-    if (score == res.x) bBus[blockIdx.x] = score;
+    if (threadIdx.x == idx) bBus[blockIdx.x] = score;
 }
 
 //------------------------------------------------------------------------------
@@ -632,7 +632,7 @@ static void* kernel(void* params) {
     LOG("Cell h: %d, w: %d", cellHeight, cellWidth);
     LOG("Diagonals: %d", diagonals);
     */
-    
+
     //**************************************************************************
     // PADD CHAINS
     char* rowCpu = (char*) malloc(rowsGpu * sizeof(char));
@@ -735,7 +735,8 @@ static void* kernel(void* params) {
     int pruning = 1;
     int pruned = 0;
     int pruneHighOld = pruneHigh;
-
+    int halfPruning = scores != NULL || affines != NULL;
+    
     // TIMER_START("Kernel");
     
     for (int diagonal = 0; diagonal < diagonals; ++diagonal) {
@@ -752,7 +753,7 @@ static void* kernel(void* params) {
         
             size_t bSize = pruneHigh * sizeof(int);
             CUDA_SAFE_CALL(cudaMemcpy(bCpu, bGpu, bSize, FROM_GPU));
-
+            
             for (int i = 0; i < pruneHigh; ++i) {
                 best = max(best, bCpu[i]);
             }
@@ -763,26 +764,26 @@ static void* kernel(void* params) {
                 int row = (diagonal + 1 + i - blocks + 1) * (threads * 4);
                 int col = cellWidth * (blocks - i - 1) - threads;
                 if (row >= rowsGpu) break;
-                if (rowsGpu - row < colsGpu - col) break;
-                int d = colsGpu - col;
+                if (rowsGpu * (halfPruning ? 2 : 1) - row < cols - col) break;
+                int d = cols - col;
                 int scr = i == blocks - 1 ? bCpu[i] : max(bCpu[i], bCpu[i + 1]);
                 if ((scr + d * pruneFactor) < best) pruneLow = i;
                 else break;
             }
 
             // delta i pruning
-            // watch out for extracting the final row
-            pruneHighOld = pruneHigh;
-            if (scores == NULL || affines == NULL) {
+            if (!halfPruning) {
+                pruneHighOld = pruneHigh;
                 for (int i = pruneHighOld - 1; i >= 0; --i) {
                     int row = (diagonal + 1 + i - blocks + 1) * (threads * 4);
                     int col = cellWidth * (blocks - i - 1) - threads;
                     if (row < rowsGpu / 2) break;
                     if (row >= rowsGpu) continue;
-                    if (rowsGpu - row > colsGpu - col) break;
+                    if (rowsGpu - row > cols - col) break;
                     int d = rowsGpu - row;
-                    int scr = i == blocks - 1 ? bCpu[i] : max(bCpu[i], bCpu[i + 1]);
-                    if ((scr + d * pruneFactor) < best) pruneHigh = i;
+                    int scr1 = d * pruneFactor + (i == blocks - 1 ? 0 : bCpu[i + 1]);
+                    int scr2 = (d + threads / 2) * pruneFactor + bCpu[i];
+                    if (scr1 < best && scr2 < best) pruneHigh = i; 
                     else break;
                 }
             }
@@ -796,15 +797,9 @@ static void* kernel(void* params) {
             CUDA_SAFE_CALL(cudaMemcpyToSymbol(pruneLow_, &pruneLow, sizeof(int)));
             CUDA_SAFE_CALL(cudaMemcpyToSymbol(pruneHigh_, &pruneHigh, sizeof(int)));
           
-            if (pruneHighOld != pruneHigh) {
-                int offset = (blocks - pruneHighOld) * cellWidth;
-                size_t size = (pruneHighOld - pruneHigh) * cellWidth * sizeof(int2);
-                CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, size));
-            }
-            
             if (pruneLow >= 0) {
-                int offset = (blocks - pruneLow) * cellWidth;
-                size_t size = pruneLow * cellWidth * sizeof(int2);
+                int offset = (blocks - pruneLow - 1) * cellWidth - threads;
+                size_t size = (colsGpu - offset) * sizeof(int2);
                 CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, size));
             }
         } 
