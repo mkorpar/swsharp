@@ -49,7 +49,6 @@ struct ShortDatabase {
     int* lengthsPadded;
     size_t lengthsSize;
     char4* sequences;
-    int sequencesLen;
     int sequencesRows;
     int sequencesCols;
     size_t sequencesSize;
@@ -61,6 +60,10 @@ typedef struct ShortDatabaseGpu {
     int* lengthsPadded;
     cudaArray* sequences;
     int2* hBus;
+    int* indexes;
+    int indexesLen;
+    int* offsets;
+    char* solveMask;
 } ShortDatabaseGpu;
 
 typedef struct Context {
@@ -145,13 +148,13 @@ static void shortDatabaseGpuDelete(ShortDatabaseGpu* shortDatabaseGpu);
 __device__ static int gap(int index);
 
 __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int off);
+    int* lengthsPadded, int* offsets, int* indexes);
 
 __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int off);
+    int* lengthsPadded, int* offsets, int* indexes);
 
 __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int off);
+    int* lengthsPadded, int* offsets, int* indexes);
 
 // utils
 static int* createOrderArray(Chain** database, int databaseLen);
@@ -263,7 +266,6 @@ extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen) {
     shortDatabase->lengthsSize = lengthsSize;
     shortDatabase->sequences = sequences;
     shortDatabase->sequencesSize = sequencesSize;
-    shortDatabase->sequencesLen = databaseLen;
     shortDatabase->sequencesRows = sequencesRows;
     shortDatabase->sequencesCols = sequencesCols;
     
@@ -355,6 +357,44 @@ static void* scoreDatabaseThread(void* param) {
     
     int databaseLen = shortDatabase->length;
     int* order = shortDatabase->order;
+    int* positions = shortDatabase->positions;
+    
+    //**************************************************************************
+    // CREATE SOLVE MASK AND INDEXES ARRAY SORTED BY LENGTH
+
+    int indexesTotal = shortDatabase->blocks * shortDatabase->sequencesCols;
+    
+    size_t solveMaskSize = indexesTotal * sizeof(char);
+    char* solveMask = (char*) malloc(solveMaskSize);
+    
+    if (indexes == NULL) {
+        memset(solveMask, 1, databaseLen * sizeof(char));
+        memset(solveMask + databaseLen, 0, (indexesTotal - databaseLen) * sizeof(char));
+    } else {
+    
+        memset(solveMask, 0, solveMaskSize);
+        
+        for (int i = 0; i < indexesLen; ++i) {
+            solveMask[positions[indexes[i]]] = 1;
+        }
+    }
+    
+    size_t indexesNewSize = indexesTotal * sizeof(int);
+    int* indexesNew = (int*) malloc(indexesNewSize);
+   
+    int indexesNewLen = 0;
+    for (int i = 0; i < indexesTotal; ++i) {
+        if (solveMask[i]) {
+            indexesNew[indexesNewLen] = i;
+            indexesNewLen++;
+        }
+    }
+    
+    for (int i = indexesNewLen; i < indexesTotal; ++i) {
+        indexesNew[i] = -1;
+    }
+    
+    //**************************************************************************
     
     //**************************************************************************
     // SOLVE MULTICARDED
@@ -382,8 +422,8 @@ static void* scoreDatabaseThread(void* param) {
         contexts[i].shortDatabase = shortDatabase;
         contexts[i].scorer = scorer;
         contexts[i].card = cards[i];
-        contexts[i].indexes = indexes;
-        contexts[i].indexesLen = indexesLen;
+        contexts[i].indexes = indexesNew;
+        contexts[i].indexesLen = indexesNewLen;
         
         if (threadNmr < queriesLen) {
             // one query, single card
@@ -419,8 +459,16 @@ static void* scoreDatabaseThread(void* param) {
     
     // copy
     for (int i = 0; i < queriesLen; ++i) {
+    
+        for (int j = 0; j < indexesNewLen; ++j) {
+            int scr = unordered[i * databaseLen + j];
+            (*scores)[i * databaseLen + order[indexesNew[j]]] = scr;
+        }
+        
         for (int j = 0; j < databaseLen; ++j) {
-            (*scores)[i * databaseLen + order[j]] = unordered[i * databaseLen + j];
+            if (!solveMask[positions[j]]) {
+                (*scores)[i * databaseLen + j] = NO_SCORE;
+            }
         }
     }
     
@@ -432,7 +480,9 @@ static void* scoreDatabaseThread(void* param) {
     free(unordered);
     free(threads);
     free(contexts);
-
+    free(indexesNew);
+    free(solveMask);
+    
     free(param);
     
     //**************************************************************************
@@ -484,7 +534,7 @@ static void* kernel(void* param) {
         kernelSingle(scores + offset, type, query, shortDatabase, 
             shortDatabaseGpu, scorer, blocksStart, blocksStep);
     }
-    
+
     shortDatabaseGpuDelete(shortDatabaseGpu);
 
     return NULL;
@@ -496,18 +546,6 @@ static void kernelSingle(int* scores, int type, Chain* query,
     
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
-    
-    int* offsets = shortDatabase->offsets;
-    int blocks = shortDatabase->blocks;
-    
-    int sequencesCols = shortDatabase->sequencesCols;
-    int sequencesLen = shortDatabase->sequencesLen;
-    
-    int* scoresGpu = shortDatabaseGpu->scores;
-    int* lengths = shortDatabaseGpu->lengths;
-    int* lengthsPadded = shortDatabaseGpu->lengthsPadded;
-    
-    int2* hBus = shortDatabaseGpu->hBus;
     
     //**************************************************************************
     // CREATE QUERY PROFILE
@@ -559,7 +597,7 @@ static void kernelSingle(int* scores, int type, Chain* query,
     //**************************************************************************
     // SOVLE
     
-    void (*function)(int*, int2*, int*, int*, int);
+    void (*function)(int*, int2*, int*, int*, int*, int*);
     switch (type) {
     case SW_ALIGN: 
         function = swSolveShortGpu;
@@ -573,20 +611,34 @@ static void kernelSingle(int* scores, int type, Chain* query,
     default:
         ERROR("Wrong align type");
     }
+
+    int blocks = shortDatabase->blocks;
+    int sequencesCols = shortDatabase->sequencesCols;
+
+    int* scoresGpu = shortDatabaseGpu->scores;
+    int2* hBus = shortDatabaseGpu->hBus;
+    int* lengths = shortDatabaseGpu->lengths;
+    int* lengthsPadded = shortDatabaseGpu->lengthsPadded;
+    int* offsets = shortDatabaseGpu->offsets;
+    int* indexes = shortDatabaseGpu->indexes;
+    int indexesLen = shortDatabaseGpu->indexesLen;
     
     for (int i = blocksStart; i < blocks; i += blocksStep) {
 
         int colOff = i * sequencesCols;
-        int rowOff = offsets[i];
         
-        function<<<BLOCKS, THREADS>>>(scoresGpu, hBus, lengths + colOff, 
-            lengthsPadded + colOff, rowOff);
+        if (colOff >= indexesLen) {
+            break;
+        }
 
+        function<<<BLOCKS, THREADS>>>(scoresGpu, hBus, lengths, lengthsPadded, 
+            offsets, indexes + colOff);
+            
         // copy scores from the GPU
-        size_t size = min(sequencesCols, sequencesLen - colOff) * sizeof(int);
+        size_t size = min(sequencesCols, indexesLen - colOff) * sizeof(int);
         CUDA_SAFE_CALL(cudaMemcpy(scores + colOff, scoresGpu, size, FROM_GPU));
     }
-    
+
     //**************************************************************************
     
     //**************************************************************************
@@ -608,36 +660,12 @@ static void kernelSingle(int* scores, int type, Chain* query,
 extern ShortDatabaseGpu* shortDatabaseGpuCreate(ShortDatabase* shortDatabase,
     int* indexes, int indexesLen) {
     
-    int* lengthsPadded;
-    
-    // filter and copy padded lengths
-    if (indexes == NULL) {
-        lengthsPadded = shortDatabase->lengthsPadded;
-    } else {
-        lengthsPadded = (int*) malloc(shortDatabase->lengthsSize);
-        memset(lengthsPadded, 0, shortDatabase->lengthsSize);
-        
-        int length = shortDatabase->length;
-        
-        for (int i = 0; i < indexesLen; ++i) {
-        
-            int index = indexes[i];
-            ASSERT(index < length, "wrong index: %d\n", index);
-            
-            int ord = shortDatabase->positions[index];
-            lengthsPadded[ord] = shortDatabase->lengthsPadded[ord];
-        }
-    }
-    
+    int* lengthsPadded = shortDatabase->lengthsPadded;
     size_t lengthsSize = shortDatabase->lengthsSize;
     int* lengthsPaddedGpu;
     CUDA_SAFE_CALL(cudaMalloc(&lengthsPaddedGpu, lengthsSize));
     CUDA_SAFE_CALL(cudaMemcpy(lengthsPaddedGpu, lengthsPadded, lengthsSize, TO_GPU));
     
-    if (indexes != NULL) {
-        free(lengthsPadded);
-    }
-
     // copy lengths
     int* lengths = shortDatabase->lengths;
     int* lengthsGpu;
@@ -660,13 +688,25 @@ extern ShortDatabaseGpu* shortDatabaseGpuCreate(ShortDatabase* shortDatabase,
     size_t scoresSize = sequencesCols * sizeof(int);
     CUDA_SAFE_CALL(cudaMalloc(&scoresGpu, scoresSize));
     
-    // init h bus
+    // init offsets
     int* offsets = shortDatabase->offsets;
+    int* offsetsGpu;
     int blocks = shortDatabase->blocks;
+    size_t offsetsSize = blocks * sizeof(int);
+    CUDA_SAFE_CALL(cudaMalloc(&offsetsGpu, offsetsSize));
+    CUDA_SAFE_CALL(cudaMemcpy(offsetsGpu, offsets, offsetsSize, TO_GPU));
+    
+    // init h bus
     int2* hBusGpu;
     int hBusHeight = (sequencesRows - offsets[blocks - 1]) * 4;
     size_t hBusSize = sequencesCols * hBusHeight * sizeof(int2);
     CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
+
+    // init indexes
+    int* indexesGpu;
+    size_t indexesSize = blocks * sequencesCols * sizeof(int);
+    CUDA_SAFE_CALL(cudaMalloc(&indexesGpu, indexesSize));
+    CUDA_SAFE_CALL(cudaMemcpy(indexesGpu, indexes, indexesSize, TO_GPU));
     
     // constants
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(width_, &sequencesCols, sizeof(int)));
@@ -679,6 +719,9 @@ extern ShortDatabaseGpu* shortDatabaseGpuCreate(ShortDatabase* shortDatabase,
     shortDatabaseGpu->lengthsPadded = lengthsPaddedGpu;
     shortDatabaseGpu->sequences = sequencesGpu;
     shortDatabaseGpu->hBus = hBusGpu;
+    shortDatabaseGpu->indexes = indexesGpu;
+    shortDatabaseGpu->indexesLen = indexesLen;
+    shortDatabaseGpu->offsets = offsetsGpu;
 
     return shortDatabaseGpu;
 }
@@ -690,6 +733,8 @@ extern void shortDatabaseGpuDelete(ShortDatabaseGpu* shortDatabaseGpu) {
     CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->lengthsPadded));
     CUDA_SAFE_CALL(cudaFreeArray(shortDatabaseGpu->sequences));
     CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->hBus));
+    CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->indexes));
+    CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->offsets));
     
     CUDA_SAFE_CALL(cudaUnbindTexture(seqsTexture));
     
@@ -707,15 +752,20 @@ __device__ static int gap(int index) {
 }
 
 __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int off) {
+    int* lengthsPadded, int* offsets, int* indexes) {
 
-    int id = threadIdx.x + blockIdx.x * blockDim.x;
-    int cols = lengthsPadded[id];
-
-    if (cols == 0) {
-        scores[id] = NO_SCORE;
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int id = indexes[tid];
+    
+    if (id == -1) {
         return;
     }
+    
+    int cols = lengthsPadded[id];
+    int realCols = lengths[id];
+    
+    int colOff = id % width_;
+    int rowOff = offsets[id / width_];
     
     int score = SCORE_MIN;
     
@@ -731,10 +781,9 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
     int del;
     
     int lastRow = rows_ - 1;
-    int realCols = lengths[id];
     
     for (int j = 0; j < cols * 4; ++j) {
-        hBus[j * width_ + id] = make_int2(0, SCORE_MIN);
+        hBus[j * width_ + tid] = make_int2(0, SCORE_MIN);
     }
     
     for (int i = 0; i < rowsPadded_; i += 8) {
@@ -749,14 +798,14 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
         
         for (int j = 0; j < cols; ++j) {
         
-            int columnCodes = tex2D(seqsTexture, id, j + off);
+            int columnCodes = tex2D(seqsTexture, colOff, j + rowOff);
             
             #pragma unroll
             for (int k = 0; k < 4; ++k) {
             
                 int validCol = (j * 4 + k) < realCols;
                 
-                wBus = hBus[(j * 4 + k) * width_ + id];
+                wBus = hBus[(j * 4 + k) * width_ + tid];
                 
                 char code = (columnCodes >> (k << 3));
                 char4 rowScores = tex2D(subTexture, code, i / 4);
@@ -830,24 +879,29 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 wBus.x = scrDown.w;
                 wBus.y = del;
                 
-                hBus[(j * 4 + k) * width_ + id] = wBus;
+                hBus[(j * 4 + k) * width_ + tid] = wBus;
             }
         }
     }
     
-    scores[id] = score;
+    scores[tid] = score;
 }
 
 __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int off) {
+    int* lengthsPadded, int* offsets, int* indexes) {
 
-    int id = threadIdx.x + blockIdx.x * blockDim.x;
-    int cols = lengthsPadded[id];
-
-    if (cols == 0) {
-        scores[id] = NO_SCORE;
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int id = indexes[tid];
+    
+    if (id == -1) {
         return;
     }
+    
+    int cols = lengthsPadded[id];
+    int realCols = lengths[id];
+    
+    int colOff = id % width_;
+    int rowOff = offsets[id / width_];
     
     int score = SCORE_MIN;
     
@@ -863,10 +917,9 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
     int del;
     
     int lastRow = rows_ - 1;
-    int realCols = lengths[id];
-    
+
     for (int j = 0; j < cols * 4; ++j) {
-        hBus[j * width_ + id] = make_int2(gap(j), SCORE_MIN);
+        hBus[j * width_ + tid] = make_int2(gap(j), SCORE_MIN);
     }
     
     for (int i = 0; i < rowsPadded_; i += 8) {
@@ -881,14 +934,14 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
         
         for (int j = 0; j < cols; ++j) {
         
-            int columnCodes = tex2D(seqsTexture, id, j + off);
+            int columnCodes = tex2D(seqsTexture, colOff, j + rowOff);
             
             #pragma unroll
             for (int k = 0; k < 4; ++k) {
             
                 int lastCol = (j * 4 + k) == (realCols - 1);
                 
-                wBus = hBus[(j * 4 + k) * width_ + id];
+                wBus = hBus[(j * 4 + k) * width_ + tid];
                 
                 char code = (columnCodes >> (k << 3));
                 char4 rowScores = tex2D(subTexture, code, i / 4);
@@ -962,24 +1015,28 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 wBus.x = scrDown.w;
                 wBus.y = del;
                 
-                hBus[(j * 4 + k) * width_ + id] = wBus;
+                hBus[(j * 4 + k) * width_ + tid] = wBus;
             }
         }
     }
     
-    scores[id] = score;
+    scores[tid] = score;
 }
 
 __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int off) {
+    int* lengthsPadded, int* offsets, int* indexes) {
 
-    int id = threadIdx.x + blockIdx.x * blockDim.x;
-    int cols = lengthsPadded[id];
-
-    if (cols == 0) {
-        scores[id] = NO_SCORE;
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int id = indexes[tid];
+    
+    if (id == -1) {
         return;
     }
+    
+    int cols = lengthsPadded[id];
+    
+    int colOff = id % width_;
+    int rowOff = offsets[id / width_];
     
     int score = 0;
     
@@ -995,7 +1052,7 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
     int del;
     
     for (int j = 0; j < cols * 4; ++j) {
-        hBus[j * width_ + id] = make_int2(0, SCORE_MIN);
+        hBus[j * width_ + tid] = make_int2(0, SCORE_MIN);
     }
     
     for (int i = 0; i < rowsPadded_; i += 8) {
@@ -1010,12 +1067,12 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
         
         for (int j = 0; j < cols; ++j) {
         
-            int columnCodes = tex2D(seqsTexture, id, j + off);
+            int columnCodes = tex2D(seqsTexture, colOff, j + rowOff);
             
             #pragma unroll
             for (int k = 0; k < 4; ++k) {
             
-                wBus = hBus[(j * 4 + k) * width_ + id];
+                wBus = hBus[(j * 4 + k) * width_ + tid];
                 
                 char code = (columnCodes >> (k << 3));
                 char4 rowScores = tex2D(subTexture, code, i / 4);
@@ -1097,12 +1154,12 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 wBus.x = scrDown.w;
                 wBus.y = del;
                 
-                hBus[(j * 4 + k) * width_ + id] = wBus;
+                hBus[(j * 4 + k) * width_ + tid] = wBus;
             }
         }
     }
     
-    scores[id] = score;
+    scores[tid] = score;
 }
 
 //------------------------------------------------------------------------------
