@@ -41,4 +41,4 @@ extern void eValues(double* values, int* scores, Chain* query,
 #ifdef __cplusplus 
 }
 #endif
-#endif // __CHAIN_DATABASE_HASHH__
+#endif // __EVALUEH__

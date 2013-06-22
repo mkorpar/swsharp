@@ -32,7 +32,7 @@ Contact the author by mkorpar@gmail.com.
 
 #define SCORER_CONSTANTS_LEN (sizeof(scorerConstants) / sizeof(ScorerConstants))
 
-typedef struct EValueParams {
+struct EValueParams {
     double lambda;
     double K;
     double H;
@@ -47,7 +47,7 @@ typedef struct EValueParams {
     double aUn;
     double alphaUn;
     int length;
-} EValueParams;
+};
 
 typedef struct ScorerConstants {
     const char* matrix;
