@@ -107,10 +107,11 @@ typedef struct ExtractContext {
     int step;
 } ExtractContext;
 
-typedef struct IntDouble {
-    int x;
-    double y;
-} IntDouble;
+typedef struct ScoreData {
+    int idx;
+    double val;
+    int scr;
+} ScoreData;
 
 struct ChainDatabase {
     ChainDatabaseGpu* chainDatabaseGpu;
@@ -177,7 +178,7 @@ static void filterIndexesArray(int** indexesNew, int* indexesNewLen,
 
 static int alignDataCmp(const void* a_, const void* b_);
 
-static int intDoubleCmp(const void* a_, const void* b_);
+static int scoreDataCmp(const void* a_, const void* b_);
 
 //******************************************************************************
 
@@ -662,7 +663,7 @@ static void* extractThread(void* param) {
     int start = context->start;
     int step = context->step;
     
-    IntDouble* packed = (IntDouble*) malloc(databaseLen * sizeof(IntDouble));
+    ScoreData* packed = (ScoreData*) malloc(databaseLen * sizeof(ScoreData));
     double* vals = (double*) malloc(databaseLen * sizeof(double));
     
     int i, j;
@@ -679,18 +680,19 @@ static void* extractThread(void* param) {
     
         for (j = 0; j < databaseLen; ++j) {
         
-            packed[j].x = j;
-            packed[j].y = vals[j];
+            packed[j].idx = j;
+            packed[j].val = vals[j];
+            packed[j].scr = queryScores[j];
             
-            if (packed[j].y <= valueThreshold) {
+            if (packed[j].val <= valueThreshold) {
                 thresholded++;
             }
         }
         
         int k = MIN(thresholded, maxAlignments);
         
-        qselect((void*) packed, databaseLen, sizeof(IntDouble), k, intDoubleCmp);
-        qsort((void*) packed, k, sizeof(IntDouble), intDoubleCmp);
+        qselect((void*) packed, databaseLen, sizeof(ScoreData), k, scoreDataCmp);
+        qsort((void*) packed, k, sizeof(ScoreData), scoreDataCmp);
         
         size_t dbAlignmentsDataSize = k * sizeof(DbAlignmentData);
         dbAlignmentsData[i] = (DbAlignmentData*) malloc(dbAlignmentsDataSize);
@@ -698,9 +700,9 @@ static void* extractThread(void* param) {
         dbAlignmentsLen[i] = k;
         
         for (j = 0; j < k; ++j) {
-            dbAlignmentsData[i][j].idx = packed[j].x;
-            dbAlignmentsData[i][j].value = packed[j].y;
-            dbAlignmentsData[i][j].score = queryScores[packed[j].x];
+            dbAlignmentsData[i][j].idx = packed[j].idx;
+            dbAlignmentsData[i][j].value = packed[j].val;
+            dbAlignmentsData[i][j].score = packed[j].scr;
         }
     }
     
@@ -844,14 +846,17 @@ static int alignDataCmp(const void* a_, const void* b_) {
     return a->cells - b->cells;
 }
 
-static int intDoubleCmp(const void* a_, const void* b_) {
+static int scoreDataCmp(const void* a_, const void* b_) {
 
-    IntDouble* a = (IntDouble*) a_;
-    IntDouble* b = (IntDouble*) b_;
+    ScoreData* a = (ScoreData*) a_;
+    ScoreData* b = (ScoreData*) b_;
     
-    if (a->y < b->y) return -1;
-    if (a->y > b->y) return 1;
-    return 0;
+    if (a->val == b->val) {
+        return b->scr - a->scr;
+    }
+    
+    if (a->val < b->val) return -1;
+    return 1;
 }
 
 //------------------------------------------------------------------------------

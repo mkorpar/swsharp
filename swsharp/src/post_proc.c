@@ -622,8 +622,8 @@ static void outputStat(Alignment* alignment, FILE* file) {
     fprintf(file, "# Similarity: %9d/%d (%.2f%%)\n", similarity, pathLen, simPct);
     fprintf(file, "# Gaps:       %9d/%d (%.2f%%)\n", gaps, pathLen, gapsPct);
     fprintf(file, "# Score: %d\n", score);
-    fprintf(file, "# Query: (%d, %d)\n", queryStart, queryEnd);
-    fprintf(file, "# Target: (%d, %d)\n", targetStart, targetEnd);
+    fprintf(file, "# Query: (%d, %d)\n", queryStart + 1, queryEnd + 1);
+    fprintf(file, "# Target: (%d, %d)\n", targetStart + 1, targetEnd + 1);
     fprintf(file, "#\n");
     fprintf(file, "########################################\n");
 }
@@ -906,10 +906,10 @@ static void outputDatabaseBlastM8(DbAlignment** dbAlignments,
         fprintf(file, "%d\t", length);
         fprintf(file, "%d\t", mismatches);
         fprintf(file, "%d\t", gapOpenings);
-        fprintf(file, "%d\t", dbAlignmentGetQueryStart(dbAlignments[i]));
-        fprintf(file, "%d\t", dbAlignmentGetQueryEnd(dbAlignments[i]));
-        fprintf(file, "%d\t", dbAlignmentGetTargetStart(dbAlignments[i]));
-        fprintf(file, "%d\t", dbAlignmentGetTargetEnd(dbAlignments[i]));
+        fprintf(file, "%d\t", dbAlignmentGetQueryStart(dbAlignments[i]) + 1);
+        fprintf(file, "%d\t", dbAlignmentGetQueryEnd(dbAlignments[i]) + 1);
+        fprintf(file, "%d\t", dbAlignmentGetTargetStart(dbAlignments[i]) + 1);
+        fprintf(file, "%d\t", dbAlignmentGetTargetEnd(dbAlignments[i]) + 1);
         fprintf(file, "%.2e\t", dbAlignmentGetValue(dbAlignments[i]));
         fprintf(file, "%-d ", dbAlignmentGetScore(dbAlignments[i]));
         fprintf(file, "\n");
