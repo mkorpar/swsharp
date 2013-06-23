@@ -55,7 +55,8 @@ typedef struct LongDatabaseGpu {
     char* codes;
     int3* data;
     int2* hBus;
-    int* scores;
+    int* scoresCpu;
+    int* scoresGpu;
     size_t scoresSize;
 } LongDatabaseGpu;
 
@@ -308,6 +309,11 @@ static void* scoreDatabaseThread(void* param) {
     // SOLVE MULTICARDED
     
     *scores = (int*) malloc(queriesLen * databaseLen * sizeof(int));
+
+    // init scores
+    for (int i = 0; i < queriesLen * databaseLen; ++i) {
+        (*scores)[i] = NO_SCORE;
+    }
     
     int threadNmr = cardsLen;
     int indexesStep = indexesLen / threadNmr;
@@ -341,8 +347,9 @@ static void* scoreDatabaseThread(void* param) {
             contexts[i].queriesStep = 1;
             
             int offset = i * indexesStep;
+            int last = i == threadNmr - 1;
             contexts[i].indexes = indexes + offset;
-            contexts[i].indexesLen = min(indexesStep, indexesLen - offset);
+            contexts[i].indexesLen = last ? indexesLen - offset : indexesStep;
         }
     }
     
@@ -489,8 +496,9 @@ static void kernelSingle(int* scores, int type, Chain* query,
     char* codes = longDatabaseGpu->codes;
     int2* hBus = longDatabaseGpu->hBus;
     int3* data = longDatabaseGpu->data;
-    int* scoresGpu = longDatabaseGpu->scores;
-
+    int* scoresGpu = longDatabaseGpu->scoresGpu;
+    int* scoresCpu = longDatabaseGpu->scoresCpu;
+    
     void (*function)(int*, char*, int2*, int3*);
     switch (type) {
     case SW_ALIGN: 
@@ -509,7 +517,13 @@ static void kernelSingle(int* scores, int type, Chain* query,
     function<<<BLOCKS, THREADS>>>(scoresGpu, codes, hBus, data);
 
     size_t scoresSize = longDatabaseGpu->scoresSize;
-    CUDA_SAFE_CALL(cudaMemcpy(scores, scoresGpu, scoresSize, FROM_GPU));
+    CUDA_SAFE_CALL(cudaMemcpy(scoresCpu, scoresGpu, scoresSize, FROM_GPU));
+    
+    for (int i = 0; i < length; ++i) {
+        if (scoresCpu[i] != NO_SCORE) {
+            scores[i] = scoresCpu[i];
+        }
+    }
     
     //**************************************************************************
     
@@ -557,17 +571,15 @@ static LongDatabaseGpu* longDatabaseGpuCreate(LongDatabase* longDatabase,
     CUDA_SAFE_CALL(cudaMalloc(&hBus, hBusSize));
 
     size_t scoresSize = longDatabase->length * sizeof(int);
-    int* scores = (int*) malloc(scoresSize);
+    int* scoresCpu = (int*) malloc(scoresSize);
     int* scoresGpu;
     CUDA_SAFE_CALL(cudaMalloc(&scoresGpu, scoresSize));
     
     // init scores 
     for (int i = 0; i < longDatabase->length; ++i) {
-        scores[i] = NO_SCORE;
+        scoresCpu[i] = NO_SCORE;
     }
-    CUDA_SAFE_CALL(cudaMemcpy(scoresGpu, scores, scoresSize, TO_GPU));
-    
-    free(scores);
+    CUDA_SAFE_CALL(cudaMemcpy(scoresGpu, scoresCpu, scoresSize, TO_GPU));
     
     LongDatabaseGpu* longDatabaseGpu = 
         (LongDatabaseGpu*) malloc(sizeof(struct LongDatabaseGpu));
@@ -576,7 +588,8 @@ static LongDatabaseGpu* longDatabaseGpuCreate(LongDatabase* longDatabase,
     longDatabaseGpu->codes = codesGpu;
     longDatabaseGpu->data = dataGpu;
     longDatabaseGpu->hBus = hBus;
-    longDatabaseGpu->scores = scoresGpu;
+    longDatabaseGpu->scoresCpu = scoresCpu;
+    longDatabaseGpu->scoresGpu = scoresGpu;
     longDatabaseGpu->scoresSize = scoresSize;
     
     return longDatabaseGpu;
@@ -587,8 +600,10 @@ static void longDatabaseGpuDelete(LongDatabaseGpu* longDatabaseGpu) {
     CUDA_SAFE_CALL(cudaFree(longDatabaseGpu->codes));
     CUDA_SAFE_CALL(cudaFree(longDatabaseGpu->data));
     CUDA_SAFE_CALL(cudaFree(longDatabaseGpu->hBus));
-    CUDA_SAFE_CALL(cudaFree(longDatabaseGpu->scores));
+    CUDA_SAFE_CALL(cudaFree(longDatabaseGpu->scoresGpu));
 
+    free(longDatabaseGpu->scoresCpu);
+    
     free(longDatabaseGpu);
     longDatabaseGpu = NULL;
 }
