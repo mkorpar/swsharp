@@ -519,7 +519,7 @@ static void kernelSingle(int* scores, int type, Chain* query,
     size_t scoresSize = longDatabaseGpu->scoresSize;
     CUDA_SAFE_CALL(cudaMemcpy(scoresCpu, scoresGpu, scoresSize, FROM_GPU));
     
-    for (int i = 0; i < length; ++i) {
+    for (int i = 0; i < longDatabase->length; ++i) {
         if (scoresCpu[i] != NO_SCORE) {
             scores[i] = scoresCpu[i];
         }
