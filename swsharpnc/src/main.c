@@ -13,7 +13,7 @@
         }\
     } while(0)
 
-#define OUT_FORMATS_LEN (sizeof(outFormats) / sizeof(CharInt))
+#define CHAR_INT_LEN(x) (sizeof(x) / sizeof(CharInt))
 
 typedef struct CharInt {
     const char* format;
@@ -30,6 +30,7 @@ static struct option options[] = {
     {"cards", required_argument, 0, 'c'},
     {"out", required_argument, 0, 'o'},
     {"outfmt", required_argument, 0, 't'},
+    {"algorithm", required_argument, 0, 'A'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
@@ -42,9 +43,16 @@ static CharInt outFormats[] = {
     { "dump", SW_OUT_DUMP }
 };
 
+static CharInt algorithms[] = {
+    { "SW", SW_ALIGN },
+    { "NW", NW_ALIGN },
+    { "HW", HW_ALIGN }
+};
+
 static void getCudaCards(int** cards, int* cardsLen, char* optarg);
 
 static int getOutFormat(char* optarg);
+static int getAlgorithm(char* optarg);
 
 static void help();
 
@@ -65,6 +73,8 @@ int main(int argc, char* argv[]) {
     char* out = NULL;
     int outFormat = SW_OUT_STAT_PAIR;
 
+    int algorithm = SW_ALIGN;
+    
     while (1) {
 
         char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
@@ -100,6 +110,9 @@ int main(int argc, char* argv[]) {
             break;
         case 't':
             outFormat = getOutFormat(optarg);
+            break;
+        case 'A':
+            algorithm = getAlgorithm(optarg);
             break;
         case 'h':
         default:
@@ -137,7 +150,7 @@ int main(int argc, char* argv[]) {
     Chain* queries[] = { query, queryComplement };
     
     Alignment* alignment;
-    alignBest(&alignment, SW_ALIGN, queries, 2, target, scorer, cards, 
+    alignBest(&alignment, algorithm, queries, 2, target, scorer, cards, 
         cardsLen, NULL);
      
     ASSERT(checkAlignment(alignment), "invalid align");
@@ -171,13 +184,25 @@ static void getCudaCards(int** cards, int* cardsLen, char* optarg) {
 static int getOutFormat(char* optarg) {
 
     int i;
-    for (i = 0; i < OUT_FORMATS_LEN; ++i) {
+    for (i = 0; i < CHAR_INT_LEN(outFormats); ++i) {
         if (strcmp(outFormats[i].format, optarg) == 0) {
             return outFormats[i].code;
         }
     }
 
     ASSERT(0, "unknown out format %s", optarg);
+}
+
+static int getAlgorithm(char* optarg) {
+
+    int i;
+    for (i = 0; i < CHAR_INT_LEN(algorithms); ++i) {
+        if (strcmp(algorithms[i].format, optarg) == 0) {
+            return algorithms[i].code;
+        }
+    }
+
+    ASSERT(0, "unknown algorithm %s", optarg);
 }
 
 static void help() {
@@ -204,6 +229,12 @@ static void help() {
     "    --mismatch <int>\n"
     "        default: -3\n"
     "        mismatch penalty, must be given as a negative integer\n"
+    "    --algorithm <string>\n"
+    "        default: SW\n"
+    "        algorithm used for alignment, must be one of the following: \n"
+    "            SW - Smith-Waterman local alignment\n"
+    "            NW - Needleman-Wunsch global alignment\n"
+    "            HW - semiglobal alignment\n"
     "    --cards <ints>\n"
     "        default: all available CUDA cards\n"
     "        list of cards should be given as an array of card indexes delimited with\n"
