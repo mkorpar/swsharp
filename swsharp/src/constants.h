@@ -69,6 +69,8 @@ extern int BLOSUM_90_TABLE[26 * 26];
 extern int PAM_30_TABLE[26 * 26];
 extern int PAM_70_TABLE[26 * 26];
 extern int PAM_250_TABLE[26 * 26];
+
+extern int EDNA_FULL_TABLE[26 * 26];
 //!@}
 
 #ifdef __cplusplus 

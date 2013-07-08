@@ -48,7 +48,8 @@ static ScorerEntry scorers[] = {
     { "BLOSUM_90", &BLOSUM_90_TABLE },
     { "PAM_30", &PAM_30_TABLE },
     { "PAM_70", &PAM_70_TABLE },
-    { "PAM_250", &PAM_250_TABLE }
+    { "PAM_250", &PAM_250_TABLE },
+    { "EDNA_FULL", &EDNA_FULL_TABLE }
 };
 
 //******************************************************************************

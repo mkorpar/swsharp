@@ -36,9 +36,9 @@ for i in range(len(af)):
 
 print "#define " + sys.argv[1].upper() + " \"" + sys.argv[1].upper() + "\""
 print
-print "extern int " + sys.argv[1].upper() + "_TABLE[26][26];"
+print "extern int " + sys.argv[1].upper() + "_TABLE[26 * 26];"
 print
 
-print "int " + sys.argv[1].upper() + "_TABLE[26][26] = {"
-print ",\n".join(["    { " + ", ".join(map(str, x)) + " }" for x in mat])
+print "int " + sys.argv[1].upper() + "_TABLE[26 * 26] = {"
+print ",\n".join(["    " + ", ".join(map(str, x)) for x in mat])
 print "};"

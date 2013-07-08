@@ -332,6 +332,7 @@ static void help() {
     "            BLOSUM_30\n"
     "            BLOSUM_70\n"
     "            BLOSUM_250\n"
+    "            EDNA_FULL\n"
     "    --evalue <float>\n"
     "        default: 10.0\n"
     "        evalue threshold, alignments with higher evalue are filtered,\n"
