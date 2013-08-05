@@ -1,28 +1,32 @@
-# swsharp must be first on the list
-# uncomment swsharpdbmpi module if mpi is available 
-MODULES = swsharp swsharpn swsharpp swsharpnc # swsharpdb swsharpout swsharpdbmpi
-
 INC_DIR = include
 LIB_DIR = lib
 EXC_DIR = bin
+
+# uncomment swsharpdbmpi module if mpi is available 
+CORE = swsharp
+MODULES = swsharpn swsharpp swsharpnc swsharpdb swsharpout swsharpdbmpi
 
 all: TARGETS=install
 debug: TARGETS=debug install
 win: TARGETS=win
 clean: TARGETS=remove clean
 
-all: $(MODULES)
+all: $(CORE) $(MODULES)
 
-debug: $(MODULES)
+debug: $(CORE) $(MODULES)
 
-win: $(MODULES)
+win: $(CORE) $(MODULES)
 
-clean: $(MODULES)
+clean: $(CORE) $(MODULES)
 	@echo [RM] removing
 	@rm $(INC_DIR) $(LIB_DIR) $(EXC_DIR) -rf
 
-$(MODULES):
+$(CORE): 
+	@echo [CORE] $@
+	@$(MAKE) -s -C $@ $(TARGETS)
+
+$(MODULES): $(CORE)
 	@echo [MOD] $@
 	@$(MAKE) -s -C $@ $(TARGETS)
 
-.PHONY: $(MODULES)
+.PHONY: $(CORE) $(MODULES)
