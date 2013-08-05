@@ -758,6 +758,11 @@ static int nwScore(Chain* query, Chain* target, Scorer* scorer) {
 static void swAlign(Alignment** alignment, Chain* query, Chain* target, 
     Scorer* scorer) {
     
+    if (scorerGetMaxScore(scorer) <= 0) {
+        *alignment = alignmentCreate(query, 0, 0, target, 0, 0, 0, scorer, NULL, 0);
+        return;
+    }
+
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
 
@@ -965,6 +970,10 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
 }
 
 static int swScore(Chain* query, Chain* target, Scorer* scorer) {
+
+    if (scorerGetMaxScore(scorer) <= 0) {
+        return 0;
+    }
 
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
