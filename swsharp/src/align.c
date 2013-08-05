@@ -475,7 +475,7 @@ static int scorePairGpu(void** data, int type, Chain* query, Chain* target,
         function = nwScorePairGpu;
         break;
     case SW_ALIGN:
-        if (1 || dual) {
+        if (dual) {
             function = swScorePairGpuDual;
         } else {
             function = swScorePairGpuSingle;
@@ -503,7 +503,7 @@ static void reconstructPairGpu(Alignment** alignment, void* data, int type,
         function = nwReconstructPairGpu;
         break;
     case SW_ALIGN:
-        if (1 || dual) {
+        if (dual) {
             function = swReconstructPairGpuDual;
         } else {
             function = swReconstructPairGpuSingle;
