@@ -79,6 +79,7 @@ static __constant__ int cellWidth_;
 static __constant__ int pruneLow_;
 static __constant__ int pruneHigh_;
 
+static __constant__ int scorerLen_;
 static __constant__ int subLen_;
 
 static __constant__ int match_;
@@ -166,6 +167,13 @@ class SubScalar {
 public:
     __device__ int operator () (char a, char b) {
         return a == b ? match_ : mismatch_;
+    }
+};
+
+class SubScalarRev {
+public:
+    __device__ int operator () (char a, char b) {
+        return (a == b ? match_ : mismatch_) * (a < scorerLen_ && b < scorerLen_);
     }
 };
 
@@ -573,6 +581,17 @@ static void* kernel(void* params) {
     Scorer* scorer = context->scorer;
     int card = context->card;
 
+    // if negative matrix, no need for SW, score will not be found
+    if (scorerGetMaxScore(scorer) <= 0) {
+        *score = 0;
+        *queryEnd = 0;
+        *targetEnd = 0;
+        if (scores != NULL) *scores = NULL;
+        if (affines != NULL) *affines = NULL;
+        free(params);
+        return NULL;
+    }
+
     int currentCard;
     CUDA_SAFE_CALL(cudaGetDevice(&currentCard));
     if (currentCard != card) {
@@ -700,10 +719,13 @@ static void* kernel(void* params) {
     size_t subSize = subLen * subLen * sizeof(int);
     int* subCpu = (int*) malloc(subSize);
     int* subGpu;
-    memset(subCpu, 0, subSize);
-    for (int i = 0; i < scorerLen; ++i) {
-        for (int j = 0; j < scorerLen; ++j) {
-            subCpu[i * subLen + j] = scorerScore(scorer, i, j);
+    for (int i = 0; i < subLen; ++i) {
+        for (int j = 0; j < subLen; ++j) {
+            if (i < scorerLen && j < scorerLen) {
+                subCpu[i * subLen + j] = scorerScore(scorer, i, j);
+            } else {
+                subCpu[i * subLen + j] = 0;
+            }
         }
     }
     CUDA_SAFE_CALL(cudaMalloc(&subGpu, subSize));
@@ -716,6 +738,7 @@ static void* kernel(void* params) {
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(mismatch_, &(subCpu[1]), sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapOpen_, &gapOpen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapExtend_, &gapExtend, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(scorerLen_, &scorerLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(subLen_, &subLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(rows_, &rowsGpu, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(cols_, &colsGpu, sizeof(int)));
@@ -742,8 +765,14 @@ static void* kernel(void* params) {
     for (int diagonal = 0; diagonal < diagonals; ++diagonal) {
     
         if (scalar) {
-            solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, resultsGpu, SubScalar());
-            solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, bGpu, resultsGpu, SubScalar());
+            if (subCpu[0] >= subCpu[1]) {
+                solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, resultsGpu, SubScalar());
+                solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, bGpu, resultsGpu, SubScalar());
+            } else {
+                // cannot use mismatch negative trick
+                solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, resultsGpu, SubScalarRev());
+                solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, bGpu, resultsGpu, SubScalarRev());
+            }
         } else {
             solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, resultsGpu, SubVector());
             solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, bGpu, resultsGpu, SubVector());

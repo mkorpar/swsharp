@@ -475,7 +475,7 @@ static int scorePairGpu(void** data, int type, Chain* query, Chain* target,
         function = nwScorePairGpu;
         break;
     case SW_ALIGN:
-        if (dual) {
+        if (1 || dual) {
             function = swScorePairGpuDual;
         } else {
             function = swScorePairGpuSingle;
@@ -503,7 +503,7 @@ static void reconstructPairGpu(Alignment** alignment, void* data, int type,
         function = nwReconstructPairGpu;
         break;
     case SW_ALIGN:
-        if (dual) {
+        if (1 || dual) {
             function = swReconstructPairGpuDual;
         } else {
             function = swReconstructPairGpuSingle;
@@ -705,6 +705,11 @@ static void swReconstructPairGpuSingle(Alignment** alignment, void* data_,
     int queryEnd = data->queryEnd;
     int targetEnd = data->targetEnd;
     
+    if (score == 0) {
+        *alignment = alignmentCreate(query, 0, 0, target, 0, 0, 0, scorer, NULL, 0);
+        return;
+    }
+
     int card = cards[0];
     
     Chain* queryFind = chainCreateView(query, 0, queryEnd, 1);
@@ -788,6 +793,11 @@ static int swScorePairGpuDual(void** data_, Chain* query, Chain* target,
     chainDelete(downCol);
     chainDelete(downRow);
     
+    if (upScore == 0 || downScore == 0) {
+        *data_ = NULL;
+        return 0;
+    }
+    
     int middleScore = INT_MIN;
     int middleScoreUp = 0;
     int middleScoreDown = 0;
@@ -854,6 +864,11 @@ static int swScorePairGpuDual(void** data_, Chain* query, Chain* target,
 
 static void swReconstructPairGpuDual(Alignment** alignment, void* data_,
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen) {
+
+    if (data_ == NULL) {
+        *alignment = alignmentCreate(query, 0, 0, target, 0, 0, 0, scorer, NULL, 0);
+        return;
+    }
 
     // extract data
     SwDataDual* data = (SwDataDual*) data_;

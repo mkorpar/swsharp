@@ -22,6 +22,7 @@ Contact the author by mkorpar@gmail.com.
 #include <stdlib.h>
 #include <string.h>
 
+#include "error.h"
 #include "utils.h"
 
 #include "scorer.h"
@@ -122,6 +123,21 @@ static int maxScore(Scorer* scorer);
 extern Scorer* scorerCreate(const char* name, int* scores, char maxCode, 
     int gapOpen, int gapExtend) {
 
+    ASSERT(maxCode > 0, "scorer table must have at least one element");
+    ASSERT(gapOpen > 0, "gap open is defined as positive integer");
+    ASSERT(gapExtend > 0, "gap extend is defined as positive integer");
+    ASSERT(gapOpen >= gapExtend, "gap extend must be equal or less to gap open");
+    
+    int i;
+    int j;
+    for (i = 0; i < maxCode; ++i) {
+        for (j = i + 1; j < maxCode; ++j) {
+            int a = scores[i * maxCode + j];
+            int b = scores[j * maxCode + i];
+            ASSERT(a == b, "scorer table must be symmetrical");
+        }
+    }
+    
     Scorer* scorer = (Scorer*) malloc(sizeof(struct Scorer));
 
     scorer->nameLen = strlen(name) + 1;

@@ -316,7 +316,9 @@ static void* hirschberg(void* param) {
     int gapExtend = scorerGetGapExtend(scorer);
     int gapDiff = gapOpen - gapExtend;
     
-    int t = MAX(rows, cols) - block->score / scorerGetMaxScore(scorer);
+    int maxScore = scorerGetMaxScore(scorer);
+    int minMatch = maxScore ? block->score / maxScore : 0;
+    int t = MAX(rows, cols) - minMatch;
     int p = (t - abs(rows - cols)) / 2;
 
     double cells = (double) (2 * p + abs(rows - cols) + 1) * cols;

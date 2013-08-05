@@ -154,9 +154,6 @@ int main(int argc, char* argv[]) {
     
     ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
     
-    ASSERT(gapOpen > 0, "invalid gap open");
-    ASSERT(gapExtend > 0 && gapExtend <= gapOpen, "invalid gap extend");
-    
     ASSERT(maxEValue > 0, "invalid evalue");
     
     Scorer* scorer;

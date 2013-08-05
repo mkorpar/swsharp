@@ -78,6 +78,7 @@ static __constant__ int score_;
 static __constant__ int pLeft_;
 static __constant__ int pRight_;
 
+static __constant__ int scorerLen_;
 static __constant__ int subLen_;
 
 static __constant__ int match_;
@@ -158,6 +159,13 @@ class SubScalar {
 public:
     __device__ int operator () (char a, char b) {
         return a == b ? match_ : mismatch_;
+    }
+};
+
+class SubScalarRev {
+public:
+    __device__ int operator () (char a, char b) {
+        return (a == b ? match_ : mismatch_) * (a < scorerLen_ && b < scorerLen_);
     }
 };
 
@@ -628,7 +636,9 @@ static void* kernel(void* params) {
 
     int diagonals = blocks + (int) ceil((float) rowsGpu / cellHeight);
 
-    int t = max(rows, cols) - score / scorerGetMaxScore(scorer);
+    int maxScore = scorerGetMaxScore(scorer);
+    int minMatch = maxScore ? score / maxScore : 0;
+    int t = MAX(rows, cols) - minMatch;
     int p = (t - abs(rows - cols)) / 2;
 
     int pLeft = (cols > rows ? p : p + rows - cols) + 1 + dRow;
@@ -699,10 +709,13 @@ static void* kernel(void* params) {
     size_t subSize = subLen * subLen * sizeof(int);
     int* subCpu = (int*) malloc(subSize);
     int* subGpu;
-    memset(subCpu, 0, subSize);
-    for (int i = 0; i < scorerLen; ++i) {
-        for (int j = 0; j < scorerLen; ++j) {
-            subCpu[i * subLen + j] = scorerScore(scorer, i, j);
+    for (int i = 0; i < subLen; ++i) {
+        for (int j = 0; j < subLen; ++j) {
+            if (i < scorerLen && j < scorerLen) {
+                subCpu[i * subLen + j] = scorerScore(scorer, i, j);
+            } else {
+                subCpu[i * subLen + j] = 0;
+            }
         }
     }
     CUDA_SAFE_CALL(cudaMalloc(&subGpu, subSize));
@@ -715,6 +728,7 @@ static void* kernel(void* params) {
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(mismatch_, &(subCpu[1]), sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapOpen_, &gapOpen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapExtend_, &gapExtend, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(scorerLen_, &scorerLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(subLen_, &subLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(rows_, &rowsGpu, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(cols_, &colsGpu, sizeof(int)));
@@ -741,7 +755,11 @@ static void* kernel(void* params) {
     for (int diagonal = 0; diagonal < diagonals; ++diagonal) {
     
         if (scalar) {
-            solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalar());
+            if (subCpu[0] >= subCpu[1]) {
+                solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalar());
+            } else {
+                solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalarRev());
+            }
         } else {
             solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubVector());
         }
@@ -750,7 +768,11 @@ static void* kernel(void* params) {
         if (res.x != -1) break;
         
         if (scalar) {
-            solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalar());
+            if (subCpu[0] >= subCpu[1]) {
+                solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalar());
+            } else {
+                solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalarRev());
+            }
         } else {
             solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubVector());
         }

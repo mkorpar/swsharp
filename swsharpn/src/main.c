@@ -136,12 +136,6 @@ int main(int argc, char* argv[]) {
     
     ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
     
-    ASSERT(match > 0, "invalid match");
-    ASSERT(mismatch < 0, "invalid mismatch");
-    
-    ASSERT(gapOpen > 0, "invalid gap open");
-    ASSERT(gapExtend > 0 && gapExtend <= gapOpen, "invalid gap extend");
-    
     Scorer* scorer;
     scorerCreateScalar(&scorer, match, mismatch, gapOpen, gapExtend);
     
@@ -237,10 +231,10 @@ static void help() {
     "        must be less or equal to gap opening penalty\n" 
     "    --match <int>\n"
     "        default: 1\n"
-    "        match score, must be given as a positive integer\n"
+    "        match score\n"
     "    --mismatch <int>\n"
     "        default: -3\n"
-    "        mismatch penalty, must be given as a negative integer\n"
+    "        mismatch score\n"
     "    --algorithm <string>\n"
     "        default: SW\n"
     "        algorithm used for alignment, must be one of the following: \n"

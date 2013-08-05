@@ -100,6 +100,11 @@ extern int checkAlignment(Alignment* alignment) {
     int targetStart = alignmentGetTargetStart(alignment);
     int targetEnd = alignmentGetTargetEnd(alignment);
     
+    if (queryStart == 0 && queryEnd == 0 && targetStart == 0 && targetEnd == 0 &&
+        alignmentGetPathLen(alignment) == 0 && alignmentGetScore(alignment) == 0) {
+        return 1;
+    }
+
     if (
         queryStart < 0 || queryStart > queryEnd || queryEnd > queryLen ||
         targetStart < 0 || targetStart > targetEnd || targetEnd > targetLen
@@ -188,10 +193,22 @@ extern Alignment* readAlignment(char* path) {
 
 extern void outputAlignment(Alignment* alignment, char* path, int type) {
 
+    int queryStart = alignmentGetQueryStart(alignment);
+    int queryEnd = alignmentGetQueryEnd(alignment);
+    int targetStart = alignmentGetTargetStart(alignment);
+    int targetEnd = alignmentGetTargetEnd(alignment);
+    int pathLen = alignmentGetPathLen(alignment);
+    int score = alignmentGetScore(alignment);
+
     FILE* file = path == NULL ? stdout : fileSafeOpen(path, "w");
 
-    OutputFunction function = outputFunction(type);
-    function(alignment, file);
+    if (queryStart == 0 && queryEnd == 0 && targetStart == 0 && targetEnd == 0 &&
+        pathLen == 0 && score == 0) {
+        fprintf(file, "No alignment found.\n");
+    } else {
+        OutputFunction function = outputFunction(type);
+        function(alignment, file);
+    }
     
     if (file != stdout) fclose(file);
 }
