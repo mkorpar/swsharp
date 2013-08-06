@@ -21,6 +21,8 @@ Contact the author by mkorpar@gmail.com.
 
 #include <stdio.h>
 
+#include "error.h"
+
 #include "cuda_utils.h"
 
 extern void cudaGetCards(int** cards, int* cardsLen) {
@@ -46,4 +48,31 @@ extern int cudaCheckCards(int* cards, int cardsLen) {
     }
     
     return 1;
+}
+
+extern void cudaCardBuckets(int*** cardBuckets, int** cardBucketsLens, 
+    int* cards, int cardsLen, int buckets) {
+    
+    ASSERT(buckets <= cardsLen && buckets >= 1, "invalid bucket data");
+    
+    *cardBuckets = (int**) malloc(buckets * sizeof(int*));
+    *cardBucketsLens = (int*) malloc(buckets * sizeof(int));
+    
+    memset(*cardBucketsLens, 0, buckets * sizeof(int));
+    
+    int i;
+    
+    int cardsLeft = cardsLen;
+    i = 0;
+    while (cardsLeft > 0) {
+        (*cardBucketsLens)[i]++;
+        i = (i + 1) % buckets;
+        cardsLeft--;
+    }
+    
+    int offset = 0;
+    for (i = 0; i < buckets; ++i) {
+       (*cardBuckets)[i] = cards + offset;
+       offset += (*cardBucketsLens)[i];
+    }
 }

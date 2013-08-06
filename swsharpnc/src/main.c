@@ -139,6 +139,8 @@ int main(int argc, char* argv[]) {
     readFastaChain(&query, queryPath);
     readFastaChain(&target, targetPath);
 
+    threadPoolInitialize(4);
+    
     Chain* queryComplement = createChainComplement(query);
     
     Chain* queries[] = { query, queryComplement };
@@ -159,6 +161,7 @@ int main(int argc, char* argv[]) {
     
     scorerDelete(scorer);
     
+    threadPoolTerminate();
     free(cards);
 
     return 0;

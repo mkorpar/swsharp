@@ -86,6 +86,9 @@ extern void cudaGetCards(int** cards, int* cardsLen);
 */
 extern int cudaCheckCards(int* cards, int cardsLen);
 
+extern void cudaCardBuckets(int*** cardBuckets, int** cardBucketsLens, 
+    int* cards, int cardsLen, int buckets);
+
 #ifdef __cplusplus 
 }
 #endif

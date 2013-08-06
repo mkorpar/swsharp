@@ -32,6 +32,7 @@ Contact the author by mkorpar@gmail.com.
 #include "gpu_module.h"
 #include "scorer.h"
 #include "thread.h"
+#include "threadpool.h"
 #include "utils.h"
 
 #include "reconstruct.h"
@@ -39,22 +40,6 @@ Contact the author by mkorpar@gmail.com.
 #define MIN_DUAL_LEN        20000
 #define MIN_BLOCK_SIZE      256 // > MINIMAL THREADS IN LINEAR_DATA * 2 !!!!
 #define MAX_BLOCK_CELLS     5000000.0
-#define THREADS             4
-
-typedef struct Block {
-    int outScore;
-    int score;
-    int queryFrontGap; // boolean
-    int queryBackGap; // boolean
-    int targetFrontGap; // boolean
-    int targetBackGap; // boolean
-    int startRow;
-    int startCol;
-    int endRow;
-    int endCol;
-    char* path;
-    int pathLen;
-} Block;
 
 typedef struct Context {
     char** path;
@@ -72,25 +57,39 @@ typedef struct Context {
     int cardsLen;
 } Context; 
 
-typedef struct Queue {
-    Semaphore mutex;
-    Semaphore write;
-    Semaphore done;
-    Block** data;
-    int length;
-    int current;
-} Queue;
+typedef struct Block {
+    int outScore;
+    int score;
+    int queryFrontGap; // boolean
+    int queryBackGap; // boolean
+    int targetFrontGap; // boolean
+    int targetBackGap; // boolean
+    int startRow;
+    int startCol;
+    int endRow;
+    int endCol;
+    char* path;
+    int pathLen;
+} Block;
 
-typedef struct QueueContext {
-    Queue* queue;
+typedef struct BlockContext {
+    Block* block;
     Chain* query;
     Chain* target;
-    Scorer* scorer;
-} QueueContext;
+    Scorer* scorer; 
+} BlockContext;
+
+typedef struct BlocksData {
+    Semaphore mutex;
+    Block** blocks;
+    BlockContext** contexts;
+    ThreadPoolTask** tasks;
+    int length;
+} BlocksData;
 
 typedef struct HirschbergContext {
     Block* block;
-    Queue* queue;
+    BlocksData* blocksData;
     Chain* rowChain;
     Chain* colChain;
     Scorer* scorer; 
@@ -114,11 +113,7 @@ extern void nwReconstruct(char** path, int* pathLen, int* outScore,
 static void* nwReconstructThread(void* param);
 static void* hirschberg(void* param);
 
-static void queueAdd(Queue* queue, Block* block);
-static void queueCreate(Queue* queue, int size);
-static void queueDelete(Queue* queue);
-static void* queueWorker(void* params);
-
+static void* blockReconstruct(void* params);
 static int blockCmp(const void* a_, const void* b_);
 
 //******************************************************************************
@@ -182,20 +177,20 @@ static void* nwReconstructThread(void* param) {
     
     TIMER_START("Reconstruction");
      
+    int blockIdx;
+    
     //**************************************************************************
     // PARALLEL CPU/GPU RECONSTRUCTION 
 
-    Queue queue;
-    queueCreate(&queue, 1 + (MAX(rows, cols) * 2) / MIN_BLOCK_SIZE);
+    int blocksMaxLen = 1 + (MAX(rows, cols) * 2) / MIN_BLOCK_SIZE;
     
-    QueueContext queueContext = { &queue, query, target, scorer };
-    
-    Thread threads[THREADS];
-    int threadIdx;   
-    for (threadIdx = 0; threadIdx < THREADS; ++threadIdx) {
-        threadCreate(&(threads[threadIdx]), queueWorker, (void*) &queueContext);
-    }
-    
+    BlocksData blocksData;
+    semaphoreCreate(&(blocksData.mutex), 1);
+    blocksData.blocks = (Block**) malloc(blocksMaxLen * sizeof(Block*));
+    blocksData.contexts = (BlockContext**) malloc(blocksMaxLen * sizeof(BlockContext*));
+    blocksData.tasks = (ThreadPoolTask**) malloc(blocksMaxLen * sizeof(ThreadPoolTask*));
+    blocksData.length = 0;
+
     Block* topBlock = (Block*) malloc(sizeof(Block));
     topBlock->score = score;
     topBlock->queryFrontGap = queryFrontGap;
@@ -207,41 +202,24 @@ static void* nwReconstructThread(void* param) {
     topBlock->endRow = rows - 1;
     topBlock->endCol = cols - 1;
     
-    HirschbergContext hirschbergContext = { topBlock, &queue, query, target,
+    HirschbergContext hirschbergContext = { topBlock, &blocksData, query, target,
         scorer, cards, cardsLen };
     
-    // TIMER_START("Hirschberg");
     // WARNING : topBlock is deleted in this function
     hirschberg(&hirschbergContext);
-    // TIMER_STOP;
-    
-    // TIMER_START("CPU reconstrcution overhead");
-    
-    // wait until empty semaphore gets equal 0, until all of the cpu threads
-    // finish
-    while (1) { 
 
-        if (semaphoreValue(&(queue.done)) == queue.length) {
-            break;
-        }
-        
-        threadSleep(10);
+    int blocksLen = blocksData.length;
+    for (blockIdx = 0; blockIdx < blocksLen; ++blockIdx) {
+        threadPoolTaskWait(blocksData.tasks[blockIdx]);
     }
-    
-    // threads are finished and stuck, cancel them
-    for (threadIdx = 0; threadIdx < THREADS; ++threadIdx) {
-        threadCancel(threads[threadIdx]);
-    }
-    
+
     //**************************************************************************
     
     //**************************************************************************
     // CONCATENATE THE RESULT 
     
-    Block** blocks = queue.data;
-    int blocksLen = queue.length;
-    int blockIdx;
-    
+    Block** blocks = blocksData.blocks;
+
     // becouse of multithreading blocks may not be in order
     qsort(blocks, blocksLen, sizeof(Block*), blockCmp);
     
@@ -287,10 +265,25 @@ static void* nwReconstructThread(void* param) {
     // TIMER_STOP;
     
     //**************************************************************************    
-        
-    queueDelete(&queue);
+       
+    //**************************************************************************
+    // CLEAN MEMORY
+    
+    for (blockIdx = 0; blockIdx < blocksLen; ++blockIdx) {
+        free(blocksData.blocks[blockIdx]->path);
+        free(blocksData.blocks[blockIdx]);
+        free(blocksData.contexts[blockIdx]);
+        threadPoolTaskDelete(blocksData.tasks[blockIdx]);
+    }
+    
+    semaphoreDelete(&(blocksData.mutex));
+    free(blocksData.blocks);
+    free(blocksData.contexts);
+    free(blocksData.tasks);
     
     free(param);
+    
+    //**************************************************************************
     
     TIMER_STOP;
     
@@ -302,15 +295,18 @@ static void* hirschberg(void* param) {
     HirschbergContext* context = (HirschbergContext*) param;
     
     Block* block = context->block;
-    Queue* queue = context->queue;
+    BlocksData* blocksData = context->blocksData;
     Chain* rowChain = context->rowChain;
     Chain* colChain = context->colChain;
     Scorer* scorer = context->scorer; 
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
     
-    int rows = chainGetLength(rowChain);
-    int cols = chainGetLength(colChain);
+    Chain* rowSubchain = chainCreateView(rowChain, block->startRow, block->endRow, 0);
+    Chain* colSubchain = chainCreateView(colChain, block->startCol, block->endCol, 0);
+    
+    int rows = chainGetLength(rowSubchain);
+    int cols = chainGetLength(colSubchain);
     
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
@@ -326,6 +322,9 @@ static void* hirschberg(void* param) {
     if (rows < MIN_BLOCK_SIZE || cols < MIN_BLOCK_SIZE || 
         cells < MAX_BLOCK_CELLS || cardsLen == 0) {
         
+        chainDelete(rowSubchain);
+        chainDelete(colSubchain);
+    
         // mm algorithm compensates and finds subblocks which often do not need
         // to have the optimal aligment, therefore it compensates the non 
         // optimal aligment by reducing gap penalties, these have to be 
@@ -335,14 +334,29 @@ static void* hirschberg(void* param) {
         block->score -= block->targetFrontGap * gapDiff;
         block->score -= block->targetBackGap * gapDiff;
         
-        queueAdd(queue, block);
+        BlockContext* context = (BlockContext*) malloc(sizeof(BlockContext));
+        context->block = block;
+        context->query = rowChain;
+        context->target = colChain;
+        context->scorer = scorer;
+
+        semaphoreWait(&(blocksData->mutex));
+        int last = blocksData->length;
+        blocksData->length++;
+        semaphorePost(&(blocksData->mutex));
+
+        ThreadPoolTask* task = threadPoolSubmit(blockReconstruct, (void*) context);
         
+        blocksData->blocks[last] = block;
+        blocksData->contexts[last] = context;
+        blocksData->tasks[last] = task;
+
         return NULL;
     }
     
     int swapped = 0;
     if (rows < cols) {
-        SWAP(rowChain, colChain);
+        SWAP(rowSubchain, colSubchain);
         SWAP(rows, cols);
         SWAP(block->targetFrontGap, block->queryFrontGap);
         SWAP(block->targetBackGap, block->queryBackGap);
@@ -355,11 +369,11 @@ static void* hirschberg(void* param) {
     int pLeft = rows > cols ? p + rows - cols + 1 : p + 1; 
     int pRight = rows > cols ? p + 1 : p + cols - rows + 1;
     
-    Chain* uRow = chainCreateView(rowChain, 0, row, 0);
-    Chain* dRow = chainCreateView(rowChain, row + 1, rows - 1, 1);
+    Chain* uRow = chainCreateView(rowSubchain, 0, row, 0);
+    Chain* dRow = chainCreateView(rowSubchain, row + 1, rows - 1, 1);
     
-    Chain* uCol = chainCreateView(colChain, 0, cols - 1, 0);
-    Chain* dCol = chainCreateView(colChain, 0, cols - 1, 1);
+    Chain* uCol = chainCreateView(colSubchain, 0, cols - 1, 0);
+    Chain* dCol = chainCreateView(colSubchain, 0, cols - 1, 1);
     
     int* uScr;
     int* uAff;
@@ -443,17 +457,14 @@ static void* hirschberg(void* param) {
     }
     
     if (swapped) {
-        SWAP(rowChain, colChain);
         SWAP(rows, cols);
         SWAP(row, col);
         SWAP(block->targetFrontGap, block->queryFrontGap);
         SWAP(block->targetBackGap, block->queryBackGap);
     }
     
-    uRow = chainCreateView(rowChain, 0, row, 0);
-    uCol = chainCreateView(colChain, 0, col, 0);
-    dRow = chainCreateView(rowChain, row + 1, rows - 1, 0);
-    dCol = chainCreateView(colChain, col + 1, cols - 1, 0);
+    chainDelete(rowSubchain);
+    chainDelete(colSubchain);
     
     Block* upBlock = (Block*) malloc(sizeof(Block));
     upBlock->score = uMaxScore;
@@ -477,18 +488,20 @@ static void* hirschberg(void* param) {
     downBlock->endRow = block->startRow + rows - 1;
     downBlock->endCol = block->startCol + cols - 1;
        
+    free(block);
+
     HirschbergContext* upContext = (HirschbergContext*) malloc(sizeof(HirschbergContext));
     upContext->block = upBlock;
-    upContext->queue = queue;
-    upContext->rowChain = uRow;
-    upContext->colChain = uCol;
+    upContext->blocksData = blocksData;
+    upContext->rowChain = rowChain;
+    upContext->colChain = colChain;
     upContext->scorer = scorer; 
     
     HirschbergContext* downContext = (HirschbergContext*) malloc(sizeof(HirschbergContext));
     downContext->block = downBlock;
-    downContext->queue = queue;
-    downContext->rowChain = dRow;
-    downContext->colChain = dCol;
+    downContext->blocksData = blocksData;
+    downContext->rowChain = rowChain;
+    downContext->colChain = colChain;
     downContext->scorer = scorer; 
     
     if (cardsLen >= 2) {
@@ -522,97 +535,36 @@ static void* hirschberg(void* param) {
     
     free(upContext);
     free(downContext);
-    free(block);
-    
-    chainDelete(uRow);
-    chainDelete(uCol);
-    chainDelete(dRow);
-    chainDelete(dCol);
-    
+
     return NULL;
 }
 
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
-// QUEUE
+// BLOCK
 
-static void queueAdd(Queue* queue, Block* block) {
+static void* blockReconstruct(void* params) {
+    
+    BlockContext* context = (BlockContext*) params;
+    Chain* query = context->query;
+    Chain* target = context->target;
+    Scorer* scorer = context->scorer;
+    Block* block = context->block;
 
-    semaphoreWait(&(queue->mutex));
-    queue->data[queue->length++] = block;
-    semaphorePost(&(queue->mutex));
-    
-    semaphorePost(&(queue->write));
-}
+    Chain* subRow = chainCreateView(query, block->startRow, block->endRow, 0);
+    Chain* subCol = chainCreateView(target, block->startCol, block->endCol, 0);
 
-static void queueCreate(Queue* queue, int size) {
-
-    semaphoreCreate(&(queue->mutex), 1);
-    semaphoreCreate(&(queue->write), 0);
-    semaphoreCreate(&(queue->done), 0);
+    nwReconstructCpu(&(block->path), &(block->pathLen), &(block->outScore),
+        subRow, block->queryFrontGap, block->queryBackGap, 
+        subCol, block->targetFrontGap, block->targetBackGap, 
+        scorer, block->score);
     
-    queue->data = (Block**) malloc(size * sizeof(Block*));
-    
-    queue->current = 0;
-    queue->length = 0;
-}
-
-static void queueDelete(Queue* queue) {
-
-    semaphoreDelete(&(queue->mutex));
-    semaphoreDelete(&(queue->write));
-    semaphoreDelete(&(queue->done));
-    
-    int i;
-    for (i = 0; i < queue->length; ++i) {
-        free(queue->data[i]->path);
-        free(queue->data[i]);
-    }
-    
-    free(queue->data);
-}
-
-static void* queueWorker(void* params) {
-    
-    QueueContext* contexts = (QueueContext*) params;
-    
-    Queue* queue = contexts->queue;
-    Chain* query = contexts->query;
-    Chain* target = contexts->target;
-    Scorer* scorer = contexts->scorer;
-    
-    while (1) {
-    
-        semaphoreWait(&(queue->write));
-        
-        semaphoreWait(&(queue->mutex));
-        int current = queue->current++;
-        semaphorePost(&(queue->mutex));
-        
-        Block* block = queue->data[current];
-
-        Chain* subRow = chainCreateView(query, block->startRow, block->endRow, 0);
-        Chain* subCol = chainCreateView(target, block->startCol, block->endCol, 0);
-
-        nwReconstructCpu(&(block->path), &(block->pathLen), &(block->outScore),
-            subRow, block->queryFrontGap, block->queryBackGap, 
-            subCol, block->targetFrontGap, block->targetBackGap, 
-            scorer, block->score);
-    
-        chainDelete(subRow);
-        chainDelete(subCol);
-        
-        semaphorePost(&(queue->done));
-    }
+    chainDelete(subRow);
+    chainDelete(subCol);
     
     return NULL;
 }
-
-//------------------------------------------------------------------------------
-
-//------------------------------------------------------------------------------
-// UTIL
 
 static int blockCmp(const void* a_, const void* b_) {
 

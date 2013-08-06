@@ -157,7 +157,8 @@ typedef struct ChainDatabaseGpu ChainDatabaseGpu;
 
 @return chainDatabaseGpu object
 */
-extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen);
+extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen, 
+    int* cards, int cardsLen);
 
 /*!
 @brief ChainDatabaseGpu destructor.

@@ -105,6 +105,7 @@ And the executable can be run with:
 #include "post_proc.h"
 #include "pre_proc.h"
 #include "reconstruct.h"
+#include "threadpool.h"
 
 #ifdef __cplusplus 
 extern "C" {

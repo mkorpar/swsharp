@@ -157,10 +157,13 @@ int main(int argc, char* argv[]) {
     int databaseLen = 0;
     readFastaChains(&database, &databaseLen, databasePath);
     
+    threadPoolInitialize(4);
+
     EValueParams* eValueParams = createEValueParams(database, databaseLen, 
         scorer);
         
-    ChainDatabase* chainDatabase = chainDatabaseCreate(database, 0, databaseLen);
+    ChainDatabase* chainDatabase = chainDatabaseCreate(database, 0, databaseLen,
+        cards, cardsLen);
     
     DbAlignment*** dbAlignments;
     int* dbAlignmentsLens;
@@ -183,6 +186,7 @@ int main(int argc, char* argv[]) {
     
     scorerDelete(scorer);
     
+    threadPoolTerminate();
     free(cards);
     
     return 0;

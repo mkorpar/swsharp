@@ -145,6 +145,8 @@ int main(int argc, char* argv[]) {
     readFastaChain(&query, queryPath);
     readFastaChain(&target, targetPath);
 
+    threadPoolInitialize(4);
+
     if (scoreOnly) {
     
         int score;
@@ -171,6 +173,7 @@ int main(int argc, char* argv[]) {
     
     scorerDelete(scorer);
     
+    threadPoolTerminate();
     free(cards);
 
     return 0;

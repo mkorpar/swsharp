@@ -73,7 +73,7 @@ typedef void (*ValueFunction)(double* values, int* scores, Chain* query,
 @return chainDatabase object
 */
 extern ChainDatabase* chainDatabaseCreate(Chain** database, int databaseStart, 
-    int databaseLen);
+    int databaseLen, int* cards, int cardsLen);
 
 /*!
 @brief ChainDatabase destructor.

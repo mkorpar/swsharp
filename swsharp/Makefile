@@ -26,7 +26,7 @@ LD_FLAGS = $(I_CMD) $(L_CMD) -lpthread
 
 API = $(addprefix $(SRC_DIR)/, align.h alignment.h chain.h constants.h \
 	cpu_module.h cuda_utils.h database.h db_alignment.h gpu_module.h \
-	post_proc.h pre_proc.h reconstruct.h scorer.h swsharp.h thread.h)
+	post_proc.h pre_proc.h reconstruct.h scorer.h swsharp.h thread.h threadpool.h)
 
 SRC = $(shell find $(SRC_DIR) -type f -regex ".*\.\(cu\|c\|cpp\)")
 HDR = $(shell find $(SRC_DIR) -type f -regex ".*\.\(h\)")

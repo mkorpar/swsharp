@@ -77,7 +77,8 @@ struct ChainDatabaseGpu {
 //******************************************************************************
 // PUBLIC
 
-extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen);
+extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen,
+    int* cards, int cardsLen);
 
 extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu);
 
@@ -105,7 +106,8 @@ static void* scoreDatabaseThread(void* param);
 //******************************************************************************
 // PUBLIC
 
-extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen) {
+extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen,
+    int* cards, int cardsLen) {
 
     // count thresholded
     int thresholded = 0;

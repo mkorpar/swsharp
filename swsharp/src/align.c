@@ -28,10 +28,12 @@ Contact the author by mkorpar@gmail.com.
 #include "chain.h"
 #include "constants.h"
 #include "cpu_module.h"
+#include "cuda_utils.h"
 #include "error.h"
 #include "gpu_module.h"
 #include "reconstruct.h"
 #include "scorer.h"
+#include "threadpool.h"
 #include "utils.h"
 
 #include "align.h"
@@ -70,15 +72,6 @@ typedef struct ContextScore {
     int* cards;
     int cardsLen;
 } ContextScore;
-
-typedef struct ContextPairs {
-    ContextScore** contexts;
-    int contextsLen;
-    int offset;
-    int step;
-    int* cards;
-    int cardsLen;
-} ContextPairs;
 
 typedef struct HwData {
     int score;
@@ -135,8 +128,6 @@ static void* alignPairThread(void* param);
 static void* alignBestThread(void* param);
 
 static void* scorePairThread(void* param);
-
-static void* scorePairsThread(void* param);
 
 static int scorePairGpu(void** data, int type, Chain* query, Chain* target, 
     Scorer* scorer, int* cards, int cardsLen);
@@ -304,66 +295,93 @@ static void* alignBestThread(void* param) {
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
 
-    int i;
+    int i, j;
     
     //**************************************************************************
     // SCORE MULTITHREADED
     
-    int threadNmr = MIN(queriesLen, cardsLen);
-
-    Thread* threads = (Thread*) malloc((threadNmr - 1) * sizeof(Thread));
-
     void** data = (void**) malloc(queriesLen * sizeof(void*));
     int* scores = (int*) malloc(queriesLen * sizeof(int));
     
-    size_t contextScoresSize = queriesLen * sizeof(ContextScore);
-    ContextScore** contextScores = (ContextScore**) malloc(contextScoresSize);
+    size_t contextsSize = queriesLen * sizeof(ContextScore);
+    ContextScore** contextsCpu = (ContextScore**) malloc(contextsSize);
+    ContextScore** contextsGpu = (ContextScore**) malloc(contextsSize);
+    int contextsCpuLen = 0;
+    int contextsGpuLen = 0;
 
+    size_t tasksSize = queriesLen * sizeof(ThreadPoolTask*);
+    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+
+    int cols = chainGetLength(target);
     for (i = 0; i < queriesLen; ++i) {
     
-        contextScores[i] = (ContextScore*) malloc(sizeof(ContextScore));
-        
-        contextScores[i]->score = &(scores[i]);
-        contextScores[i]->data = &(data[i]);;
-        contextScores[i]->type = type;
-        contextScores[i]->query = queries[i];
-        contextScores[i]->target = target;
-        contextScores[i]->scorer = scorer;
-    }
+        int rows = chainGetLength(queries[i]);
+        double cells = (double) rows * cols;
     
-    size_t contextSize = threadNmr * sizeof(ContextPairs);
-    ContextPairs** contexts = (ContextPairs**) malloc(contextSize);
-    
-    int cardsStep = cardsLen / threadNmr;
-    
-    for (i = 0; i < threadNmr; ++i) {
-    
-        contexts[i] = (ContextPairs*) malloc(sizeof(ContextPairs));
-        
-        contexts[i]->contexts = contextScores;
-        contexts[i]->contextsLen = queriesLen;
-        contexts[i]->offset = i;
-        contexts[i]->step = threadNmr;
-        contexts[i]->cards = cards + i * cardsStep;
+        ContextScore* context = (ContextScore*) malloc(sizeof(ContextScore));
+        context->score = &(scores[i]);
+        context->data = &(data[i]);;
+        context->type = type;
+        context->query = queries[i];
+        context->target = target;
+        context->scorer = scorer;
 
-        if (i == threadNmr - 1) {
-            // possible leftovers
-            contexts[i]->cardsLen = cardsLen - i * cardsStep;
+        if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS || cardsLen == 0) {
+            contextsCpu[contextsCpuLen++] = context;
+            context->cards = NULL;
+            context->cardsLen = 0;
         } else {
-            contexts[i]->cardsLen = cardsStep;
+            contextsGpu[contextsGpuLen++] = context;
         }
     }
 
-    for (i = 0; i < threadNmr - 1; ++i) {
-        threadCreate(&threads[i], scorePairsThread, contexts[i]);
+    for (i = 0; i < contextsCpuLen; ++i) {
+        tasks[i] = threadPoolSubmit(scorePairThread, (void*) contextsCpu[i]);
     }
     
-    scorePairsThread(contexts[threadNmr - 1]);
+    if (contextsGpuLen) {
+
+        int buckets = MIN(contextsGpuLen, cardsLen);
+        int** cardBuckets;
+        int* cardBucketsLens;
+        cudaCardBuckets(&cardBuckets, &cardBucketsLens, cards, cardsLen, buckets);
     
-    // wait for the threads
-    for (i = 0; i < threadNmr - 1; ++i) {
-        threadJoin(threads[i]);
+        i = 0;
+        while (i < contextsGpuLen) {
+        
+            for (j = 0; j < buckets && i + j < contextsGpuLen; ++j) {
+                
+                ContextScore* context = contextsGpu[i + j];
+                context->cards = cardBuckets[j];
+                context->cardsLen = cardBucketsLens[j];
+
+                ThreadPoolTask* task = 
+                    threadPoolSubmit(scorePairThread, (void*) context);
+                    
+                tasks[contextsCpuLen + j] = task;
+            }
+            
+            for (j = 0; j < buckets && i < contextsGpuLen; ++j, ++i) {
+                threadPoolTaskWait(tasks[contextsCpuLen + j]);
+                threadPoolTaskDelete(tasks[contextsCpuLen + j]);
+                free(contextsGpu[i]);
+            }
+        }
+        
+        free(cardBuckets);
+        free(cardBucketsLens);
     }
+
+    // wait for cpu tasks
+    for (i = 0; i < contextsCpuLen; ++i) {
+        threadPoolTaskWait(tasks[i]);
+        threadPoolTaskDelete(tasks[i]);
+        free(contextsCpu[i]);
+    }
+    
+    free(contextsCpu);
+    free(contextsGpu);
+    free(tasks);
 
     //**************************************************************************
 
@@ -394,10 +412,6 @@ static void* alignBestThread(void* param) {
     
     free(data);
     free(scores);
-    free(contextScores);
-
-    free(contexts);
-    free(threads);
     
     free(param);
 
@@ -428,34 +442,6 @@ static void* scorePairThread(void* param) {
     } else {
         *score = scorePairGpu(data, type, query, target, scorer, cards, cardsLen);
     }
-    
-    free(param);
-        
-    return NULL;
-}
-
-static void* scorePairsThread(void* param) {
-
-    ContextPairs* context = (ContextPairs*) param;
-    
-    ContextScore** contexts = context->contexts;
-    int contextsLen = context->contextsLen;
-    int offset = context->offset;
-    int step = context->step;
-    int* cards = context->cards;
-    int cardsLen = context->cardsLen;
-
-    int i;
-    for (i = offset; i < contextsLen; i += step) {
-
-        // write own card information
-        contexts[i]->cards = cards;
-        contexts[i]->cardsLen = cardsLen;
-        
-        scorePairThread(contexts[i]);
-    }
-    
-    free(param);
     
     return NULL;
 }

@@ -148,10 +148,10 @@ extern void threadCancel(Thread thread);
 @brief Thread constructor.
 
 @param thread thread output object
-@param *ruotine routine that the thread executes
+@param *routine routine that the thread executes
 @param args arguments passed to the rutine function
 */
-extern void threadCreate(Thread* thread, void* (*ruotine)(void*), void* args);
+extern void threadCreate(Thread* thread, void* (*routine)(void*), void* args);
 
 /*!
 @brief Thread getter.
