@@ -4,7 +4,7 @@ EXC_DIR = bin
 
 # uncomment swsharpdbmpi module if mpi is available 
 CORE = swsharp
-MODULES = swsharpn swsharpp swsharpnc swsharpdb swsharpout swsharpdbmpi
+MODULES = swsharpn swsharpp swsharpnc swsharpdb swsharpout # swsharpdbmpi
 
 all: TARGETS=install
 debug: TARGETS=debug install
