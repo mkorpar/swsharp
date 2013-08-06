@@ -595,7 +595,7 @@ static void* kernel(void* params) {
     int currentCard;
     CUDA_SAFE_CALL(cudaGetDevice(&currentCard));
     if (currentCard != card) {
-        CUDA_SAFE_CALL(cudaThreadExit());
+        // CUDA_SAFE_CALL(cudaThreadExit());
         CUDA_SAFE_CALL(cudaSetDevice(card));
     }
     

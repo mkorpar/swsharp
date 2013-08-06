@@ -157,7 +157,7 @@ int main(int argc, char* argv[]) {
     int databaseLen = 0;
     readFastaChains(&database, &databaseLen, databasePath);
     
-    threadPoolInitialize(4);
+    threadPoolInitialize(cardsLen + 4);
 
     EValueParams* eValueParams = createEValueParams(database, databaseLen, 
         scorer);
