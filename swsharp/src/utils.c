@@ -224,3 +224,25 @@ extern void qselect(void* list_, size_t n, size_t size, int k,
 
     free(key);
 }
+
+extern void chunkArray(int*** dst, int** dstLens, int* src, int srcLen, int chunks) {
+
+    ASSERT(chunks <= srcLen && chunks >= 1, "invalid chunk data");
+    
+    *dst = (int**) malloc(chunks * sizeof(int*));
+    *dstLens = (int*) malloc(chunks * sizeof(int));
+    
+    int baseLen = srcLen / chunks;
+    int addLen = srcLen % chunks;
+    
+    int offset = 0;
+
+    int i;
+    for (i = 0; i < chunks; ++i) {
+        (*dstLens)[i] = baseLen + (i < addLen);
+        (*dst)[i] = src + offset;
+        offset += (*dstLens)[i];
+    }
+    
+    ASSERT(offset == srcLen, "ooops");
+}
