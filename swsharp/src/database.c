@@ -508,8 +508,8 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
             int cols = chainGetLength(target);
             double cells = (double) rows * cols;
 
-            //  || cells < GPU_MIN_CELLS
-            if (cols < GPU_MIN_LEN || cardsLen == 0) {
+            //  
+            if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS || cardsLen == 0) {
                 aContextsCpu[aContextsCpuLen++] = context;
                 context->cards = NULL;
                 context->cardsLen = 0;
