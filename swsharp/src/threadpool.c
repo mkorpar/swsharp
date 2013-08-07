@@ -62,7 +62,9 @@ extern int threadPoolInitialize(int n);
 
 extern void threadPoolTerminate();
 
-extern ThreadPoolTask*  threadPoolSubmit(void* (*routine)(void*), void* param);
+extern ThreadPoolTask* threadPoolSubmit(void* (*routine)(void*), void* param);
+
+extern ThreadPoolTask* threadPoolSubmitToFront(void* (*routine)(void*), void* param);
 
 extern void threadPoolTaskDelete(ThreadPoolTask* task);
 
@@ -74,6 +76,8 @@ extern void threadPoolTaskWait(ThreadPoolTask* task);
 // PRIVATE
 
 static void* worker(void* param);
+
+static ThreadPoolTask* sumbit(void* (*routine)(void*), void* param, int toFront);
 
 //******************************************************************************
 
@@ -164,6 +168,39 @@ extern void threadPoolTerminate() {
 }
 
 extern ThreadPoolTask* threadPoolSubmit(void* (*routine)(void*), void* param) {
+    return sumbit(routine, param, 0);
+}
+
+extern ThreadPoolTask* threadPoolSubmitToFront(void* (*routine)(void*), void* param) {
+    return sumbit(routine, param, 1);
+}
+
+extern void threadPoolTaskDelete(ThreadPoolTask* task) {
+
+    if (task == NULL) {
+        return;
+    }
+    
+    semaphoreDelete(&(task->wait));
+    free(task);
+}
+
+extern void threadPoolTaskWait(ThreadPoolTask* task) {
+
+    if (task == NULL) {
+        return;
+    }
+    
+    semaphoreWait(&(task->wait));
+    semaphorePost(&(task->wait)); // unlock for double waiting
+}
+
+//******************************************************************************
+
+//******************************************************************************
+// PRIVATE
+
+static ThreadPoolTask* sumbit(void* (*routine)(void*), void* param, int toFront) {
 
     if (threadPool == NULL) {
         routine(param);
@@ -196,8 +233,13 @@ extern ThreadPoolTask* threadPoolSubmit(void* (*routine)(void*), void* param) {
     task->param = param;
     semaphoreCreate(&(task->wait), 0);
     
-    queue->data[queue->last] = task;
-    queue->last = (queue->last + 1) % queue->maxLength;
+    if (toFront) {
+        queue->current = (queue->current - 1) % queue->maxLength;
+        queue->data[queue->current] = task;
+    } else {
+        queue->data[queue->last] = task;
+        queue->last = (queue->last + 1) % queue->maxLength;
+    }
     
     semaphorePost(&(queue->mutex));  
     
@@ -205,31 +247,6 @@ extern ThreadPoolTask* threadPoolSubmit(void* (*routine)(void*), void* param) {
     
     return task;
 }
-
-extern void threadPoolTaskDelete(ThreadPoolTask* task) {
-
-    if (task == NULL) {
-        return;
-    }
-    
-    semaphoreDelete(&(task->wait));
-    free(task);
-}
-
-extern void threadPoolTaskWait(ThreadPoolTask* task) {
-
-    if (task == NULL) {
-        return;
-    }
-    
-    semaphoreWait(&(task->wait));
-    semaphorePost(&(task->wait)); // unlock for double waiting
-}
-
-//******************************************************************************
-
-//******************************************************************************
-// PRIVATE
 
 static void* worker(void* param) {
 

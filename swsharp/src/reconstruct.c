@@ -345,7 +345,7 @@ static void* hirschberg(void* param) {
         blocksData->length++;
         semaphorePost(&(blocksData->mutex));
 
-        ThreadPoolTask* task = threadPoolSubmit(blockReconstruct, (void*) context);
+        ThreadPoolTask* task = threadPoolSubmitToFront(blockReconstruct, (void*) context);
         
         blocksData->blocks[last] = block;
         blocksData->contexts[last] = context;

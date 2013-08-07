@@ -41,6 +41,8 @@ extern void threadPoolTerminate();
 
 extern ThreadPoolTask* threadPoolSubmit(void* (*routine)(void*), void* param);
 
+extern ThreadPoolTask* threadPoolSubmitToFront(void* (*routine)(void*), void* param);
+
 extern void threadPoolTaskDelete(ThreadPoolTask* task);
 
 extern void threadPoolTaskWait(ThreadPoolTask* task);

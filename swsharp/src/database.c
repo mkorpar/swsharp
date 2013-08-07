@@ -41,7 +41,6 @@ Contact the author by mkorpar@gmail.com.
 
 #include "database.h"
 
-#define THREADS             4
 #define GPU_DB_MIN_CELLS    49000000ll
 #define GPU_MIN_CELLS       1000000ll
 #define GPU_MIN_LEN         256
@@ -96,11 +95,13 @@ typedef struct AlignContext {
     Scorer* scorer;
     int* cards;
     int cardsLen;
+    long long cells;
 } AlignContext;
 
 typedef struct AlignContexts {
-    AlignContext* contexts;
+    AlignContext** contexts;
     int contextsLen;
+    long long cells;
 } AlignContexts;
 
 struct ChainDatabase {
@@ -490,7 +491,7 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
             Chain* target = database[data.idx];
 
             int cols = chainGetLength(target);
-            double cells = (double) rows * cols;
+            long long cells = (long long) rows * cols;
 
             AlignContext* context;
             if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS || cardsLen == 0) {
@@ -500,7 +501,7 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
             } else {
                 context = &(aContextsGpu[aContextsGpuLen++]);
             }
-            
+
             context->dbAlignment = &(dbAlignments[i][j]);
             context->type = type;
             context->query = query;
@@ -510,34 +511,56 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
             context->value = data.value;
             context->score = data.score;
             context->scorer = scorer;
+            context->cells = cells;
         }
     }
     
     LOG("Aligning %d cpu, %d gpu", aContextsCpuLen, aContextsGpuLen);
 
+    // run cpu tasks
     for (i = 0; i < aContextsCpuLen; ++i) {
-        aTasks[i] = threadPoolSubmit(alignThread, (void*) &(aContextsCpu[i]));
+        aTasks[i] = threadPoolSubmit(alignThread, &(aContextsCpu[i]));
     }
-    
+        
     if (aContextsGpuLen) {
 
         int chunks = MIN(aContextsGpuLen, cardsLen);
-        int cardsChunk = cardsLen / chunks;
-        int cardsAdd = cardsLen % chunks;
-        int contextChunk = aContextsGpuLen / chunks;
-        int contextAdd = aContextsGpuLen % chunks;
         
         size_t contextsSize = chunks * sizeof(AlignContexts);
         AlignContexts* contexts = (AlignContexts*) malloc(contextsSize);
 
-        int contextOff = 0;
+        size_t balancedSize = chunks * aContextsGpuLen * sizeof(AlignContext*);
+        AlignContext** balanced = (AlignContext**) malloc(balancedSize);
+
+        // set phony contexts, init data
         for (i = 0; i < chunks; ++i) {
-            contexts[i].contextsLen = contextChunk + (i < contextAdd);
-            contexts[i].contexts = aContextsGpu + contextOff;
-            contextOff += contexts[i].contextsLen;
+            contexts[i].contexts = balanced + i * aContextsGpuLen;
+            contexts[i].contextsLen = 0;
+            contexts[i].cells = 0;
         }
         
+        // balance tasks by round roobin, chunks is pretty small (CUDA cards)
+        for (i = 0; i < aContextsGpuLen; ++i) {
+        
+            int minIdx = 0;
+            long long min = contexts[0].cells;
+            for (j = 1; j < chunks; ++j) {
+                if (contexts[j].cells < min) {
+                    min = contexts[j].cells;
+                    minIdx = j;
+                }
+            }
+            
+            AlignContext* context = &(aContextsGpu[i]);
+            contexts[minIdx].contexts[contexts[minIdx].contextsLen++] = context;
+            contexts[minIdx].cells += context->cells;
+        }
+
+        // set context cards
+        int cardsChunk = cardsLen / chunks;
+        int cardsAdd = cardsLen % chunks;
         int cardsOff = 0;
+
         for (i = 0; i < chunks; ++i) {
         
             int cCardsLen = cardsChunk + (i < cardsAdd);
@@ -545,22 +568,26 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
             cardsOff += cCardsLen;
 
             for (j = 0; j < contexts[i].contextsLen; ++j) {
-                contexts[i].contexts[j].cards = cCards;
-                contexts[i].contexts[j].cardsLen = cCardsLen;
+                contexts[i].contexts[j]->cards = cCards;
+                contexts[i].contexts[j]->cardsLen = cCardsLen;
             }
         }
         
+        // run gpu tasks first
         for (i = 0; i < chunks; ++i) {
-            aTasks[aContextsCpuLen + i] = threadPoolSubmit(alignsThread, &(contexts[i]));
+            ThreadPoolTask* task = threadPoolSubmitToFront(alignsThread, &(contexts[i]));
+            aTasks[aContextsCpuLen + i] = task;
         }
         
+        // wait for gpu tasks to finish        
         for (i = 0; i < chunks; ++i) {
             threadPoolTaskWait(aTasks[aContextsCpuLen + i]);
             threadPoolTaskDelete(aTasks[aContextsCpuLen + i]);
         }
 
+        free(balanced);
         free(contexts);
-    }
+    } 
 
     // wait for cpu tasks
     for (i = 0; i < aContextsCpuLen; ++i) {
@@ -640,12 +667,12 @@ static void* alignThread(void* param) {
 static void* alignsThread(void* param) {
 
     AlignContexts* context = (AlignContexts*) param;
-    AlignContext* contexts = context->contexts;
+    AlignContext** contexts = context->contexts;
     int contextsLen = context->contextsLen;
     
     int i = 0;
     for (i = 0; i < contextsLen; ++i) {
-        alignThread(&(contexts[i]));
+        alignThread(contexts[i]);
     }
     
     return NULL;
