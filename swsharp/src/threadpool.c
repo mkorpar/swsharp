@@ -234,7 +234,7 @@ static ThreadPoolTask* sumbit(void* (*routine)(void*), void* param, int toFront)
     semaphoreCreate(&(task->wait), 0);
     
     if (toFront) {
-        queue->current = (queue->current - 1) % queue->maxLength;
+        queue->current = (queue->current - 1 + queue->maxLength) % queue->maxLength;
         queue->data[queue->current] = task;
     } else {
         queue->data[queue->last] = task;
