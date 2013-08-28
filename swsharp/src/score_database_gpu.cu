@@ -101,6 +101,9 @@ static void scoreDatabase(int** scores, int type, Chain** queries,
     
 static void* scoreDatabaseThread(void* param);
 
+static void filterIndexesArray(int** indexesNew, int* indexesNewLen, 
+    int* indexes, int indexesLen, int minIndex, int maxIndex);
+
 //******************************************************************************
 
 //******************************************************************************
@@ -109,66 +112,20 @@ static void* scoreDatabaseThread(void* param);
 extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen,
     int* cards, int cardsLen) {
 
-    // count thresholded
-    int thresholded = 0;
-    int total = 0;
-    
-    for (int i = 0; i < databaseLen; ++i) {
-    
-        int n = chainGetLength(database[i]);
-        total += n;
-        
-        if (n < THRESHOLD) {
-            thresholded++;
-        }
-    }
-    
-    int shortChainsLen = thresholded;
-    int longChainsLen = databaseLen - thresholded;
-    
-    LOG("short: %d, long: %d", shortChainsLen, longChainsLen);
-    LOG("total: %d", total);
-    
-    // seperate chains
-    Chain** shortChains = (Chain**) malloc(shortChainsLen * sizeof(Chain*));
-    Chain** longChains = (Chain**) malloc(longChainsLen * sizeof(Chain*));
-    
-    int* order = (int*) malloc(databaseLen * sizeof(int));
-    
-    for (int i = 0, s = 0, l = 0; i < databaseLen; ++i) {
-        if (chainGetLength(database[i]) < THRESHOLD) {
-            shortChains[s] = database[i];
-            order[i] = s;
-            s++;
-        } else {
-            longChains[l] = database[i];
-            order[i] = thresholded + l;
-            l++;
-        }
-    }
-    
-    int* position = (int*) malloc(databaseLen * sizeof(int));
-    
-    for (int i = 0; i < databaseLen; ++i) {
-        position[order[i]] = i;
-    }
-    
-    // create databases
-    ShortDatabase* shortDatabase = shortDatabaseCreate(shortChains, shortChainsLen);
-    LongDatabase* longDatabase = longDatabaseCreate(longChains, longChainsLen);
-    
-    free(shortChains);
-    free(longChains);
+    int threshold = THRESHOLD;
 
+    // create databases
+    ShortDatabase* shortDatabase = shortDatabaseCreate(database, databaseLen, 
+        threshold, cards, cardsLen);
+        
+    LongDatabase* longDatabase = NULL; // longDatabaseCreate(database, databaseLen);
+    
     // save struct
     ChainDatabaseGpu* chainDatabaseGpu = 
         (ChainDatabaseGpu*) malloc(sizeof(struct ChainDatabaseGpu));
     
     chainDatabaseGpu->database = database;
     chainDatabaseGpu->databaseLen = databaseLen;
-    chainDatabaseGpu->thresholded = thresholded;
-    chainDatabaseGpu->order = order;
-    chainDatabaseGpu->position = position;
     chainDatabaseGpu->longDatabase = longDatabase;
     chainDatabaseGpu->shortDatabase = shortDatabase;
     
@@ -177,13 +134,10 @@ extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLe
 
 extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu) {
 
-    longDatabaseDelete(chainDatabaseGpu->longDatabase);
+    // longDatabaseDelete(chainDatabaseGpu->longDatabase);
     shortDatabaseDelete(chainDatabaseGpu->shortDatabase);
-    free(chainDatabaseGpu->order);
-    free(chainDatabaseGpu->position);
 
     free(chainDatabaseGpu);
-    chainDatabaseGpu = NULL;
 }
 
 extern void scoreDatabaseGpu(int** scores, int type, Chain* query, 
@@ -202,6 +156,9 @@ extern void scoreDatabasesGpu(int** scores, int type, Chain** queries,
 
 //******************************************************************************
 // PRIVATE
+
+//------------------------------------------------------------------------------
+// ENTRY
 
 static void scoreDatabase(int** scores, int type, Chain** queries, 
     int queriesLen, ChainDatabaseGpu* chainDatabaseGpu, Scorer* scorer, 
@@ -228,6 +185,10 @@ static void scoreDatabase(int** scores, int type, Chain** queries,
         threadCreate(thread, scoreDatabaseThread, (void*) param);
     }
 }
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// SOLVE
 
 static void* scoreDatabaseThread(void* param) {
 
@@ -244,41 +205,33 @@ static void* scoreDatabaseThread(void* param) {
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
     
+    ShortDatabase* shortDatabase = chainDatabaseGpu->shortDatabase;
+    LongDatabase* longDatabase = chainDatabaseGpu->longDatabase;
+    
     int databaseLen = chainDatabaseGpu->databaseLen;
-    int thresholded = chainDatabaseGpu->thresholded;
-    int* order = chainDatabaseGpu->order;
-    int* position = chainDatabaseGpu->position;
     
     //**************************************************************************
-    // CREATE REPLACED INDEXES
+    // FILTER INDEXES
     
-    int* shortIndexes = NULL;
-    int shortIndexesLen = 0;
+    int* indexesNew = NULL;
+    int indexesNewLen;
     
-    int* longIndexes = NULL;
-    int longIndexesLen = 0;
+    filterIndexesArray(&indexesNew, &indexesNewLen, indexes, indexesLen, 
+        0, databaseLen);
     
-    // separete indexes if needed
-    if (indexes != NULL) {
-    
-        shortIndexes = (int*) malloc(indexesLen * sizeof(int));
-        longIndexes = (int*) malloc(indexesLen * sizeof(int));
+    //**************************************************************************
         
-        for (int i = 0; i < indexesLen; ++i) {
-            
-            int idx = indexes[i];
-            ASSERT(idx < databaseLen, "wrong index: %d", idx);
-            
-            int ord = order[idx];
-            
-            if (ord < thresholded) {
-                shortIndexes[shortIndexesLen++] = ord;
-            } else {
-                longIndexes[longIndexesLen++] = ord - thresholded;
-            }
+    //**************************************************************************
+    // INIT RESULTS
+    
+    *scores = (int*) malloc(queriesLen * databaseLen * sizeof(int));
+
+    for (int i = 0; i < queriesLen; ++i) {
+        for (int j = 0; j < databaseLen; ++j) {
+            (*scores)[i * databaseLen + j] = NO_SCORE;
         }
     }
-    
+
     //**************************************************************************
     
     //**************************************************************************
@@ -288,59 +241,61 @@ static void* scoreDatabaseThread(void* param) {
     
     TIMER_START("Short solve");
     
-    int* scoresShort;
-    scoreShortDatabasesGpu(&scoresShort, type, queries, queriesLen, 
-        chainDatabaseGpu->shortDatabase, scorer, shortIndexes, shortIndexesLen, 
-        cards, cardsLen, NULL);
+    scoreShortDatabasesGpu(*scores, type, queries, queriesLen, 
+        shortDatabase, scorer, indexesNew, indexesNewLen, cards, cardsLen, NULL);
 
     TIMER_STOP;
         
     TIMER_START("Long solve");
     
-    int* scoresLong;
-    scoreLongDatabasesGpu(&scoresLong, type, queries, queriesLen, 
-        chainDatabaseGpu->longDatabase, scorer, longIndexes, longIndexesLen, 
-        cards, cardsLen, NULL);
+    // scoreLongDatabasesGpu(&scoresLong, type, queries, queriesLen, longDatabase, 
+    //    scorer, indexes, indexesLen, cards, cardsLen, NULL);
         
     TIMER_STOP;
     
     TIMER_STOP;
-    
-    //**************************************************************************
-    
-    //**************************************************************************
-    // SAVE RESULTS
-    
-    *scores = (int*) malloc(queriesLen * databaseLen * sizeof(int));
-
-    for (int i = 0; i < queriesLen; ++i) {
-    
-        for (int j = 0; j < thresholded; ++j) {
-            int scr = scoresShort[i * thresholded + j];
-            (*scores)[i * databaseLen + position[j]] = scr;
-        }
-        
-        for (int j = thresholded; j < databaseLen; ++j) {
-            int scr = scoresLong[i * (databaseLen - thresholded) + j - thresholded];
-            (*scores)[i * databaseLen + position[j]] = scr;
-        }
-    }
     
     //**************************************************************************
 
     //**************************************************************************
     // CLEAN MEMORY
     
-    free(shortIndexes);
-    free(longIndexes);
-    free(scoresLong);
-    free(scoresShort);
-
+    free(indexesNew);
+    
     free(param);
     
     //**************************************************************************
     
     return NULL;
 }
+//------------------------------------------------------------------------------
 
+//------------------------------------------------------------------------------
+// UTILS
+
+static void filterIndexesArray(int** indexesNew, int* indexesNewLen, 
+    int* indexes, int indexesLen, int minIndex, int maxIndex) {
+    
+    if (indexes == NULL) {
+        *indexesNew = NULL;
+        *indexesNewLen = 0;
+        return;
+    }
+    
+    *indexesNew = (int*) malloc(indexesLen * sizeof(int));
+    *indexesNewLen = 0;
+    
+    int i;
+    for (i = 0; i < indexesLen; ++i) {
+    
+        int idx = indexes[i];
+        
+        if (idx >= minIndex && idx <= maxIndex) {
+            (*indexesNew)[*indexesNewLen] = idx;
+            (*indexesNewLen)++;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
 //******************************************************************************

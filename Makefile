@@ -6,7 +6,7 @@ EXC_DIR = bin
 CORE = swsharp
 MODULES = swsharpn swsharpp swsharpnc swsharpdb swsharpout # swsharpdbmpi
 
-all: TARGETS=install
+all: TARGETS=debug install
 debug: TARGETS=debug install
 win: TARGETS=win
 clean: TARGETS=remove clean

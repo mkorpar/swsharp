@@ -29,6 +29,7 @@ Contact the author by mkorpar@gmail.com.
 #include "error.h"
 #include "scorer.h"
 #include "thread.h"
+#include "threadpool.h"
 #include "utils.h"
 
 #include "score_database_gpu_short.h"
@@ -39,35 +40,33 @@ Contact the author by mkorpar@gmail.com.
 #define INT4_ZERO make_int4(0, 0, 0, 0)
 #define INT4_SCORE_MIN make_int4(SCORE_MIN, SCORE_MIN, SCORE_MIN, SCORE_MIN)
 
-struct ShortDatabase {
-    int length;
-    int* order;
-    int* positions;
-    int blocks;
+typedef struct GpuDatabase {
+    int card;
     int* offsets;
-    int* lengths;
-    int* lengthsPadded;
-    size_t lengthsSize;
-    char4* sequences;
-    int sequencesRows;
-    int sequencesCols;
-    size_t sequencesSize;
-};
-
-typedef struct ShortDatabaseGpu {
-    int* scores;
     int* lengths;
     int* lengthsPadded;
     cudaArray* sequences;
-    int2* hBus;
     int* indexes;
-    int indexesLen;
-    int* offsets;
-    char* solveMask;
-} ShortDatabaseGpu;
+    int* scores;
+    int2* hBus;
+} GpuDatabase;
+
+struct ShortDatabase {
+    Chain** database;
+    int databaseLen;
+    int length;
+    int* positions;
+    int* order;
+    int* indexes;
+    int blocks;
+    int sequencesRows;
+    int sequencesCols;
+    GpuDatabase* gpuDatabases;
+    int gpuDatabasesLen;
+};
 
 typedef struct Context {
-    int** scores; 
+    int* scores; 
     int type;
     Chain** queries;
     int queriesLen;
@@ -79,20 +78,27 @@ typedef struct Context {
     int cardsLen;
 } Context;
 
+typedef struct QueryProfile {
+    int height;
+    int width;
+    int length;
+    char4* data;
+    cudaArray* dataGpu;
+    size_t size;
+} QueryProfile;
+
+typedef void (*ScoringFunction)(int*, int2*, int*, int*, int*, int*, int);
+
 typedef struct KernelContext {
-    int* scores; 
-    int type;
-    Chain** queries;
-    int queriesLen;
+    int* scores;
+    ScoringFunction scoringFunction;
+    QueryProfile* queryProfile;
+    Chain* query;
     ShortDatabase* shortDatabase;
     Scorer* scorer;
     int* indexes;
     int indexesLen;
     int card;
-    int queriesStart;
-    int queriesStep;
-    int blocksStart;
-    int blocksStep;
 } KernelContext;
 
 static __constant__ int gapOpen_;
@@ -101,22 +107,24 @@ static __constant__ int gapExtend_;
 static __constant__ int rows_;
 static __constant__ int rowsPadded_;
 static __constant__ int width_;
+static __constant__ int length_;
 
 texture<int, 2, cudaReadModeElementType> seqsTexture;
-texture<char4, 2, cudaReadModeElementType> subTexture;
+texture<char4, 2, cudaReadModeElementType> qpTexture;
 
 //******************************************************************************
 // PUBLIC
 
-extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen);
+extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen, 
+    int maxLen, int* cards, int cardsLen);
 
 extern void shortDatabaseDelete(ShortDatabase* shortDatabase);
 
-extern void scoreShortDatabaseGpu(int** scores, int type, Chain* query, 
+extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query, 
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabasesGpu(int** scores, int type, Chain** queries, 
+extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
@@ -125,40 +133,53 @@ extern void scoreShortDatabasesGpu(int** scores, int type, Chain** queries,
 //******************************************************************************
 // PRIVATE
 
-static void scoreDatabase(int** scores, int type, Chain** queries, 
+// constructor
+static ShortDatabase* createDatabase(Chain** database, int databaseLen, 
+    int maxLen, int* cards, int cardsLen);
+
+// destructor
+static void deleteDatabase(ShortDatabase* database);
+
+// scoring 
+static void scoreDatabase(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
 static void* scoreDatabaseThread(void* param);
 
-// cpu kernels
-static void* kernel(void* param);
+static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction, 
+    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
+    int* indexes, int indexesLen, int* cards, int cardsLen);
 
-static void kernelSingle(int* scores, int type, Chain* query,
-    ShortDatabase* shortDatabase, ShortDatabaseGpu* shortDatabaseGpu, 
-    Scorer* scorer, int blocksStart, int blocksStep);
+static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction, 
+    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
+    int* indexes, int indexesLen, int* cards, int cardsLen);
 
-// gpu database preparation
-static ShortDatabaseGpu* shortDatabaseGpuCreate(ShortDatabase* shortDatabase,
-    int* indexes, int indexesLen);
+// cpu kernels 
+static void* kernelThreadMulti(void* param);
 
-static void shortDatabaseGpuDelete(ShortDatabaseGpu* shortDatabaseGpu);
+static void* kernelThreadSingle(void* param);
 
-// gpu kernels
-__device__ static int gap(int index);
-
+// gpu kernels 
 __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int* offsets, int* indexes);
-
+    int* lengthsPadded, int* offsets, int* indexes, int block);
+    
 __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int* offsets, int* indexes);
+    int* lengthsPadded, int* offsets, int* indexes, int block);
 
 __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int* offsets, int* indexes);
+    int* lengthsPadded, int* offsets, int* indexes, int block);
+    
+// query profile
+static QueryProfile* createQueryProfile(Chain* query, Scorer* scorer);
+
+static void copyQueryProfileToGpu(QueryProfile* queryProfile);
+
+static void deleteQueryProfileFromGpu(QueryProfile* queryProfile);
+
+static void deleteQueryProfile(QueryProfile* queryProfile);
 
 // utils
-static int* createOrderArray(Chain** database, int databaseLen);
-
 static int int2CmpY(const void* a_, const void* b_);
 
 //******************************************************************************
@@ -169,57 +190,129 @@ static int int2CmpY(const void* a_, const void* b_);
 //------------------------------------------------------------------------------
 // CONSTRUCTOR, DESTRUCTOR
 
-extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen) {
+extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen, 
+    int maxLen, int* cards, int cardsLen) {
+    return createDatabase(database, databaseLen, maxLen, cards, cardsLen);
+}
     
-    int* order = createOrderArray(database, databaseLen);
+extern void shortDatabaseDelete(ShortDatabase* shortDatabase) {
+    deleteDatabase(shortDatabase);
+}
+
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// DATABASE SCORING
+
+extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query, 
+    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
+    int* cards, int cardsLen, Thread* thread) {
+    scoreDatabase(scores, type, &query, 1, shortDatabase, scorer, indexes, 
+        indexesLen, cards, cardsLen, thread);
+}
+
+extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries, 
+    int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
+    int indexesLen, int* cards, int cardsLen, Thread* thread) {
+    scoreDatabase(scores, type, queries, queriesLen, shortDatabase, scorer,
+        indexes, indexesLen, cards, cardsLen, thread);
+}
+
+//------------------------------------------------------------------------------
+
+//******************************************************************************
+
+//******************************************************************************
+// PRIVATE
+
+//------------------------------------------------------------------------------
+// CONSTRUCTOR, DESTRUCTOR 
+
+static ShortDatabase* createDatabase(Chain** database, int databaseLen, 
+    int maxLen, int* cards, int cardsLen) {
     
-    int* positions = (int*) malloc(databaseLen * sizeof(int));
+    ASSERT(cardsLen > 0, "no GPUs available");
+
+    //**************************************************************************
+    // FILTER DATABASE AND REMEBER ORDER
+    
+    int length = 0;
     
     for (int i = 0; i < databaseLen; ++i) {
-        positions[order[i]] = i;
+        if (chainGetLength(database[i]) < maxLen) {
+            length++;
+        }
     }
     
-    // create gpu database
+    int2* orderPacked = (int2*) malloc(length * sizeof(int2));
+
+    for (int i = 0, j = 0; i < databaseLen; ++i) {
+    
+        const int n = chainGetLength(database[i]);
+        
+        if (n < maxLen) {
+            orderPacked[j].x = i;
+            orderPacked[j].y = n;
+            j++;
+        }
+    }
+    
+    qsort(orderPacked, length, sizeof(int2), int2CmpY);
+    
+    LOG("Short database length: %d", length);
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // CALCULATE GRID DIMENSIONS
+    
     int sequencesCols = THREADS * BLOCKS;
     int sequencesRows = 0;
 
     int blocks = 0;
-    
-    // calculate sequence grid
-    for (int i = sequencesCols - 1; i < databaseLen; i += sequencesCols) {
-        int n = chainGetLength(database[order[i]]);
+    for (int i = sequencesCols - 1; i < length; i += sequencesCols) {
+        int n = chainGetLength(database[orderPacked[i].x]);
         sequencesRows += (n + (4 - n % 4) % 4) / 4;
         blocks++;
     }
     
-    if (databaseLen % sequencesCols != 0) {
-        int n = chainGetLength(database[order[databaseLen - 1]]);
+    if (length % sequencesCols != 0) {
+        int n = chainGetLength(database[orderPacked[length - 1].x]);
         sequencesRows += (n + (4 - n % 4) % 4) / 4;
         blocks++;
     }
     
-    // initialize structures
-    int* offsets = (int*) malloc(blocks * sizeof(int));
-    offsets[0] = 0;
+    LOG("Short database grid: %d(%d)x%d", sequencesRows, blocks, sequencesCols);
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // INIT STRUCTURES
+    
+    size_t offsetsSize = blocks * sizeof(int);
+    int* offsets = (int*) malloc(offsetsSize);
     
     size_t lengthsSize = blocks * sequencesCols * sizeof(int);
     int* lengths = (int*) malloc(lengthsSize);
-    memset(lengths, 0, lengthsSize);
-    
     int* lengthsPadded = (int*) malloc(lengthsSize);
-    memset(lengthsPadded, 0, lengthsSize);
     
     size_t sequencesSize = sequencesRows * sequencesCols * sizeof(char4);
     char4* sequences = (char4*) malloc(sequencesSize);
     
+    //***********f***************************************************************
+
+    //**************************************************************************
+    // CREATE GRID
+    
     // tmp
-    size_t sequenceSize = chainGetLength(database[order[databaseLen - 1]]) + 4;
+    size_t sequenceSize = chainGetLength(database[orderPacked[length - 1].x]) + 4;
     char* sequence = (char*) malloc(sequenceSize);
 
-    for(int i = 0, j = 0, cx = 0, cy = 0; i < databaseLen; i++){
+    offsets[0] = 0;
+    for(int i = 0, j = 0, cx = 0, cy = 0; i < length; i++){
 
         //get the sequence and its length
-        Chain* chain = database[order[i]];
+        Chain* chain = database[orderPacked[i].x];
         int n = chainGetLength(chain);    
         
         lengths[j * sequencesCols + cx] = n;
@@ -253,68 +346,170 @@ extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen) {
     
     free(sequence);
     
-    ShortDatabase* shortDatabase = 
-        (ShortDatabase*) malloc(sizeof(struct ShortDatabase));
+    //**************************************************************************
     
-    shortDatabase->length = databaseLen;
-    shortDatabase->order = order;
+    //**************************************************************************
+    // CREATE POSITION ARRAY
+    
+    int* positions = (int*) malloc(databaseLen * sizeof(int));
+
+    for (int i = length; i < databaseLen; ++i) {
+        positions[i] = -1;
+    }
+    
+    for (int i = 0; i < length; ++i) {
+        positions[orderPacked[i].x] = i;
+    }
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // CREATE ORDER ARRAY
+    
+    size_t orderSize = length * sizeof(int);
+    int* order = (int*) malloc(orderSize);
+
+    for (int i = 0; i < length; ++i) {
+        order[i] = orderPacked[i].x;
+    }
+     
+    //**************************************************************************
+    
+    //**************************************************************************
+    // CREATE DEFAULT INDEXES
+    
+    size_t indexesSize = length * sizeof(int);
+    int* indexes = (int*) malloc(indexesSize);
+
+    for (int i = 0; i < length; ++i) {
+        indexes[i] = i;
+    }
+     
+    //**************************************************************************
+
+    //**************************************************************************
+    // CREATE GPU DATABASES
+    
+    size_t gpuDatabasesSize = cardsLen * sizeof(GpuDatabase);
+    GpuDatabase* gpuDatabases = (GpuDatabase*) malloc(gpuDatabasesSize);
+
+    for (int i = 0; i < cardsLen; ++i) {
+    
+        int card = cards[i];
+        CUDA_SAFE_CALL(cudaSetDevice(card));
+
+        int* offsetsGpu;
+        CUDA_SAFE_CALL(cudaMalloc(&offsetsGpu, offsetsSize));
+        CUDA_SAFE_CALL(cudaMemcpy(offsetsGpu, offsets, offsetsSize, TO_GPU));
+        
+        int* lengthsGpu;
+        CUDA_SAFE_CALL(cudaMalloc(&lengthsGpu, lengthsSize));
+        CUDA_SAFE_CALL(cudaMemcpy(lengthsGpu, lengths, lengthsSize, TO_GPU));
+
+        int* lengthsPaddedGpu;
+        CUDA_SAFE_CALL(cudaMalloc(&lengthsPaddedGpu, lengthsSize));
+        CUDA_SAFE_CALL(cudaMemcpy(lengthsPaddedGpu, lengthsPadded, lengthsSize, TO_GPU));
+        
+        cudaArray* sequencesGpu;
+        cudaChannelFormatDesc channel = seqsTexture.channelDesc;
+        CUDA_SAFE_CALL(cudaMallocArray(&sequencesGpu, &channel, sequencesCols, sequencesRows)); 
+        CUDA_SAFE_CALL(cudaMemcpyToArray(sequencesGpu, 0, 0, sequences, sequencesSize, TO_GPU));
+        CUDA_SAFE_CALL(cudaBindTextureToArray(seqsTexture, sequencesGpu));
+
+        int* indexesGpu;
+        CUDA_SAFE_CALL(cudaMalloc(&indexesGpu, indexesSize));
+        CUDA_SAFE_CALL(cudaMemcpy(indexesGpu, indexes, indexesSize, TO_GPU));
+        
+        // additional structures
+
+        size_t scoresSize = length * sizeof(int);
+        int* scoresGpu;
+        CUDA_SAFE_CALL(cudaMalloc(&scoresGpu, scoresSize));
+
+        int2* hBusGpu;
+        int hBusHeight = (sequencesRows - offsets[blocks - 1]) * 4;
+        size_t hBusSize = sequencesCols * hBusHeight * sizeof(int2);
+        CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
+
+        gpuDatabases[i].card = card;
+        gpuDatabases[i].offsets = offsetsGpu;
+        gpuDatabases[i].lengths = lengthsGpu;
+        gpuDatabases[i].lengthsPadded = lengthsPaddedGpu;
+        gpuDatabases[i].sequences = sequencesGpu;
+        gpuDatabases[i].indexes = indexesGpu;
+        gpuDatabases[i].scores = scoresGpu;
+        gpuDatabases[i].hBus = hBusGpu;
+        
+        size_t memory = offsetsSize + 2 * lengthsSize + sequencesSize + 
+            indexesSize + scoresSize + hBusSize;
+            
+        LOG("Short database using %.2lfMBs on card %d", memory / 1024.0 / 1024.0, card);
+    }
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // CLEAN MEMORY
+
+    free(orderPacked);
+    free(offsets);
+    free(lengths);
+    free(lengthsPadded);
+    free(sequences);
+
+    //**************************************************************************
+    
+    size_t shortDatabaseSize = sizeof(struct ShortDatabase);
+    ShortDatabase* shortDatabase = (ShortDatabase*) malloc(shortDatabaseSize);
+    
+    shortDatabase->database = database;
+    shortDatabase->databaseLen = databaseLen;
+    shortDatabase->length = length;
     shortDatabase->positions = positions;
+    shortDatabase->order = order;
+    shortDatabase->indexes = indexes;
     shortDatabase->blocks = blocks;
-    shortDatabase->offsets = offsets;
-    shortDatabase->lengths = lengths;
-    shortDatabase->lengthsPadded = lengthsPadded;
-    shortDatabase->lengthsSize = lengthsSize;
-    shortDatabase->sequences = sequences;
-    shortDatabase->sequencesSize = sequencesSize;
     shortDatabase->sequencesRows = sequencesRows;
     shortDatabase->sequencesCols = sequencesCols;
+    shortDatabase->gpuDatabases = gpuDatabases;
+    shortDatabase->gpuDatabasesLen = cardsLen;
     
     return shortDatabase;
 }
+
+static void deleteDatabase(ShortDatabase* database) {
+
+    for (int i = 0; i < database->gpuDatabasesLen; ++i) {
     
-extern void shortDatabaseDelete(ShortDatabase* shortDatabase) {
+        GpuDatabase* gpuDatabase = &(database->gpuDatabases[i]);
+        
+        CUDA_SAFE_CALL(cudaSetDevice(gpuDatabase->card));
 
-    free(shortDatabase->order);
-    free(shortDatabase->positions);
-    free(shortDatabase->offsets);
-    free(shortDatabase->lengths);
-    free(shortDatabase->lengthsPadded);
-    free(shortDatabase->sequences);
-    
-    free(shortDatabase);
-    shortDatabase = NULL;
+        CUDA_SAFE_CALL(cudaFree(gpuDatabase->offsets));
+        CUDA_SAFE_CALL(cudaFree(gpuDatabase->lengths));
+        CUDA_SAFE_CALL(cudaFree(gpuDatabase->lengthsPadded));
+        CUDA_SAFE_CALL(cudaFreeArray(gpuDatabase->sequences));
+        CUDA_SAFE_CALL(cudaFree(gpuDatabase->indexes));
+        CUDA_SAFE_CALL(cudaFree(gpuDatabase->scores));
+        CUDA_SAFE_CALL(cudaFree(gpuDatabase->hBus));
+
+        CUDA_SAFE_CALL(cudaUnbindTexture(seqsTexture));
+    }
+
+    free(database->gpuDatabases);
+    free(database->positions);
+    free(database->order);
+    free(database->indexes);
+
+    free(database);
 }
 
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
-// DATABASE SCORING
+// ENTRY 
 
-extern void scoreShortDatabaseGpu(int** scores, int type, Chain* query, 
-    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
-    int* cards, int cardsLen, Thread* thread) {
-    scoreDatabase(scores, type, &query, 1, shortDatabase, scorer, indexes, 
-        indexesLen, cards, cardsLen, thread);
-}
-
-extern void scoreShortDatabasesGpu(int** scores, int type, Chain** queries, 
-    int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
-    int indexesLen, int* cards, int cardsLen, Thread* thread) {
-    scoreDatabase(scores, type, queries, queriesLen, shortDatabase, scorer,
-        indexes, indexesLen, cards, cardsLen, thread);
-}
-
-//------------------------------------------------------------------------------
-
-//******************************************************************************
-
-//******************************************************************************
-// PRIVATE
-
-//------------------------------------------------------------------------------
-// DATABASE SCORING
-
-static void scoreDatabase(int** scores, int type, Chain** queries, 
+static void scoreDatabase(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread) {
     
@@ -340,164 +535,14 @@ static void scoreDatabase(int** scores, int type, Chain** queries,
     }
 }
 
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// DATABASE SCORING
+
 static void* scoreDatabaseThread(void* param) {
 
     Context* context = (Context*) param;
-    
-    int** scores = context->scores;
-    int type = context->type;
-    Chain** queries = context->queries;
-    int queriesLen = context->queriesLen;
-    ShortDatabase* shortDatabase = context->shortDatabase;
-    Scorer* scorer = context->scorer;
-    int* indexes = context->indexes;
-    int indexesLen = context->indexesLen;
-    int* cards = context->cards;
-    int cardsLen = context->cardsLen;
-    
-    int databaseLen = shortDatabase->length;
-    int* order = shortDatabase->order;
-    int* positions = shortDatabase->positions;
-    
-    //**************************************************************************
-    // CREATE SOLVE MASK AND INDEXES ARRAY SORTED BY LENGTH
-
-    int indexesTotal = shortDatabase->blocks * shortDatabase->sequencesCols;
-    
-    size_t solveMaskSize = indexesTotal * sizeof(char);
-    char* solveMask = (char*) malloc(solveMaskSize);
-    
-    if (indexes == NULL) {
-        memset(solveMask, 1, databaseLen * sizeof(char));
-        memset(solveMask + databaseLen, 0, (indexesTotal - databaseLen) * sizeof(char));
-    } else {
-    
-        memset(solveMask, 0, solveMaskSize);
-        
-        for (int i = 0; i < indexesLen; ++i) {
-            solveMask[positions[indexes[i]]] = 1;
-        }
-    }
-    
-    size_t indexesNewSize = indexesTotal * sizeof(int);
-    int* indexesNew = (int*) malloc(indexesNewSize);
-   
-    int indexesNewLen = 0;
-    for (int i = 0; i < indexesTotal; ++i) {
-        if (solveMask[i]) {
-            indexesNew[indexesNewLen] = i;
-            indexesNewLen++;
-        }
-    }
-    
-    for (int i = indexesNewLen; i < indexesTotal; ++i) {
-        indexesNew[i] = -1;
-    }
-    
-    //**************************************************************************
-    
-    //**************************************************************************
-    // SOLVE MULTICARDED
-    
-    // there is no level of paralelization available
-    if (queriesLen == 1 && shortDatabase->blocks == 1) {
-        cardsLen = 1;
-    }
-    
-    int threadNmr = cardsLen;
-    
-    Thread* threads = (Thread*) malloc((threadNmr - 1) * sizeof(Thread));
-    
-    int* unordered = (int*) malloc(queriesLen * databaseLen * sizeof(int));
-    
-    KernelContext* contexts = 
-        (KernelContext*) malloc(threadNmr * sizeof(KernelContext));
-
-    for (int i = 0; i < threadNmr; ++i) {
-    
-        contexts[i].scores = unordered;
-        contexts[i].type = type;
-        contexts[i].queries = queries;
-        contexts[i].queriesLen = queriesLen;
-        contexts[i].shortDatabase = shortDatabase;
-        contexts[i].scorer = scorer;
-        contexts[i].card = cards[i];
-        contexts[i].indexes = indexesNew;
-        contexts[i].indexesLen = indexesNewLen;
-        
-        if (threadNmr < queriesLen) {
-            // one query, single card
-            contexts[i].queriesStart = i;
-            contexts[i].queriesStep = cardsLen;
-            contexts[i].blocksStart = 0;
-            contexts[i].blocksStep = 1;
-        } else {
-            // one query, multiple cards
-            contexts[i].queriesStart = 0;
-            contexts[i].queriesStep = 1;
-            contexts[i].blocksStart = i;
-            contexts[i].blocksStep = cardsLen;
-        }
-    }
-
-    for (int i = 0; i < threadNmr - 1; ++i) {    
-        threadCreate(&threads[i], kernel, &contexts[i]);
-    }
-    
-    kernel(&contexts[threadNmr - 1]);
-    
-    for (int i = 0; i < threadNmr - 1; ++i) {
-        threadJoin(threads[i]);
-    }
-    
-    //**************************************************************************
-    
-    //**************************************************************************
-    // SAVE SCORES
-    
-    *scores = (int*) malloc(queriesLen * databaseLen * sizeof(int));
-    
-    // copy
-    for (int i = 0; i < queriesLen; ++i) {
-    
-        for (int j = 0; j < indexesNewLen; ++j) {
-            int scr = unordered[i * databaseLen + j];
-            (*scores)[i * databaseLen + order[indexesNew[j]]] = scr;
-        }
-        
-        for (int j = 0; j < databaseLen; ++j) {
-            if (!solveMask[positions[j]]) {
-                (*scores)[i * databaseLen + j] = NO_SCORE;
-            }
-        }
-    }
-    
-    //**************************************************************************
-    
-    //**************************************************************************
-    // CLEAN MEMORY
-
-    free(unordered);
-    free(threads);
-    free(contexts);
-    free(indexesNew);
-    free(solveMask);
-    
-    free(param);
-    
-    //**************************************************************************
-    
-    return NULL;
-}
-
-//------------------------------------------------------------------------------
-
-//------------------------------------------------------------------------------
-// CPU KERNELS
-
-static void* kernel(void* param) {
-
-    KernelContext* context = (KernelContext*) param;
     
     int* scores = context->scores;
     int type = context->type;
@@ -507,97 +552,53 @@ static void* kernel(void* param) {
     Scorer* scorer = context->scorer;
     int* indexes = context->indexes;
     int indexesLen = context->indexesLen;
-    int card = context->card;
-    int queriesStart = context->queriesStart;
-    int queriesStep = context->queriesStep;
-    int blocksStart = context->blocksStart;
-    int blocksStep = context->blocksStep;
-    
-    // set card
-    int currentCard;
-    CUDA_SAFE_CALL(cudaGetDevice(&currentCard));
-    if (currentCard != card) {
-        CUDA_SAFE_CALL(cudaThreadExit());
-        CUDA_SAFE_CALL(cudaSetDevice(card));
-    }
-    
-    // prepare gpu db
-    ShortDatabaseGpu* shortDatabaseGpu = shortDatabaseGpuCreate(shortDatabase, 
-        indexes, indexesLen);
+    int* cards = context->cards;
+    int cardsLen = context->cardsLen;
 
-    // solve
-    for (int i = queriesStart; i < queriesLen; i += queriesStep) {
+    //**************************************************************************
+    // CREATE NEW INDEXES ARRAY IF NEEDED
     
-        Chain* query = queries[i];
-        int offset = i * shortDatabase->length;
+    int* newIndexes = NULL;
+    int newIndexesLen = 0;
+
+    // translate and filter indexes, also make sure that indexes are sorted by
+    // size 
+    if (indexes != NULL) {
+
+        int length = shortDatabase->length;
+        int databaseLen = shortDatabase->databaseLen;
+        int* positions = shortDatabase->positions;
         
-        kernelSingle(scores + offset, type, query, shortDatabase, 
-            shortDatabaseGpu, scorer, blocksStart, blocksStep);
-    }
-
-    shortDatabaseGpuDelete(shortDatabaseGpu);
-
-    return NULL;
-}
-
-static void kernelSingle(int* scores, int type, Chain* query,
-    ShortDatabase* shortDatabase, ShortDatabaseGpu* shortDatabaseGpu, 
-    Scorer* scorer, int blocksStart, int blocksStep) {
-    
-    int gapOpen = scorerGetGapOpen(scorer);
-    int gapExtend = scorerGetGapExtend(scorer);
-    
-    //**************************************************************************
-    // CREATE QUERY PROFILE
-    
-    int rows = chainGetLength(query);
-    int rowsGpu = rows + (8 - rows % 8) % 8;
-    
-    size_t rowSize = rows * sizeof(char);
-    char* row = (char*) malloc(rowSize);
-    chainCopyCodes(query, row);
-
-    int subLen = scorerGetMaxCode(scorer) + 1;
-    size_t subSize = rowsGpu * subLen * sizeof(char);
-    char4* subCpu = (char4*) malloc(subSize);
-    memset(subCpu, 0, subSize);
-    for (int i = 0; i < rowsGpu / 4; ++i) {
-        for (int j = 0; j < subLen - 1; ++j) {
-            char4 scr;
-            scr.x = i * 4 + 0 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 0], j);
-            scr.y = i * 4 + 1 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 1], j);
-            scr.z = i * 4 + 2 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 2], j);
-            scr.w = i * 4 + 3 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 3], j);
-            subCpu[i * subLen + j] = scr;
+        char* solveMask = (char*) malloc(length * sizeof(char));
+        memset(solveMask, 0, length);
+        
+        newIndexesLen = 0;
+        for (int i = 0; i < indexesLen; ++i) {
+            
+            int idx = indexes[i];
+            if (idx < 0 || idx > databaseLen || positions[idx] == -1) {
+                continue;
+            }
+            
+            solveMask[positions[idx]] = 1;
+            newIndexesLen++;
         }
-    }
+        
+        newIndexes = (int*) malloc(newIndexesLen * sizeof(int));
+        
+        for (int i = 0, j = 0; i < length; ++i) {
+            if (solveMask[i]) {
+                newIndexes[j++] = i;
+            }
+        }
+    }     
     
-    cudaArray* subArray;
-    int subH = rowsGpu / 4;
-    CUDA_SAFE_CALL(cudaMallocArray(&subArray, &subTexture.channelDesc, subLen, subH)); 
-    CUDA_SAFE_CALL(cudaMemcpyToArray (subArray, 0, 0, subCpu, subSize, TO_GPU));
-    CUDA_SAFE_CALL(cudaBindTextureToArray(subTexture, subArray));
-    subTexture.addressMode[0] = cudaAddressModeClamp;
-    subTexture.addressMode[1] = cudaAddressModeClamp;
-    subTexture.filterMode = cudaFilterModePoint;
-    subTexture.normalized = false;
+    //**************************************************************************
 
     //**************************************************************************
+    // CHOOSE SOLVING FUNCTION
     
-    //**************************************************************************
-    // INIT GPU
-    
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(rows_, &rows, sizeof(int)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(rowsPadded_, &rowsGpu, sizeof(int)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapOpen_, &gapOpen, sizeof(int)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapExtend_, &gapExtend, sizeof(int)));
-    
-    //**************************************************************************
-    
-    //**************************************************************************
-    // SOVLE
-    
-    void (*function)(int*, int2*, int*, int*, int*, int*);
+    ScoringFunction function;
     switch (type) {
     case SW_ALIGN: 
         function = swSolveShortGpu;
@@ -611,135 +612,281 @@ static void kernelSingle(int* scores, int type, Chain* query,
     default:
         ERROR("Wrong align type");
     }
-
-    int blocks = shortDatabase->blocks;
-    int sequencesCols = shortDatabase->sequencesCols;
-
-    int* scoresGpu = shortDatabaseGpu->scores;
-    int2* hBus = shortDatabaseGpu->hBus;
-    int* lengths = shortDatabaseGpu->lengths;
-    int* lengthsPadded = shortDatabaseGpu->lengthsPadded;
-    int* offsets = shortDatabaseGpu->offsets;
-    int* indexes = shortDatabaseGpu->indexes;
-    int indexesLen = shortDatabaseGpu->indexesLen;
     
-    for (int i = blocksStart; i < blocks; i += blocksStep) {
+    //**************************************************************************
 
-        int colOff = i * sequencesCols;
-        
-        if (colOff >= indexesLen) {
-            break;
-        }
+    //**************************************************************************
+    // SCORE MULTITHREADED
 
-        function<<<BLOCKS, THREADS>>>(scoresGpu, hBus, lengths, lengthsPadded, 
-            offsets, indexes + colOff);
-            
-        // copy scores from the GPU
-        size_t size = min(sequencesCols, indexesLen - colOff) * sizeof(int);
-        CUDA_SAFE_CALL(cudaMemcpy(scores + colOff, scoresGpu, size, FROM_GPU));
+    if (queriesLen < cardsLen) {
+        scoreDatabaseMulti(scores, function, queries, queriesLen, shortDatabase, 
+            scorer, newIndexes, newIndexesLen, cards, cardsLen);
+    } else {
+        scoreDatabaseSingle(scores, function, queries, queriesLen, shortDatabase, 
+            scorer, newIndexes, newIndexesLen, cards, cardsLen);
     }
+    
+    //**************************************************************************
+
+    //**************************************************************************
+    // CLEAN MEMORY
+
+    free(newIndexes);
+
+    free(param);
+    
+    //**************************************************************************
+    
+    return NULL;
+}
+
+static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction, 
+    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
+    int* indexes, int indexesLen, int* cards, int cardsLen) {
+    
+    //**************************************************************************
+    // CREATE QUERY PROFILES
+    
+    size_t profilesSize = queriesLen * sizeof(QueryProfile*);
+    QueryProfile** profiles = (QueryProfile**) malloc(profilesSize);
+    
+    for (int i = 0; i < queriesLen; ++i) {
+        profiles[i] = createQueryProfile(queries[i], scorer);
+    }
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // SCORE MULTICARDED
+    
+    int contextsLen = cardsLen * queriesLen;
+    size_t contextsSize = contextsLen * sizeof(KernelContext);
+    KernelContext* contexts = (KernelContext*) malloc(contextsSize);
+    
+    size_t tasksSize = contextsLen * sizeof(ThreadPoolTask*);
+    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+
+    int databaseLen = shortDatabase->databaseLen;
+    
+    int chunks = queriesLen;
+    int cardsChunk = cardsLen / chunks;
+    int cardsAdd = cardsLen % chunks;
+    int cardsOff = 0;
+
+    for (int i = 0; i < chunks; ++i) {
+
+        int cCardsLen = cardsChunk + (i < cardsAdd);
+        int* cCards = cards + cardsOff;
+
+        QueryProfile* queryProfile = profiles[i];
+
+        for (int j = 0; j < cCardsLen; ++j) {
+
+            int idx = cardsOff + j;
+            
+            contexts[idx].scores = scores + i * databaseLen;
+            contexts[idx].scoringFunction = scoringFunction;
+            contexts[idx].queryProfile = queryProfile;
+            contexts[idx].shortDatabase = shortDatabase;
+            contexts[idx].scorer = scorer;
+            contexts[idx].indexes = indexes;
+            contexts[idx].indexesLen = indexesLen;
+            contexts[idx].card = cCards[j];
+        }
+        
+        cardsOff += cCardsLen;
+    }
+    
+    for (int i = 0; i < contextsLen; ++i) {
+        tasks[i] = threadPoolSubmit(kernelThreadMulti, &(contexts[i]));
+    }
+
+    for (int i = 0; i < contextsLen; ++i) {
+        threadPoolTaskWait(tasks[i]);
+        threadPoolTaskDelete(tasks[i]);
+    }
+
+    free(tasks);
+    free(contexts);
 
     //**************************************************************************
     
     //**************************************************************************
     // CLEAN MEMORY
-    
-    free(subCpu);
-    free(row);
-    
-    CUDA_SAFE_CALL(cudaFreeArray(subArray));
-    
+
+    for (int i = 0; i < queriesLen; ++i) {
+        deleteQueryProfile(profiles[i]);
+    }
+    free(profiles);
+
     //**************************************************************************
 }
 
-//------------------------------------------------------------------------------
+static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction, 
+    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
+    int* indexes, int indexesLen, int* cards, int cardsLen) {
 
-//------------------------------------------------------------------------------
-// GPU DATABASE PREPARE
 
-extern ShortDatabaseGpu* shortDatabaseGpuCreate(ShortDatabase* shortDatabase,
-    int* indexes, int indexesLen) {
     
-    int* lengthsPadded = shortDatabase->lengthsPadded;
-    size_t lengthsSize = shortDatabase->lengthsSize;
-    int* lengthsPaddedGpu;
-    CUDA_SAFE_CALL(cudaMalloc(&lengthsPaddedGpu, lengthsSize));
-    CUDA_SAFE_CALL(cudaMemcpy(lengthsPaddedGpu, lengthsPadded, lengthsSize, TO_GPU));
-    
-    // copy lengths
-    int* lengths = shortDatabase->lengths;
-    int* lengthsGpu;
-    CUDA_SAFE_CALL(cudaMalloc(&lengthsGpu, lengthsSize));
-    CUDA_SAFE_CALL(cudaMemcpy(lengthsGpu, lengths, lengthsSize, TO_GPU));
-    
-    // copy sequences
-    int sequencesCols = shortDatabase->sequencesCols;
-    int sequencesRows = shortDatabase->sequencesRows;
-    size_t sequencesSize = shortDatabase->sequencesSize;
-    char4* sequences = shortDatabase->sequences;
-    cudaArray* sequencesGpu;
-    cudaChannelFormatDesc channel = seqsTexture.channelDesc;
-    CUDA_SAFE_CALL(cudaMallocArray(&sequencesGpu, &channel, sequencesCols, sequencesRows)); 
-    CUDA_SAFE_CALL(cudaMemcpyToArray(sequencesGpu, 0, 0, sequences, sequencesSize, TO_GPU));
-    CUDA_SAFE_CALL(cudaBindTextureToArray(seqsTexture, sequencesGpu));
-    
-    // init scores
-    int* scoresGpu;
-    size_t scoresSize = sequencesCols * sizeof(int);
-    CUDA_SAFE_CALL(cudaMalloc(&scoresGpu, scoresSize));
-    
-    // init offsets
-    int* offsets = shortDatabase->offsets;
-    int* offsetsGpu;
-    int blocks = shortDatabase->blocks;
-    size_t offsetsSize = blocks * sizeof(int);
-    CUDA_SAFE_CALL(cudaMalloc(&offsetsGpu, offsetsSize));
-    CUDA_SAFE_CALL(cudaMemcpy(offsetsGpu, offsets, offsetsSize, TO_GPU));
-    
-    // init h bus
-    int2* hBusGpu;
-    int hBusHeight = (sequencesRows - offsets[blocks - 1]) * 4;
-    size_t hBusSize = sequencesCols * hBusHeight * sizeof(int2);
-    CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
-
-    // init indexes
-    int* indexesGpu;
-    size_t indexesSize = blocks * sequencesCols * sizeof(int);
-    CUDA_SAFE_CALL(cudaMalloc(&indexesGpu, indexesSize));
-    CUDA_SAFE_CALL(cudaMemcpy(indexesGpu, indexes, indexesSize, TO_GPU));
-    
-    // constants
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(width_, &sequencesCols, sizeof(int)));
-    
-    ShortDatabaseGpu* shortDatabaseGpu = 
-        (ShortDatabaseGpu*) malloc(sizeof(struct ShortDatabaseGpu));
-    
-    shortDatabaseGpu->scores = scoresGpu;
-    shortDatabaseGpu->lengths = lengthsGpu;
-    shortDatabaseGpu->lengthsPadded = lengthsPaddedGpu;
-    shortDatabaseGpu->sequences = sequencesGpu;
-    shortDatabaseGpu->hBus = hBusGpu;
-    shortDatabaseGpu->indexes = indexesGpu;
-    shortDatabaseGpu->indexesLen = indexesLen;
-    shortDatabaseGpu->offsets = offsetsGpu;
-
-    return shortDatabaseGpu;
 }
 
-extern void shortDatabaseGpuDelete(ShortDatabaseGpu* shortDatabaseGpu) {
+//------------------------------------------------------------------------------
 
-    CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->scores));
-    CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->lengths));
-    CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->lengthsPadded));
-    CUDA_SAFE_CALL(cudaFreeArray(shortDatabaseGpu->sequences));
-    CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->hBus));
-    CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->indexes));
-    CUDA_SAFE_CALL(cudaFree(shortDatabaseGpu->offsets));
+//------------------------------------------------------------------------------
+// CPU KERNELS
+
+static void* kernelThreadSingle(void* param) {
+
+    KernelContext* context = (KernelContext*) param;
     
-    CUDA_SAFE_CALL(cudaUnbindTexture(seqsTexture));
+    Chain* query = context->query;
+    Scorer* scorer = context->scorer;
     
-    free(shortDatabaseGpu);
-    shortDatabaseGpu = NULL;
+    context->queryProfile = createQueryProfile(query, scorer);
+    
+    kernelThreadMulti(param);
+    
+    deleteQueryProfile(context->queryProfile);
+    
+    return NULL;
+}
+
+static void* kernelThreadMulti(void* param) {
+
+    KernelContext* context = (KernelContext*) param;
+    
+    int* scores = context->scores;
+    ScoringFunction scoringFunction = context->scoringFunction;
+    QueryProfile* queryProfile = context->queryProfile;
+    ShortDatabase* shortDatabase = context->shortDatabase;
+    Scorer* scorer = context->scorer;
+    int* indexes = context->indexes;
+    int indexesLen = context->indexesLen;
+    int card = context->card;
+    
+    //**************************************************************************
+    // FIND DATABASE
+    
+    GpuDatabase* gpuDatabases = shortDatabase->gpuDatabases;
+    int gpuDatabasesLen = shortDatabase->gpuDatabasesLen;
+    
+    GpuDatabase* gpuDatabase = NULL;
+    
+    for (int i = 0; i < gpuDatabasesLen; ++i) {
+        if (gpuDatabases[i].card == card) {
+            gpuDatabase = &(gpuDatabases[i]);
+            break;
+        }
+    }
+
+    ASSERT(gpuDatabase != NULL, "Short database not available on card %d", card);
+
+    //**************************************************************************
+    
+    //**************************************************************************
+    // CUDA SETUP
+    
+    int currentCard;
+    CUDA_SAFE_CALL(cudaGetDevice(&currentCard));
+    if (currentCard != card) {
+        CUDA_SAFE_CALL(cudaSetDevice(card));
+    }
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // FIX INDEXES
+    
+    int deleteIndexes;
+    int* indexesGpu;
+    
+    if (indexes == NULL || (indexes != NULL && indexesLen == shortDatabase->length)) {
+        indexes = shortDatabase->indexes;
+        indexesLen = shortDatabase->length;
+        indexesGpu = gpuDatabase->indexes;
+        deleteIndexes = 0;
+    } else {
+        size_t indexesSize = indexesLen * sizeof(int);
+        CUDA_SAFE_CALL(cudaMalloc(&indexesGpu, indexesSize));
+        CUDA_SAFE_CALL(cudaMemcpy(indexesGpu, indexes, indexesSize, TO_GPU));
+        deleteIndexes = 1;
+    }
+
+    //**************************************************************************
+    
+    //**************************************************************************
+    // PREPARE GPU
+    
+    copyQueryProfileToGpu(queryProfile);
+    
+    int gapOpen = scorerGetGapOpen(scorer);
+    int gapExtend = scorerGetGapExtend(scorer);
+    int rows = queryProfile->length;
+    int rowsGpu = queryProfile->height * 4;
+    int sequencesCols = shortDatabase->sequencesCols;
+    
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapOpen_, &gapOpen, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapExtend_, &gapExtend, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(rows_, &rows, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(rowsPadded_, &rowsGpu, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(width_, &sequencesCols, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(length_, &indexesLen, sizeof(int)));
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // SOLVE
+    
+    int blocks = shortDatabase->blocks;
+    
+    int* offsetsGpu = gpuDatabase->offsets;
+    int* lengthsGpu = gpuDatabase->lengths;
+    int* lengthsPaddedGpu = gpuDatabase->lengthsPadded;
+    int* scoresGpu = gpuDatabase->scores;
+    int2* hBusGpu = gpuDatabase->hBus;
+    
+    for (int i = 0; i < blocks; ++i) {
+    
+        if (sequencesCols * i > indexesLen) {
+            break;  
+        }
+
+        scoringFunction<<<BLOCKS, THREADS>>>(scoresGpu, hBusGpu, lengthsGpu, 
+            lengthsPaddedGpu, offsetsGpu, indexesGpu, i);
+    }
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // SAVE RESULTS
+    
+    size_t scoresSize = indexesLen * sizeof(int);
+    int* scoresCpu = (int*) malloc(scoresSize);
+
+    CUDA_SAFE_CALL(cudaMemcpy(scoresCpu, scoresGpu, scoresSize, FROM_GPU));
+
+    int* order = shortDatabase->order;
+
+    for (int i = 0; i < indexesLen; ++i) {
+        scores[order[i]] = scoresCpu[indexes[i]];
+    }
+    
+    free(scoresCpu);
+    
+    //**************************************************************************
+    
+    //**************************************************************************
+    // CLEAN MEMORY
+    
+    deleteQueryProfileFromGpu(queryProfile);
+    
+    if (deleteIndexes) {
+        CUDA_SAFE_CALL(cudaFree(indexesGpu));
+    }
+
+    //**************************************************************************
+    
+    return NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -752,15 +899,15 @@ __device__ static int gap(int index) {
 }
 
 __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int* offsets, int* indexes) {
+    int* lengthsPadded, int* offsets, int* indexes, int block) {
 
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int id = indexes[tid];
     
-    if (id == -1) {
+    if (tid + block * width_ >= length_) {
         return;
     }
     
+    int id = indexes[tid + block * width_];
     int cols = lengthsPadded[id];
     int realCols = lengths[id];
     
@@ -808,7 +955,7 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 wBus = hBus[(j * 4 + k) * width_ + tid];
                 
                 char code = (columnCodes >> (k << 3));
-                char4 rowScores = tex2D(subTexture, code, i / 4);
+                char4 rowScores = tex2D(qpTexture, code, i / 4);
                 
                 del = max(wBus.x - gapOpen_, wBus.y - gapExtend_);
                 affUp.x = max(scrUp.x - gapOpen_, affUp.x - gapExtend_);
@@ -842,7 +989,7 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 mchUp.w = scrUp.z;
                 if (i + 3 == lastRow && validCol) score = max(score, scrUp.w);
 
-                rowScores = tex2D(subTexture, code, i / 4 + 1);
+                rowScores = tex2D(qpTexture, code, i / 4 + 1);
                 
                 del = max(scrUp.w - gapOpen_, del - gapExtend_);
                 affDown.x = max(scrDown.x - gapOpen_, affDown.x - gapExtend_);
@@ -884,19 +1031,19 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
         }
     }
     
-    scores[tid] = score;
+    scores[id] = score;
 }
 
 __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int* offsets, int* indexes) {
+    int* lengthsPadded, int* offsets, int* indexes, int block) {
 
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int id = indexes[tid];
     
-    if (id == -1) {
+    if (tid + block * width_ >= length_) {
         return;
     }
     
+    int id = indexes[tid + block * width_];
     int cols = lengthsPadded[id];
     int realCols = lengths[id];
     
@@ -944,7 +1091,7 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 wBus = hBus[(j * 4 + k) * width_ + tid];
                 
                 char code = (columnCodes >> (k << 3));
-                char4 rowScores = tex2D(subTexture, code, i / 4);
+                char4 rowScores = tex2D(qpTexture, code, i / 4);
                 
                 del = max(wBus.x - gapOpen_, wBus.y - gapExtend_);
                 affUp.x = max(scrUp.x - gapOpen_, affUp.x - gapExtend_);
@@ -978,7 +1125,7 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 mchUp.w = scrUp.z;
                 if (i + 3 == lastRow && lastCol) score = scrUp.w;
 
-                rowScores = tex2D(subTexture, code, i / 4 + 1);
+                rowScores = tex2D(qpTexture, code, i / 4 + 1);
                 
                 del = max(scrUp.w - gapOpen_, del - gapExtend_);
                 affDown.x = max(scrDown.x - gapOpen_, affDown.x - gapExtend_);
@@ -1020,19 +1167,19 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
         }
     }
     
-    scores[tid] = score;
+    scores[id] = score;
 }
 
 __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths, 
-    int* lengthsPadded, int* offsets, int* indexes) {
+    int* lengthsPadded, int* offsets, int* indexes, int block) {
 
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int id = indexes[tid];
     
-    if (id == -1) {
+    if (tid + block * width_ >= length_) {
         return;
     }
     
+    int id = indexes[tid + block * width_];
     int cols = lengthsPadded[id];
     
     int colOff = id % width_;
@@ -1075,7 +1222,7 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 wBus = hBus[(j * 4 + k) * width_ + tid];
                 
                 char code = (columnCodes >> (k << 3));
-                char4 rowScores = tex2D(subTexture, code, i / 4);
+                char4 rowScores = tex2D(qpTexture, code, i / 4);
                 
                 del = max(wBus.x - gapOpen_, wBus.y - gapExtend_);
                 affUp.x = max(scrUp.x - gapOpen_, affUp.x - gapExtend_);
@@ -1113,7 +1260,7 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 mchUp.w = scrUp.z;
                 score = max(score, scrUp.w);
 
-                rowScores = tex2D(subTexture, code, i / 4 + 1);
+                rowScores = tex2D(qpTexture, code, i / 4 + 1);
                 
                 del = max(scrUp.w - gapOpen_, del - gapExtend_);
                 affDown.x = max(scrDown.x - gapOpen_, affDown.x - gapExtend_);
@@ -1159,35 +1306,84 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
         }
     }
     
-    scores[tid] = score;
+    scores[id] = score;
+}
+
+//------------------------------------------------------------------------------
+
+
+//------------------------------------------------------------------------------
+// QUERY PROFILE
+
+static QueryProfile* createQueryProfile(Chain* query, Scorer* scorer) {
+
+    int rows = chainGetLength(query);
+    int rowsGpu = rows + (8 - rows % 8) % 8;
+    
+    int width = scorerGetMaxCode(scorer) + 1;
+    int height = rowsGpu / 4;
+
+    char* row = (char*) malloc(rows * sizeof(char));
+    chainCopyCodes(query, row);
+
+    size_t size = width * height * sizeof(char4);
+    char4* data = (char4*) malloc(size);
+    memset(data, 0, size);
+    for (int i = 0; i < height; ++i) {
+        for (int j = 0; j < width - 1; ++j) {
+            char4 scr;
+            scr.x = i * 4 + 0 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 0], j);
+            scr.y = i * 4 + 1 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 1], j);
+            scr.z = i * 4 + 2 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 2], j);
+            scr.w = i * 4 + 3 >= rows ? 0 : scorerScore(scorer, row[i * 4 + 3], j);
+            data[i * width + j] = scr;
+        }
+    }
+    
+    QueryProfile* queryProfile = (QueryProfile*) malloc(sizeof(QueryProfile));
+    queryProfile->data = data;
+    queryProfile->width = width;
+    queryProfile->height = height;
+    queryProfile->length = rows;
+    queryProfile->size = size;
+    
+    return queryProfile;
+}
+
+static void copyQueryProfileToGpu(QueryProfile* queryProfile) {
+
+    int width = queryProfile->width;
+    int height = queryProfile->height;
+    
+    size_t size = queryProfile->size;
+    char4* data = queryProfile->data;
+    cudaArray* dataGpu;
+    
+    CUDA_SAFE_CALL(cudaMallocArray(&dataGpu, &qpTexture.channelDesc, width, height)); 
+    CUDA_SAFE_CALL(cudaMemcpyToArray (dataGpu, 0, 0, data, size, TO_GPU));
+    CUDA_SAFE_CALL(cudaBindTextureToArray(qpTexture, dataGpu));
+    qpTexture.addressMode[0] = cudaAddressModeClamp;
+    qpTexture.addressMode[1] = cudaAddressModeClamp;
+    qpTexture.filterMode = cudaFilterModePoint;
+    qpTexture.normalized = false;
+    
+    queryProfile->dataGpu = dataGpu;
+}
+
+static void deleteQueryProfileFromGpu(QueryProfile* queryProfile) {
+    CUDA_SAFE_CALL(cudaFreeArray(queryProfile->dataGpu));
+    CUDA_SAFE_CALL(cudaUnbindTexture(qpTexture));
+}
+
+static void deleteQueryProfile(QueryProfile* queryProfile) {
+    free(queryProfile->data);
+    free(queryProfile);
 }
 
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
 // UTILS
-
-static int* createOrderArray(Chain** database, int databaseLen) {
-
-    int2* packed = (int2*) malloc(databaseLen * sizeof(int2));
-    
-    for (int i = 0; i < databaseLen; ++i) {
-        packed[i].x = i;
-        packed[i].y = chainGetLength(database[i]);
-    }
-    
-    qsort(packed, databaseLen, sizeof(int2), int2CmpY);
-
-    int* order = (int*) malloc(databaseLen * sizeof(int));
-    
-    for (int i = 0; i < databaseLen; ++i) {
-        order[i] = packed[i].x;
-    }
-    
-    free(packed);
-    
-    return order;
-}
 
 static int int2CmpY(const void* a_, const void* b_) {
 

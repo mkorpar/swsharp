@@ -34,14 +34,16 @@ extern "C" {
 
 typedef struct ShortDatabase ShortDatabase;
 
-extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen);
+extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen, 
+    int maxLen, int* cards, int cardsLen);
+
 extern void shortDatabaseDelete(ShortDatabase* shortDatabase);
 
-extern void scoreShortDatabaseGpu(int** scores, int type, Chain* query, 
+extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query, 
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabasesGpu(int** scores, int type, Chain** queries, 
+extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
     
