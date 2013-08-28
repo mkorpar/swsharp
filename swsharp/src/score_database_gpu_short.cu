@@ -83,9 +83,12 @@ typedef struct QueryProfile {
     int width;
     int length;
     char4* data;
-    cudaArray* dataGpu;
     size_t size;
 } QueryProfile;
+
+typedef struct QueryProfileGpu {
+    cudaArray* data;
+} QueryProfileGpu;
 
 typedef void (*ScoringFunction)(int*, int2*, int*, int*, int*, int*, int);
 
@@ -179,11 +182,11 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
 // query profile
 static QueryProfile* createQueryProfile(Chain* query, Scorer* scorer);
 
-static void copyQueryProfileToGpu(QueryProfile* queryProfile);
-
-static void deleteQueryProfileFromGpu(QueryProfile* queryProfile);
-
 static void deleteQueryProfile(QueryProfile* queryProfile);
+
+static QueryProfileGpu* createQueryProfileGpu(QueryProfile* queryProfile);
+
+static void deleteQueryProfileGpu(QueryProfileGpu* queryProfileGpu);
 
 // utils
 static int int2CmpY(const void* a_, const void* b_);
@@ -672,35 +675,31 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     size_t tasksSize = contextsLen * sizeof(ThreadPoolTask*);
     ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
 
+    int blocks = shortDatabase->blocks;
     int databaseLen = shortDatabase->databaseLen;
     
-    int chunks = queriesLen;
-    int cardsChunk = cardsLen / chunks;
-    int cardsAdd = cardsLen % chunks;
+    int cardsChunk = cardsLen / queriesLen;
+    int cardsAdd = cardsLen % queriesLen;
     int cardsOff = 0;
 
-    for (int i = 0; i < chunks; ++i) {
+    for (int i = 0, k = 0; i < queriesLen; ++i) {
 
         int cCardsLen = cardsChunk + (i < cardsAdd);
         int* cCards = cards + cardsOff;
-
+        cardsOff += cCardsLen;
+        
         QueryProfile* queryProfile = profiles[i];
 
-        for (int j = 0; j < cCardsLen; ++j) {
-
-            int idx = cardsOff + j;
-            
-            contexts[idx].scores = scores + i * databaseLen;
-            contexts[idx].scoringFunction = scoringFunction;
-            contexts[idx].queryProfile = queryProfile;
-            contexts[idx].shortDatabase = shortDatabase;
-            contexts[idx].scorer = scorer;
-            contexts[idx].indexes = indexes;
-            contexts[idx].indexesLen = indexesLen;
-            contexts[idx].card = cCards[j];
+        for (int j = 0; j < cCardsLen; ++j, ++k) {
+            contexts[k].scores = scores + i * databaseLen;
+            contexts[k].scoringFunction = scoringFunction;
+            contexts[k].queryProfile = queryProfile;
+            contexts[k].shortDatabase = shortDatabase;
+            contexts[k].scorer = scorer;
+            contexts[k].indexes = indexes;
+            contexts[k].indexesLen = indexesLen;
+            contexts[k].card = cCards[j];
         }
-        
-        cardsOff += cCardsLen;
     }
     
     for (int i = 0; i < contextsLen; ++i) {
@@ -821,7 +820,14 @@ static void* kernelsThread(void* param) {
     
         Chain* query = contexts[i].query;
         Scorer* scorer = contexts[i].scorer;
+        int card = contexts[i].card;
         
+        int currentCard;
+        CUDA_SAFE_CALL(cudaGetDevice(&currentCard));
+        if (currentCard != card) {
+            CUDA_SAFE_CALL(cudaSetDevice(card));
+        }
+    
         contexts[i].queryProfile = createQueryProfile(query, scorer);
         
         kernelThread(&(contexts[i]));
@@ -898,7 +904,7 @@ static void* kernelThread(void* param) {
     //**************************************************************************
     // PREPARE GPU
     
-    copyQueryProfileToGpu(queryProfile);
+    QueryProfileGpu* queryProfileGpu = createQueryProfileGpu(queryProfile);
     
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
@@ -959,7 +965,7 @@ static void* kernelThread(void* param) {
     //**************************************************************************
     // CLEAN MEMORY
     
-    deleteQueryProfileFromGpu(queryProfile);
+    deleteQueryProfileGpu(queryProfileGpu);
     
     if (deleteIndexes) {
         CUDA_SAFE_CALL(cudaFree(indexesGpu));
@@ -1431,7 +1437,12 @@ static QueryProfile* createQueryProfile(Chain* query, Scorer* scorer) {
     return queryProfile;
 }
 
-static void copyQueryProfileToGpu(QueryProfile* queryProfile) {
+static void deleteQueryProfile(QueryProfile* queryProfile) {
+    free(queryProfile->data);
+    free(queryProfile);
+}
+
+static QueryProfileGpu* createQueryProfileGpu(QueryProfile* queryProfile) {
 
     int width = queryProfile->width;
     int height = queryProfile->height;
@@ -1448,17 +1459,17 @@ static void copyQueryProfileToGpu(QueryProfile* queryProfile) {
     qpTexture.filterMode = cudaFilterModePoint;
     qpTexture.normalized = false;
     
-    queryProfile->dataGpu = dataGpu;
+    size_t queryProfileGpuSize = sizeof(QueryProfileGpu);
+    QueryProfileGpu* queryProfileGpu = (QueryProfileGpu*) malloc(queryProfileGpuSize);
+    queryProfileGpu->data = dataGpu;
+    
+    return queryProfileGpu;
 }
 
-static void deleteQueryProfileFromGpu(QueryProfile* queryProfile) {
-    CUDA_SAFE_CALL(cudaFreeArray(queryProfile->dataGpu));
+static void deleteQueryProfileGpu(QueryProfileGpu* queryProfileGpu) {
+    CUDA_SAFE_CALL(cudaFreeArray(queryProfileGpu->data));
     CUDA_SAFE_CALL(cudaUnbindTexture(qpTexture));
-}
-
-static void deleteQueryProfile(QueryProfile* queryProfile) {
-    free(queryProfile->data);
-    free(queryProfile);
+    free(queryProfileGpu);
 }
 
 //------------------------------------------------------------------------------
