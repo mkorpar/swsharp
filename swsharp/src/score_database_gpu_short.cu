@@ -101,6 +101,12 @@ typedef struct KernelContext {
     int card;
 } KernelContext;
 
+typedef struct KernelContexts {
+    KernelContext* contexts;
+    int contextsLen;
+    long long cells;
+} KernelContexts;
+
 static __constant__ int gapOpen_;
 static __constant__ int gapExtend_;
 
@@ -156,9 +162,9 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
     int* indexes, int indexesLen, int* cards, int cardsLen);
 
 // cpu kernels 
-static void* kernelThreadMulti(void* param);
+static void* kernelThread(void* param);
 
-static void* kernelThreadSingle(void* param);
+static void* kernelsThread(void* param);
 
 // gpu kernels 
 __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
@@ -698,7 +704,7 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     }
     
     for (int i = 0; i < contextsLen; ++i) {
-        tasks[i] = threadPoolSubmit(kernelThreadMulti, &(contexts[i]));
+        tasks[i] = threadPoolSubmit(kernelThread, &(contexts[i]));
     }
 
     for (int i = 0; i < contextsLen; ++i) {
@@ -726,8 +732,77 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
     Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
     int* indexes, int indexesLen, int* cards, int cardsLen) {
 
-
+    //**************************************************************************
+    // CREATE CONTEXTS
     
+    size_t contextsSize = cardsLen * sizeof(KernelContext);
+    KernelContexts* contexts = (KernelContexts*) malloc(contextsSize);
+    
+    for (int i = 0; i < cardsLen; ++i) {
+        size_t size = queriesLen * sizeof(KernelContext);
+        contexts[i].contexts = (KernelContext*) malloc(size);
+        contexts[i].contextsLen = 0;
+        contexts[i].cells = 0;
+    }
+    
+    //**************************************************************************    
+    
+    //**************************************************************************
+    // SCORE MULTITHREADED
+    
+    size_t tasksSize = cardsLen * sizeof(ThreadPoolTask*);
+    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+    
+    int databaseLen = shortDatabase->databaseLen;
+    
+    // balance tasks by round roobin, cardsLen is pretty small (CUDA cards)
+    for (int i = 0; i < queriesLen; ++i) {
+        
+        int minIdx = 0;
+        long long minVal = contexts[0].cells;
+        for (int j = 1; j < cardsLen; ++j) {
+            if (contexts[j].cells < minVal) {
+                minVal = contexts[j].cells;
+                minIdx = j;
+            }
+        }
+        
+        KernelContext context;
+        context.scores = scores + i * databaseLen;
+        context.scoringFunction = scoringFunction;
+        context.queryProfile = NULL;
+        context.query = queries[i];
+        context.shortDatabase = shortDatabase;
+        context.scorer = scorer;
+        context.indexes = indexes;
+        context.indexesLen = indexesLen;
+        context.card = cards[minIdx];
+
+        contexts[minIdx].contexts[contexts[minIdx].contextsLen++] = context;
+        contexts[minIdx].cells += chainGetLength(queries[i]);
+    }
+    
+    for (int i = 0; i < cardsLen; ++i) {
+        tasks[i] = threadPoolSubmit(kernelsThread, &(contexts[i]));
+    }
+
+    for (int i = 0; i < cardsLen; ++i) {
+        threadPoolTaskWait(tasks[i]);
+        threadPoolTaskDelete(tasks[i]);
+    }
+    free(tasks);
+
+    //**************************************************************************
+    
+    //**************************************************************************
+    // CLEAN MEMORY
+
+    for (int i = 0; i < cardsLen; ++i) {
+        free(contexts[i].contexts);
+    }
+    free(contexts);
+
+    //**************************************************************************
 }
 
 //------------------------------------------------------------------------------
@@ -735,23 +810,29 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
 //------------------------------------------------------------------------------
 // CPU KERNELS
 
-static void* kernelThreadSingle(void* param) {
+static void* kernelsThread(void* param) {
 
-    KernelContext* context = (KernelContext*) param;
+    KernelContexts* context = (KernelContexts*) param;
+
+    KernelContext* contexts = context->contexts;
+    int contextsLen = context->contextsLen;
+
+    for (int i = 0; i < contextsLen; ++i) {
     
-    Chain* query = context->query;
-    Scorer* scorer = context->scorer;
-    
-    context->queryProfile = createQueryProfile(query, scorer);
-    
-    kernelThreadMulti(param);
-    
-    deleteQueryProfile(context->queryProfile);
+        Chain* query = contexts[i].query;
+        Scorer* scorer = contexts[i].scorer;
+        
+        contexts[i].queryProfile = createQueryProfile(query, scorer);
+        
+        kernelThread(&(contexts[i]));
+        
+        deleteQueryProfile(contexts[i].queryProfile);
+    }
     
     return NULL;
 }
 
-static void* kernelThreadMulti(void* param) {
+static void* kernelThread(void* param) {
 
     KernelContext* context = (KernelContext*) param;
     
@@ -872,7 +953,7 @@ static void* kernelThreadMulti(void* param) {
     }
     
     free(scoresCpu);
-    
+                
     //**************************************************************************
     
     //**************************************************************************
