@@ -225,24 +225,52 @@ extern void qselect(void* list_, size_t n, size_t size, int k,
     free(key);
 }
 
-extern void chunkArray(int*** dst, int** dstLens, int* src, int srcLen, int chunks) {
+extern void weightChunkArray(int* dstOff, int* dstLens, int* dstLen, int* src, 
+    int srcLen, int chunks) {
+    
+    ASSERT(chunks > 0, "invalid chunk data");
 
-    ASSERT(chunks <= srcLen && chunks >= 1, "invalid chunk data");
+    int i, j;
     
-    *dst = (int**) malloc(chunks * sizeof(int*));
-    *dstLens = (int*) malloc(chunks * sizeof(int));
-    
-    int baseLen = srcLen / chunks;
-    int addLen = srcLen % chunks;
-    
-    int offset = 0;
+    if (chunks >= srcLen) {
 
-    int i;
-    for (i = 0; i < chunks; ++i) {
-        (*dstLens)[i] = baseLen + (i < addLen);
-        (*dst)[i] = src + offset;
-        offset += (*dstLens)[i];
+        for (i = 0; i < srcLen; ++i) {
+            dstOff[i] = i;
+            dstLens[i] = 1;
+        }
+        
+        *dstLen = srcLen; 
+        
+        return;
     }
     
-    ASSERT(offset == srcLen, "ooops");
+    long long sum = 0;
+    for (i = 0; i < srcLen; ++i) {
+        sum += src[i];
+    }
+    
+    long long chunk = sum / chunks;
+    long long current = 0;
+    
+    dstOff[0] = 0;
+    for (i = 0; i < chunks; ++i) {
+        dstLens[i] = 0;
+    }
+
+    for (i = 0, j = 0; i < srcLen; ++i) {
+
+        if ((current > chunk || srcLen - i == chunks - j) && j != chunks - 1) {
+
+            current = 0;
+            j++;
+
+            dstOff[j] = i;
+        }
+        
+        current += src[i];
+        dstLens[j]++;
+    }
+
+    *dstLen = chunks;
 }
+

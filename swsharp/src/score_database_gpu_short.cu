@@ -570,10 +570,13 @@ static void* scoreDatabaseThread(void* param) {
     int* newIndexes = NULL;
     int newIndexesLen = 0;
 
-    // translate and filter indexes, also make sure that indexes are sorted by
-    // size 
+    int deleteIndexes;
+
     if (indexes != NULL) {
 
+        // translate and filter indexes, also make sure that indexes are 
+        // sorted by size 
+    
         int length = shortDatabase->length;
         int databaseLen = shortDatabase->databaseLen;
         int* positions = shortDatabase->positions;
@@ -600,7 +603,15 @@ static void* scoreDatabaseThread(void* param) {
                 newIndexes[j++] = i;
             }
         }
-    }     
+        
+        deleteIndexes = 1;
+
+    } else {
+        // load prebuilt defaults
+        newIndexes = shortDatabase->indexes;
+        newIndexesLen = shortDatabase->length;
+        deleteIndexes = 0;
+    }
     
     //**************************************************************************
 
@@ -627,7 +638,7 @@ static void* scoreDatabaseThread(void* param) {
     //**************************************************************************
     // SCORE MULTITHREADED
 
-    if (queriesLen < cardsLen) {
+    if (queriesLen <= cardsLen) {
         scoreDatabaseMulti(scores, function, queries, queriesLen, shortDatabase, 
             scorer, newIndexes, newIndexesLen, cards, cardsLen);
     } else {
@@ -640,7 +651,9 @@ static void* scoreDatabaseThread(void* param) {
     //**************************************************************************
     // CLEAN MEMORY
 
-    free(newIndexes);
+    if (deleteIndexes) {
+        free(newIndexes);
+    }
 
     free(param);
     
@@ -666,6 +679,30 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     //**************************************************************************
     
     //**************************************************************************
+    // CREATE BALANCING DATA
+
+    Chain** database = shortDatabase->database;
+    int* order = shortDatabase->order;
+    int sequencesCols = shortDatabase->sequencesCols;
+    
+    int blocks = indexesLen / sequencesCols + ((indexesLen % sequencesCols) > 0);
+
+    size_t weightsSize = blocks * sizeof(int);
+    int* weights = (int*) malloc(weightsSize);
+    memset(weights, 0, weightsSize);
+
+    for (int i = 0, j = 0; i < indexesLen; ++i) {
+
+        weights[j] += chainGetLength(database[order[i]]);
+
+        if ((i + 1) % sequencesCols == 0) {
+            j++;
+        }
+    }
+
+    //**************************************************************************
+
+    //**************************************************************************
     // SCORE MULTICARDED
     
     int contextsLen = cardsLen * queriesLen;
@@ -675,12 +712,16 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     size_t tasksSize = contextsLen * sizeof(ThreadPoolTask*);
     ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
 
-    int blocks = shortDatabase->blocks;
     int databaseLen = shortDatabase->databaseLen;
     
     int cardsChunk = cardsLen / queriesLen;
     int cardsAdd = cardsLen % queriesLen;
     int cardsOff = 0;
+
+    int* idxChunksOff = (int*) malloc(cardsLen * sizeof(int));
+    int* idxChunksLens = (int*) malloc(cardsLen * sizeof(int));
+    int idxChunksLen = 0;
+    int idxLastFix = (sequencesCols - indexesLen % sequencesCols) % sequencesCols;
 
     for (int i = 0, k = 0; i < queriesLen; ++i) {
 
@@ -690,22 +731,33 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
         
         QueryProfile* queryProfile = profiles[i];
 
-        for (int j = 0; j < cCardsLen; ++j, ++k) {
+        int chunks = min(cCardsLen, blocks);
+        if (chunks != idxChunksLen) {
+            weightChunkArray(idxChunksOff, idxChunksLens, &idxChunksLen, 
+                weights, blocks, chunks);
+        }
+        
+        for (int j = 0; j < idxChunksLen; ++j, ++k) {
+        
+            int off = idxChunksOff[j] * sequencesCols;
+            int len = idxChunksLens[j] * sequencesCols;
+            if (j == idxChunksLen - 1) {
+                len -= idxLastFix;
+            }
+            
             contexts[k].scores = scores + i * databaseLen;
             contexts[k].scoringFunction = scoringFunction;
             contexts[k].queryProfile = queryProfile;
             contexts[k].shortDatabase = shortDatabase;
             contexts[k].scorer = scorer;
-            contexts[k].indexes = indexes;
-            contexts[k].indexesLen = indexesLen;
+            contexts[k].indexes = indexes + off;
+            contexts[k].indexesLen = len;
             contexts[k].card = cCards[j];
+            
+            tasks[k] = threadPoolSubmit(kernelThread, &(contexts[k]));
         }
     }
     
-    for (int i = 0; i < contextsLen; ++i) {
-        tasks[i] = threadPoolSubmit(kernelThread, &(contexts[i]));
-    }
-
     for (int i = 0; i < contextsLen; ++i) {
         threadPoolTaskWait(tasks[i]);
         threadPoolTaskDelete(tasks[i]);
@@ -722,8 +774,12 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     for (int i = 0; i < queriesLen; ++i) {
         deleteQueryProfile(profiles[i]);
     }
-    free(profiles);
 
+    free(profiles);
+    free(weights);
+    free(idxChunksOff);
+    free(idxChunksLens);
+    
     //**************************************************************************
 }
 
@@ -887,7 +943,7 @@ static void* kernelThread(void* param) {
     int deleteIndexes;
     int* indexesGpu;
     
-    if (indexes == NULL || (indexes != NULL && indexesLen == shortDatabase->length)) {
+    if (indexesLen == shortDatabase->length) {
         indexes = shortDatabase->indexes;
         indexesLen = shortDatabase->length;
         indexesGpu = gpuDatabase->indexes;

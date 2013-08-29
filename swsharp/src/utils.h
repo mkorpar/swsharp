@@ -80,7 +80,8 @@ extern int fileLength(FILE* f);
 extern void qselect(void* list, size_t n, size_t size, int k, 
     int (*cmp)(const void*, const void*));
 
-extern void chunkArray(int*** dst, int** dstLens, int* src, int srcLen, int chunks);
+extern void weightChunkArray(int* dstOff, int* dstLens, int* dstLen, int* src, 
+    int srcLen, int chunks);
 
 #ifdef __cplusplus 
 }
