@@ -341,7 +341,7 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
     
     int* positions = (int*) malloc(databaseLen * sizeof(int));
 
-    for (int i = length; i < databaseLen; ++i) {
+    for (int i = 0; i < databaseLen; ++i) {
         positions[i] = -1;
     }
     
@@ -1369,6 +1369,8 @@ static QueryProfile* createQueryProfile(Chain* query, Scorer* scorer) {
             data[i * width + j] = scr;
         }
     }
+    
+    free(row);
     
     QueryProfile* queryProfile = (QueryProfile*) malloc(sizeof(QueryProfile));
     queryProfile->data = data;

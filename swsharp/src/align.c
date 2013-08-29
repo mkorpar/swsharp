@@ -283,7 +283,8 @@ static void* alignPairThread(void* param) {
 
         reconstructPairGpu(alignment, data, type, query, target, scorer, 
             cards, cardsLen);
-            
+
+        free(data->data);
         free(data);        
     }
     
@@ -417,6 +418,7 @@ static void* alignBestThread(void* param) {
     // CLEAN MEMORY
 
     for (i = 0; i < queriesLen; ++i) {
+        free(data[i]->data);
         free(data[i]);
     }
     
