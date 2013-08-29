@@ -638,7 +638,7 @@ static void* scoreDatabaseThread(void* param) {
     //**************************************************************************
     // SCORE MULTITHREADED
 
-    if (queriesLen <= cardsLen) {
+    if (queriesLen < cardsLen) {
         scoreDatabaseMulti(scores, function, queries, queriesLen, shortDatabase, 
             scorer, newIndexes, newIndexesLen, cards, cardsLen);
     } else {
@@ -989,9 +989,9 @@ static void* kernelThread(void* param) {
     int2* hBusGpu = gpuDatabase->hBus;
     
     for (int i = 0; i < blocks; ++i) {
-    
+
         if (sequencesCols * i > indexesLen) {
-            break;  
+            break;
         }
 
         scoringFunction<<<BLOCKS, THREADS>>>(scoresGpu, hBusGpu, lengthsGpu, 
@@ -1003,21 +1003,23 @@ static void* kernelThread(void* param) {
     //**************************************************************************
     // SAVE RESULTS
     
-    size_t scoresSize = indexesLen * sizeof(int);
+    int length = shortDatabase->length;
+    
+    size_t scoresSize = length * sizeof(int);
     int* scoresCpu = (int*) malloc(scoresSize);
 
     CUDA_SAFE_CALL(cudaMemcpy(scoresCpu, scoresGpu, scoresSize, FROM_GPU));
 
     int* order = shortDatabase->order;
-
+    
     for (int i = 0; i < indexesLen; ++i) {
-        scores[order[i]] = scoresCpu[indexes[i]];
+        scores[order[indexes[i]]] = scoresCpu[indexes[i]];
     }
     
     free(scoresCpu);
                 
     //**************************************************************************
-    
+
     //**************************************************************************
     // CLEAN MEMORY
     
