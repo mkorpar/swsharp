@@ -34,14 +34,15 @@ extern "C" {
 
 typedef struct LongDatabase LongDatabase;
 
-extern LongDatabase* longDatabaseCreate(Chain** database, int databaseLen);
+extern LongDatabase* longDatabaseCreate(Chain** database, int databaseLen, 
+    int maxLen, int* cards, int cardsLen);
 extern void longDatabaseDelete(LongDatabase* longDatabase);
     
-extern void scoreLongDatabaseGpu(int** scores, int type, Chain* query, 
+extern void scoreLongDatabaseGpu(int* scores, int type, Chain* query, 
     LongDatabase* longDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
-extern void scoreLongDatabasesGpu(int** scores, int type, Chain** queries, 
+extern void scoreLongDatabasesGpu(int* scores, int type, Chain** queries, 
     int queriesLen, LongDatabase* longDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
     

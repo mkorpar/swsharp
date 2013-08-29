@@ -118,7 +118,8 @@ extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLe
     ShortDatabase* shortDatabase = shortDatabaseCreate(database, databaseLen, 
         threshold, cards, cardsLen);
         
-    LongDatabase* longDatabase = NULL; // longDatabaseCreate(database, databaseLen);
+    LongDatabase* longDatabase = longDatabaseCreate(database, databaseLen, 
+        threshold, cards, cardsLen);
     
     // save struct
     ChainDatabaseGpu* chainDatabaseGpu = 
@@ -134,7 +135,7 @@ extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLe
 
 extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu) {
 
-    // longDatabaseDelete(chainDatabaseGpu->longDatabase);
+    longDatabaseDelete(chainDatabaseGpu->longDatabase);
     shortDatabaseDelete(chainDatabaseGpu->shortDatabase);
 
     free(chainDatabaseGpu);
@@ -248,8 +249,8 @@ static void* scoreDatabaseThread(void* param) {
         
     TIMER_START("Long solve");
     
-    // scoreLongDatabasesGpu(&scoresLong, type, queries, queriesLen, longDatabase, 
-    //    scorer, indexes, indexesLen, cards, cardsLen, NULL);
+    scoreLongDatabasesGpu(*scores, type, queries, queriesLen, 
+        longDatabase, scorer, indexesNew, indexesNewLen, cards, cardsLen, NULL);
         
     TIMER_STOP;
     

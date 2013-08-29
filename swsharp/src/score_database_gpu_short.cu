@@ -693,7 +693,7 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
 
     for (int i = 0, j = 0; i < indexesLen; ++i) {
 
-        weights[j] += chainGetLength(database[order[i]]);
+        weights[j] += chainGetLength(database[order[indexes[i]]]);
 
         if ((i + 1) % sequencesCols == 0) {
             j++;
@@ -1455,7 +1455,6 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
 }
 
 //------------------------------------------------------------------------------
-
 
 //------------------------------------------------------------------------------
 // QUERY PROFILE
