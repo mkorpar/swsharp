@@ -404,6 +404,15 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
 
     //**************************************************************************
     
+    //**************************************************************************
+    // CLEAN MEMORY
+
+    free(codes);
+    free(starts);
+    free(lengths);
+
+    //**************************************************************************
+    
     size_t longDatabaseSize = sizeof(struct LongDatabase);
     LongDatabase* longDatabase = (LongDatabase*) malloc(longDatabaseSize);
     
