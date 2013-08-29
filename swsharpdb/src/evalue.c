@@ -46,7 +46,7 @@ struct EValueParams {
     double G;
     double aUn;
     double alphaUn;
-    int length;
+    long long length;
 };
 
 typedef struct ScorerConstants {
@@ -103,7 +103,7 @@ extern EValueParams* createEValueParams(Chain** database, int databaseLen,
 
     int i;
     
-    int length = 0;
+    long long length = 0;
     for (i = 0; i < databaseLen; ++i) {
         length += chainGetLength(database[i]);
     }
