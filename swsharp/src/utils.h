@@ -75,7 +75,7 @@ do { \
 #endif
 
 extern FILE* fileSafeOpen(const char* path, const char* mode);
-extern int fileLength(FILE* f);
+extern size_t fileLength(FILE* f);
 
 extern void qselect(void* list, size_t n, size_t size, int k, 
     int (*cmp)(const void*, const void*));

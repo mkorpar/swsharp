@@ -180,6 +180,14 @@ static void* nwReconstructThread(void* param) {
     int blockIdx;
     
     //**************************************************************************
+    // CREATE REVERSES
+ 
+    chainCreateReverse(query);
+    chainCreateReverse(target);
+    
+    //**************************************************************************
+    
+    //**************************************************************************
     // PARALLEL CPU/GPU RECONSTRUCTION 
 
     int blocksMaxLen = 1 + (MAX(rows, cols) * 2) / MIN_BLOCK_SIZE;

@@ -110,6 +110,9 @@ extern int chainGetLength(Chain* chain);
 */
 extern const char* chainGetName(Chain* chain);
 
+
+extern void chainCreateReverse(Chain* chain);
+
 /*!
 @brief Creates a view to the chain object.
 

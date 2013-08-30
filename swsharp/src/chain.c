@@ -26,6 +26,7 @@ Contact the author by mkorpar@gmail.com.
 
 #include "error.h"
 #include "scorer.h"
+#include "thread.h"
 
 #include "chain.h"
 
@@ -37,8 +38,12 @@ struct Chain {
     int length;
     
     char* codes;
-    char* reverseCodes;
     
+    int reverseOrigin;
+    int reverseCalculated;
+    char* reverseCodes;
+    Mutex reverseWrite;
+
     int isView;
 };
 
@@ -62,7 +67,7 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
 
     ASSERT(name != NULL && nameLen > 0 && string != NULL && stringLen > 0, 
         "invalid chain data");
-        
+
     Chain* chain = (Chain*) malloc(sizeof(struct Chain));
 
     chain->isView = 0;
@@ -73,8 +78,6 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
     memcpy(chain->name, name, nameLen * sizeof(char));
     
     chain->codes = (char*) malloc(stringLen * sizeof(char));
-    chain->reverseCodes = (char*) malloc(stringLen * sizeof(char));
-    
     chain->length = 0;
     
     int i;
@@ -88,19 +91,24 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
         }
     }
     
-    for (i = 0; i < chain->length; ++i) {
-        chain->reverseCodes[chain->length - i - 1] = chain->codes[i];
-    }
-    
+    chain->reverseCodes = NULL;
+    chain->reverseOrigin = 0;
+    chain->reverseCalculated = 0;
+    mutexCreate(&(chain->reverseWrite));
+
     return chain;
 }
 
 extern void chainDelete(Chain* chain) {
 
     if (!chain->isView) {
+        mutexDelete(&(chain->reverseWrite));
         free(chain->codes);
-        free(chain->reverseCodes);
         free(chain->name);
+    }
+    
+    if (chain->reverseOrigin) {
+        free(chain->reverseCodes);
     }
     
     free(chain); 
@@ -133,13 +141,44 @@ extern int chainGetLength(Chain* chain) {
 //------------------------------------------------------------------------------
 // FUNCTIONS
 
+extern void chainCreateReverse(Chain* chain) {
+
+    if (chain->reverseCalculated) {
+        return;
+    }
+    
+    mutexLock(&(chain->reverseWrite));
+    
+    if (chain->reverseCalculated) {
+        mutexUnlock(&(chain->reverseWrite));
+        return;
+    }
+    
+    chain->reverseCodes = (char*) malloc(chain->length * sizeof(char));
+
+    int i;
+    for (i = 0; i < chain->length; ++i) {
+        chain->reverseCodes[chain->length - i - 1] = chain->codes[i];
+    }
+    
+    chain->reverseOrigin = 1;
+    chain->reverseCalculated = 1;
+
+    mutexUnlock(&(chain->reverseWrite));
+}
+
 extern Chain* chainCreateView(Chain* chain, int start, int end, int reverse) {
+
+    ASSERT(chain->reverseCalculated, "chain reverse not calculated");
 
     Chain* view = (Chain*) malloc(sizeof(struct Chain));
 
     view->length = (end - start) + 1;
     view->isView = 1;
     view->name = chain->name;
+    view->reverseOrigin = 0;
+    view->reverseCalculated = chain->reverseCalculated;
+    view->reverseWrite = chain->reverseWrite;
     
     if (reverse) {
         view->codes = chain->reverseCodes + (chain->length - end - 1);
@@ -184,12 +223,10 @@ extern Chain* chainDeserialize(char* bytes) {
     chain->codes = codes;
     chain->isView = 0;
     
-    chain->reverseCodes = (char*) malloc(chain->length * sizeof(char));
-    
-    int i;
-    for (i = 0; i < chain->length; ++i) {
-        chain->reverseCodes[chain->length - i - 1] = chain->codes[i];
-    }
+    chain->reverseCodes = NULL;
+    chain->reverseOrigin = 0;
+    chain->reverseCalculated = 0;
+    mutexCreate(&(chain->reverseWrite));
     
     return chain;
 }

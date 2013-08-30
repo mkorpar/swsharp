@@ -273,10 +273,13 @@ static void* alignPairThread(void* param) {
     int rows = chainGetLength(query);
     int cols = chainGetLength(target);
     double cells = (double) rows * cols;
-    
+
     if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS || cardsLen == 0) {
         alignPairCpu(alignment, type, query, target, scorer);
     } else {
+    
+        chainCreateReverse(query);
+        chainCreateReverse(target);
         
         AlignData* data;
         scorePairGpu(&data, type, query, target, scorer, cards, cardsLen);
@@ -307,6 +310,15 @@ static void* alignBestThread(void* param) {
     int cardsLen = context->cardsLen;
 
     int i, j;
+    
+    //**************************************************************************
+    // CREATE REVERSES
+    
+    for (i = 0; i < queriesLen; ++i) {
+        chainCreateReverse(queries[i]);
+    }
+    
+    chainCreateReverse(target);
     
     //**************************************************************************
     // SCORE MULTITHREADED

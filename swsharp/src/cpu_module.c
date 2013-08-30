@@ -409,6 +409,7 @@ extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
             if (scr == score) {
                 *queryStart = row;
                 *targetStart = col;
+                free(hBus);
                 return;
             }
                        
@@ -423,6 +424,8 @@ extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
             // UPDATE BUSES END
         }
     }
+    
+    free(hBus);
 }
 
 //------------------------------------------------------------------------------

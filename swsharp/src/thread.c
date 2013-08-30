@@ -51,7 +51,7 @@ extern void mutexCreate(Mutex* mutex) {
 #ifdef _WIN32
     InitializeCriticalSection(mutex);
 #else 
-    // do nothing
+    pthread_mutex_init(mutex, NULL);
 #endif
 }
 
@@ -59,7 +59,7 @@ extern void mutexDelete(Mutex* mutex) {
 #ifdef _WIN32
     DeleteCriticalSection(mutex);
 #else 
-    // do nothing
+    pthread_mutex_destroy(mutex);
 #endif
 }
 
