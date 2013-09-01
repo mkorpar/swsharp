@@ -83,6 +83,30 @@ extern DbAlignment* dbAlignmentCreate(Chain* query, int queryStart, int queryEnd
     return dbAlignment;
 }
 
+extern DbAlignment* dbAlignmentCopy(DbAlignment* other) {
+
+    DbAlignment* dbAlignment = (DbAlignment*) malloc(sizeof(struct DbAlignment));
+
+    dbAlignment->query = other->query;
+    dbAlignment->queryStart = other->queryStart;
+    dbAlignment->queryEnd = other->queryEnd;
+    dbAlignment->queryIdx = other->queryIdx;
+    dbAlignment->target = other->target;
+    dbAlignment->targetStart = other->targetStart;
+    dbAlignment->targetEnd = other->targetEnd;
+    dbAlignment->targetIdx = other->targetIdx;
+    dbAlignment->value = other->value;
+    dbAlignment->score = other->score;
+    dbAlignment->scorer = other->scorer;
+    dbAlignment->pathLen = other->pathLen;
+    
+    size_t pathSize = other->pathLen * sizeof(char);
+    dbAlignment->path = (char*) malloc(pathSize);
+    memcpy(dbAlignment->path, other->path, pathSize);
+    
+    return dbAlignment;
+}
+
 extern void dbAlignmentDelete(DbAlignment* dbAlignment) {
     free(dbAlignment->path);
     free(dbAlignment); 

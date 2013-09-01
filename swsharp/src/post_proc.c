@@ -52,6 +52,8 @@ static void aligmentStr(char** queryStr, char** targetStr,
     
 static void printFastaName(const char* name, FILE* file);
 
+static int dbAlignmentCmp(const void* a_, const void* b_);
+
 // single output
 static OutputFunction outputFunction(int type);
 
@@ -294,6 +296,40 @@ extern void deleteShotgunDatabase(DbAlignment*** dbAlignments,
     free(dbAlignmentsLens);
 }
 
+extern void dbAlignmentsMerge(DbAlignment*** dbAlignmentsDst, 
+    int* dbAlignmentsDstLens, DbAlignment*** dbAlignmentsSrc, 
+    int* dbAlignmentsSrcLens, int dbAlignmentsLen, int maxAlignments) {
+    
+    int i;
+    for (i = 0; i < dbAlignmentsLen; ++i) {
+    
+        DbAlignment** dst = dbAlignmentsDst[i];
+        DbAlignment** src = dbAlignmentsSrc[i];
+        
+        int dstLen = dbAlignmentsDstLens[i];
+        int srcLen = dbAlignmentsSrcLens[i];
+        
+        int len = dstLen + srcLen;
+
+        size_t dstSize = MAX(2 * maxAlignments, len) * sizeof(DbAlignment*);
+        dst = (DbAlignment**) realloc(dst, dstSize);
+        
+        int j;
+        for (j = 0; j < srcLen; ++j) {
+            dst[dstLen + j] = dbAlignmentCopy(src[j]);
+        }
+
+        qsort(dst, len, sizeof(DbAlignment*), dbAlignmentCmp);
+        
+        for (j = maxAlignments; j < len; ++j) {
+            dbAlignmentDelete(dst[j]);
+        }
+        
+        dbAlignmentsDstLens[i] = MIN(len, maxAlignments);
+        dbAlignmentsDst[i] = dst;
+    }
+}
+
 //******************************************************************************
     
 //******************************************************************************
@@ -383,6 +419,25 @@ static void printFastaName(const char* name, FILE* file) {
     }
     
     fprintf(file, "%s\n", pp);
+}
+
+static int dbAlignmentCmp(const void* a_, const void* b_) {
+
+    DbAlignment* a = *((DbAlignment**) a_);
+    DbAlignment* b = *((DbAlignment**) b_);
+    
+    double aVal = dbAlignmentGetValue(a);
+    int aScr = dbAlignmentGetScore(a);
+    
+    double bVal = dbAlignmentGetValue(b);
+    int bScr = dbAlignmentGetScore(b);
+
+    if (aVal == bVal) {
+        return bScr - aScr;
+    }
+    
+    if (aVal < bVal) return -1;
+    return 1;
 }
 
 //------------------------------------------------------------------------------

@@ -159,26 +159,51 @@ int main(int argc, char* argv[]) {
     
     threadPoolInitialize(cardsLen + 8);
 
-    EValueParams* eValueParams = createEValueParams(database, databaseLen, 
-        scorer);
+    EValueParams* eValueParams = createEValueParams(database, databaseLen, scorer);
+
+    DbAlignment*** dbAlignments = NULL;
+    int* dbAlignmentsLens = NULL;
+
+    int databaseCur = 0;
+    int databaseStart = 0;
+    
+    int databaseIdx;
+    for (databaseIdx = 0; databaseIdx < databaseLen; ++databaseIdx) {
+    
+        databaseCur += chainGetLength(database[databaseIdx]);
+
+        if (databaseCur < 400 * 1024 * 1024 && databaseIdx != databaseLen - 1) {
+            continue;
+        }
         
-    ChainDatabase* chainDatabase = chainDatabaseCreate(database, 0, databaseLen,
-        cards, cardsLen);
-    
-    DbAlignment*** dbAlignments;
-    int* dbAlignmentsLens;
+        ChainDatabase* chainDatabase = chainDatabaseCreate(database, 
+            databaseStart, databaseIdx - databaseStart + 1, cards, cardsLen);
 
-    shotgunDatabase(&dbAlignments, &dbAlignmentsLens, algorithm, queries, 
-        queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
-        (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
-      
-    outputShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen, out, 
-        outFormat);
+        DbAlignment*** dbAlignmentsPart = NULL;
+        int* dbAlignmentsPartLens = NULL;
+
+        shotgunDatabase(&dbAlignmentsPart, &dbAlignmentsPartLens, algorithm, 
+            queries, queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
+            (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
+        
+        if (dbAlignments == NULL) {
+            dbAlignments = dbAlignmentsPart;
+            dbAlignmentsLens = dbAlignmentsPartLens;
+        } else {
+            dbAlignmentsMerge(dbAlignments, dbAlignmentsLens, dbAlignmentsPart, 
+                dbAlignmentsPartLens, queriesLen, maxAlignments);
+            deleteShotgunDatabase(dbAlignmentsPart, dbAlignmentsPartLens, queriesLen);
+        }
+
+        chainDatabaseDelete(chainDatabase);
+            
+        databaseStart = databaseIdx + 1;
+        databaseCur = 0;
+    }
     
+    outputShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen, out, outFormat);
     deleteShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen);
-
-    chainDatabaseDelete(chainDatabase);
-
+    
     deleteEValueParams(eValueParams);
     
     deleteFastaChains(queries, queriesLen);

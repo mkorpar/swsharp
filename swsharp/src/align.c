@@ -278,9 +278,6 @@ static void* alignPairThread(void* param) {
         alignPairCpu(alignment, type, query, target, scorer);
     } else {
     
-        chainCreateReverse(query);
-        chainCreateReverse(target);
-        
         AlignData* data;
         scorePairGpu(&data, type, query, target, scorer, cards, cardsLen);
 
@@ -310,16 +307,7 @@ static void* alignBestThread(void* param) {
     int cardsLen = context->cardsLen;
 
     int i, j;
-    
-    //**************************************************************************
-    // CREATE REVERSES
-    
-    for (i = 0; i < queriesLen; ++i) {
-        chainCreateReverse(queries[i]);
-    }
-    
-    chainCreateReverse(target);
-    
+
     //**************************************************************************
     // SCORE MULTITHREADED
     

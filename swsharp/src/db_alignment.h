@@ -74,6 +74,8 @@ extern DbAlignment* dbAlignmentCreate(Chain* query, int queryStart, int queryEnd
     int queryIdx, Chain* target, int targetStart, int targetEnd, int targetIdx, 
     double value, int score, Scorer* scorer, char* path, int pathLen);
 
+extern DbAlignment* dbAlignmentCopy(DbAlignment* dbAlignment);
+
 /*!
 @brief DbAlignment destructor.
 

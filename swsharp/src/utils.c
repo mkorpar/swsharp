@@ -131,7 +131,7 @@ extern FILE* fileSafeOpen(const char* path, const char* mode) {
 extern size_t fileLength(FILE* f) {
 
     fseek(f, 0L, SEEK_END);
-    int len = ftell(f);
+    size_t len = ftell(f);
     fseek(f, 0L, SEEK_SET);
     
     return len;

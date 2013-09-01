@@ -209,6 +209,10 @@ array.
 extern void deleteShotgunDatabase(DbAlignment*** dbAlignments, 
     int* dbAlignmentsLens, int dbAlignmentsLen);
 
+extern void dbAlignmentsMerge(DbAlignment*** dbAlignmentsDst, 
+    int* dbAlignmentsDstLens, DbAlignment*** dbAlignmentsSrc, 
+    int* dbAlignmentsSrcLens, int dbAlignmentsLen, int maxAlignments);
+
 #ifdef __cplusplus 
 }
 #endif
