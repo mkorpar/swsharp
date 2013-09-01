@@ -134,6 +134,8 @@ int main(int argc, char* argv[]) {
     readFastaChain(&query, queryPath);
     readFastaChain(&target, targetPath);
 
+    threadPoolInitialize(cardsLen + 8);
+    
     Alignment* alignment;
     alignPair(&alignment, algorithm, query, target, scorer, cards, cardsLen, NULL);
      
@@ -148,6 +150,7 @@ int main(int argc, char* argv[]) {
     
     scorerDelete(scorer);
     
+    threadPoolTerminate();
     free(cards);
 
     return 0;

@@ -145,7 +145,7 @@ int main(int argc, char* argv[]) {
     readFastaChain(&query, queryPath);
     readFastaChain(&target, targetPath);
 
-    threadPoolInitialize(cardsLen + 4);
+    threadPoolInitialize(cardsLen + 8);
 
     if (scoreOnly) {
     

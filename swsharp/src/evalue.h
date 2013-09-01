@@ -19,21 +19,27 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Contact the author by mkorpar@gmail.com.
 */
 
-#ifndef __DATABASE_UTILSH__
-#define __DATABASE_UTILSH__
+#ifndef __EVALUEH__
+#define __EVALUEH__
 
-#include "swsharp/swsharp.h"
+#include "chain.h"
+#include "scorer.h"
 
 #ifdef __cplusplus 
 extern "C" {
 #endif
 
-extern void joinShotgunDatabases(DbAlignment**** dbAlignments, 
-    int** dbAlignmentsLens, int* dbAlignmentsLen, DbAlignment**** dbAlignmentsMpi, 
-    int** dbAlignmentsLensMpi, int* dbAlignmentsLenMpi, int databasesLen, 
-    int maxAlignments);
+typedef struct EValueParams EValueParams;
+
+extern EValueParams* createEValueParams(Chain** database, int databaseLen, 
+    Scorer* scorer);
+
+extern void deleteEValueParams(EValueParams* eValueParams);
+
+extern void eValues(double* values, int* scores, Chain* query, 
+    Chain** database, int databaseLen, EValueParams* eValueParams);
 
 #ifdef __cplusplus 
 }
 #endif
-#endif // __DATABASE_UTILSH__
+#endif // __EVALUEH__

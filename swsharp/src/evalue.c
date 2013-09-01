@@ -24,7 +24,9 @@ Contact the author by mkorpar@gmail.com.
 #include <stdio.h>
 #include <string.h>
 
-#include "swsharp/swsharp.h"
+#include "chain.h"
+#include "constants.h"
+#include "scorer.h"
 
 #include "evalue.h"
 

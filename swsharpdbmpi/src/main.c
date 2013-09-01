@@ -4,9 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "database_utils.h"
-#include "evalue.h"
 #include "mpi_module.h"
+#include "swsharp/evalue.h"
 #include "swsharp/swsharp.h"
 
 #define ASSERT(expr, fmt, ...)\
@@ -167,90 +166,93 @@ int main(int argc, char* argv[]) {
     int databaseLen = 0;
     readFastaChains(&database, &databaseLen, databasePath);
     
-    EValueParams* eValueParams = createEValueParams(database, databaseLen, 
-        scorer);
+    threadPoolInitialize(cardsLen + 8);
 
+    EValueParams* eValueParams = createEValueParams(database, databaseLen, scorer);
+
+    DbAlignment*** dbAlignments = NULL;
+    int* dbAlignmentsLens = NULL;
+    
     // mpi data
     int mpiDbStep = databaseLen / mpiNodes;
     int mpiDbOff = mpiRank * mpiDbStep;
     int mpiDbLen = mpiRank == mpiNodes - 1 ? databaseLen - mpiDbOff : mpiDbStep;
 
-    ChainDatabase* chainDatabase = chainDatabaseCreate(database, mpiDbOff, mpiDbLen);
+    int databaseCur = 0;
+    int databaseStart = mpiDbOff;
+    
+    int databaseIdx;
+    for (databaseIdx = mpiDbOff; databaseIdx < mpiDbOff + mpiDbLen; ++databaseIdx) {
+    
+        databaseCur += chainGetLength(database[databaseIdx]);
 
-    DbAlignment*** dbAlignments;
-    int* dbAlignmentsLens;
+        if (databaseCur < 400 * 1024 * 1024 && databaseIdx != mpiDbOff + mpiDbLen - 1) {
+            continue;
+        }
+        
+        ChainDatabase* chainDatabase = chainDatabaseCreate(database, 
+            databaseStart, databaseIdx - databaseStart + 1, cards, cardsLen);
 
-    shotgunDatabase(&dbAlignments, &dbAlignmentsLens, algorithm, queries, 
-        queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
-        (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
+        DbAlignment*** dbAlignmentsPart = NULL;
+        int* dbAlignmentsPartLens = NULL;
+
+        shotgunDatabase(&dbAlignmentsPart, &dbAlignmentsPartLens, algorithm, 
+            queries, queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
+            (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
+        
+        if (dbAlignments == NULL) {
+            dbAlignments = dbAlignmentsPart;
+            dbAlignmentsLens = dbAlignmentsPartLens;
+        } else {
+            dbAlignmentsMerge(dbAlignments, dbAlignmentsLens, dbAlignmentsPart, 
+                dbAlignmentsPartLens, queriesLen, maxAlignments);
+            deleteShotgunDatabase(dbAlignmentsPart, dbAlignmentsPartLens, queriesLen);
+        }
+
+        chainDatabaseDelete(chainDatabase);
+            
+        databaseStart = databaseIdx + 1;
+        databaseCur = 0;
+    }
 
     // master node gathers and outputs data
     int masterNode = 0;
     if (mpiRank == masterNode) {
 
-        int i;
-        size_t size;
-        
-        size = mpiNodes * sizeof(DbAlignment***);
-        DbAlignment**** dbAlignmentsMpi = (DbAlignment****) malloc(size); 
-        
-        size = mpiNodes * sizeof(int**);
-        int** dbAlignmentsLensMpi = (int**) malloc(size);
-         
-        size = mpiNodes * sizeof(int*);
-        int* dbAlignmentsLenMpi = (int*) malloc(size);
-        
-        dbAlignmentsMpi[mpiRank] = dbAlignments;
-        dbAlignmentsLensMpi[mpiRank] = dbAlignmentsLens;
-        dbAlignmentsLenMpi[mpiRank] = queriesLen;
-        
+        int i;       
         for (i = 0; i < mpiNodes; ++i) {
-            if (i != mpiRank) {
-                recieveMpiData(&(dbAlignmentsMpi[i]), &(dbAlignmentsLensMpi[i]), 
-                    &(dbAlignmentsLenMpi[i]), queries, database, scorer, i);
+
+            if (i == mpiRank) {
+                continue;
             }
+            
+            DbAlignment*** dbAlignmentsPart = NULL;
+            int* dbAlignmentsPartLens = NULL;
+            int dbAlignmentsLen;
+
+            recieveMpiData(&dbAlignmentsPart, &dbAlignmentsPartLens, &dbAlignmentsLen, 
+                queries, database, scorer, i);
+                    
+            dbAlignmentsMerge(dbAlignments, dbAlignmentsLens, dbAlignmentsPart, 
+                dbAlignmentsPartLens, queriesLen, maxAlignments);
+            deleteShotgunDatabase(dbAlignmentsPart, dbAlignmentsPartLens, queriesLen);
         }
         
-        int dbAlignmentsLen;
-        joinShotgunDatabases(&dbAlignments, &dbAlignmentsLens, &dbAlignmentsLen, 
-            dbAlignmentsMpi, dbAlignmentsLensMpi, dbAlignmentsLenMpi, 
-            mpiNodes, maxAlignments);
-           
-        // output
-        outputShotgunDatabase(dbAlignments, dbAlignmentsLens, dbAlignmentsLen, 
-            out, outFormat);
-        
-        // delete real data
-        for (i = 0; i < mpiNodes; ++i) {
-            deleteShotgunDatabase(dbAlignmentsMpi[i], dbAlignmentsLensMpi[i], 
-                dbAlignmentsLenMpi[i]);
-        }
-        
-        // delete placeholders
-        for (i = 0; i < dbAlignmentsLen; ++i) {
-            free(dbAlignments[i]);
-        }
-        free(dbAlignments);
-        free(dbAlignmentsLens);
-        
-        free(dbAlignmentsMpi);
-        free(dbAlignmentsLensMpi);
-        free(dbAlignmentsLenMpi);
-        
+        outputShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen, out, outFormat);
+        deleteShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen);
     } else {
         sendMpiData(dbAlignments, dbAlignmentsLens, queriesLen, masterNode);
         deleteShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen);
     }
         
-    chainDatabaseDelete(chainDatabase);
-
     deleteEValueParams(eValueParams);
     
     deleteFastaChains(queries, queriesLen);
     deleteFastaChains(database, databaseLen);
     
     scorerDelete(scorer);
-    
+
+    threadPoolTerminate();
     free(cards);
     
     MPI_Finalize();

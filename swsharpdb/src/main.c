@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "evalue.h"
+#include "swsharp/evalue.h"
 #include "swsharp/swsharp.h"
 
 #define ASSERT(expr, fmt, ...)\
@@ -210,7 +210,7 @@ int main(int argc, char* argv[]) {
     deleteFastaChains(database, databaseLen);
     
     scorerDelete(scorer);
-    
+
     threadPoolTerminate();
     free(cards);
     

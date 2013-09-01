@@ -396,10 +396,12 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
         gpuDatabases[i].scores = scoresGpu;
         gpuDatabases[i].hBus = hBusGpu;
         
+        #ifdef DEBUG
         size_t memory = codesSize + startsSize + lengthsSize + indexesSize + 
             scoresSize + hBusSize;
             
         LOG("Long database using %.2lfMBs on card %d", memory / 1024.0 / 1024.0, card);
+        #endif
     }
 
     //**************************************************************************
