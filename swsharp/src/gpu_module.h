@@ -108,7 +108,28 @@ diagonals are calculated.
 extern void nwLinearDataGpu(int** scores, int** affines, Chain* query, 
     int queryFrontGap, Chain* target, int targetFrontGap, Scorer* scorer, 
     int pLeft, int pRight, int card, Thread* thread);
-    
+
+/*!
+@brief GPU implementation of the overlap scoring function.
+
+Function provides the overlap end data, the position of the maximum score
+on the query and target sequences as well as the maximum score. QueryEnd must
+be equal to the length of the query minus one or targetEnd must be equal to the
+length of the target minus one.
+
+@param queryEnd output, position of the maximum score on the query sequences
+@param targetEnd output, position of the maximum score on the target sequences
+@param score output, maximum score
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param card CUDA card on which the function will be executed
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/
+extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* score, Chain* query, 
+    Chain* target, Scorer* scorer, int card, Thread* thread);
+
 /*!
 @brief GPU implementation of Smith-Waterman scoring function.
 
@@ -180,7 +201,7 @@ have the #NO_SCORE score. CUDA cards are necessary for this function to work.
 @param scores output, array of scores coresponding to every chain in the 
     database array with which the chainDatabaseGpu was created, new array is 
     created
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 @param query query chain
 @param chainDatabaseGpu gpu chain database object
 @param scorer scorer object used for alignment
@@ -213,7 +234,7 @@ every query separately.
 @param scores output, array of scores coresponding to every query scored with 
     every chain in the database array with which the chainDatabaseGpu was 
     created, new array is created
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 @param queries query chains array
 @param queriesLen query chains array length
 @param chainDatabaseGpu gpu chain database object

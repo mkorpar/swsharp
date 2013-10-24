@@ -95,7 +95,7 @@ with given indexes will be considered, other will be ignored.
 
 @param dbAlignments output dbAlignments array, new array is created
 @param dbAlignmentsLen output, length of the output dbAlignments array
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 @param query query chain
 @param chainDatabase chain database object
 @param scorer scorer object used for alignment
@@ -130,7 +130,7 @@ alignDatabase() for every query separately.
     new array of arrays is created
 @param dbAlignmentsLen output, lengths of the output dbAlignments arrays, 
     one for each query, new array is created
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 @param queries query chains array
 @param queriesLen query chains array length
 @param chainDatabase chain database object

@@ -43,8 +43,9 @@ Contact the author by mkorpar@gmail.com.
 
 #define HW_DATA             0
 #define NW_DATA             1
-#define SW_DATA_SINGLE      2
-#define SW_DATA_DUAL        3
+#define OV_DATA             2
+#define SW_DATA_SINGLE      3
+#define SW_DATA_DUAL        4
 
 typedef struct ContextBest {
     Alignment** alignment;
@@ -92,6 +93,12 @@ typedef struct HwData {
 typedef struct NwData {
     int score;
 } NwData;
+
+typedef struct OvData {
+    int score;
+    int queryEnd;
+    int targetEnd;
+} OvData;
 
 typedef struct SwDataSingle {
     int score;
@@ -162,6 +169,13 @@ static void nwReconstructPairGpu(Alignment** alignment, AlignData* data,
 static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query, 
     Chain* target, Scorer* scorer, int score, int card, Thread* thread);
     
+// ov
+static int ovScorePairGpu(AlignData** data, Chain* query, Chain* target, 
+    Scorer* scorer, int* cards, int cardsLen);
+    
+static void ovReconstructPairGpu(Alignment** alignment, AlignData* data, 
+    Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
+
 // sw
 static int swScorePairGpuSingle(AlignData** data, Chain* query, Chain* target, 
     Scorer* scorer, int* cards, int cardsLen);
@@ -472,6 +486,9 @@ static int scorePairGpu(AlignData** data, int type, Chain* query, Chain* target,
     case NW_ALIGN:
         function = nwScorePairGpu;
         break;
+    case OV_ALIGN:
+        function = ovScorePairGpu;
+        break;
     case SW_ALIGN:
         if (dual) {
             function = swScorePairGpuDual;
@@ -500,6 +517,9 @@ static void reconstructPairGpu(Alignment** alignment, AlignData* data, int type,
     case NW_DATA:
         function = nwReconstructPairGpu;
         break;
+    case OV_DATA:
+        function = ovReconstructPairGpu;
+        break;
     case SW_DATA_SINGLE:
         function = swReconstructPairGpuSingle;
         break;
@@ -516,7 +536,7 @@ static void reconstructPairGpu(Alignment** alignment, AlignData* data, int type,
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
-// hw
+// HW
 
 static int hwScorePairGpu(AlignData** data_, Chain* query, Chain* target, 
     Scorer* scorer, int* cards, int cardsLen) {
@@ -610,7 +630,7 @@ static void hwReconstructPairGpu(Alignment** alignment, AlignData* data_,
 //------------------------------------------------------------------------------
  
 //------------------------------------------------------------------------------
-// nw
+// NW
 
 static int nwScorePairGpu(AlignData** data_, Chain* query, Chain* target, 
     Scorer* scorer, int* cards, int cardsLen) {
@@ -676,6 +696,53 @@ static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
     }
     
     ASSERT(*queryStart != -1, "Score not found %d", score);
+}
+
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// OV
+
+static int ovScorePairGpu(AlignData** data_, Chain* query, Chain* target, 
+    Scorer* scorer, int* cards, int cardsLen) {
+    
+    int card = cards[0];
+    
+    int queryEnd;
+    int targetEnd;
+    int score;
+
+    ovEndDataGpu(&queryEnd, &targetEnd, &score, query, target, scorer, card, NULL);
+
+    int lastRow = queryEnd == chainGetLength(query) - 1;
+    int lastCol = targetEnd == chainGetLength(target) - 1;
+    
+    ASSERT(lastRow || lastCol, "invalid ov alignment");
+    
+    if (data_ != NULL) {
+    
+        OvData* data = (OvData*) malloc(sizeof(OvData));
+        data->score = score;
+        data->queryEnd = queryEnd;
+        data->targetEnd = targetEnd;
+        
+        AlignData* alignData = (AlignData*) malloc(sizeof(AlignData));
+        alignData->type = OV_DATA;
+        alignData->data = data;
+        
+        *data_ = alignData;
+    }
+
+    return score;
+}
+    
+static void ovReconstructPairGpu(Alignment** alignment, AlignData* data_, 
+    Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen) {
+    
+    AlignData* alignData = (AlignData*) data_;
+    ASSERT(alignData->type == OV_DATA, "wrong align data type");
+
+    printf("e jebiga\n");
 }
 
 //------------------------------------------------------------------------------

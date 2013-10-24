@@ -74,6 +74,11 @@ static void nwAlign(Alignment** alignment, Chain* query, Chain* target,
     
 static int nwScore(Chain* query, Chain* target, Scorer* scorer);
 
+static void ovAlign(Alignment** alignment, Chain* query, Chain* target, 
+    Scorer* scorer);
+
+static int ovScore(Chain* query, Chain* target, Scorer* scorer);
+
 static void swAlign(Alignment** alignment, Chain* query, Chain* target, 
     Scorer* scorer);
 
@@ -99,6 +104,9 @@ extern void alignPairCpu(Alignment** alignment, int type, Chain* query,
     case SW_ALIGN: 
         function = swAlign;
         break;
+    case OV_ALIGN: 
+        function = ovAlign;
+        break;
     default:
         ERROR("invalid align type");
     }
@@ -119,6 +127,9 @@ extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer) {
         break;
     case SW_ALIGN: 
         function = swScore;
+        break;
+    case OV_ALIGN: 
+        function = ovScore;
         break;
     default:
         ERROR("invalid align type");
@@ -753,6 +764,241 @@ static int nwScore(Chain* query, Chain* target, Scorer* scorer) {
     return score;
 }
 
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// OV MODULES
+
+static void ovAlign(Alignment** alignment, Chain* query, Chain* target, 
+    Scorer* scorer) {
+    
+    int gapOpen = scorerGetGapOpen(scorer);
+    int gapExtend = scorerGetGapExtend(scorer);
+
+    int rows = chainGetLength(query);
+    int cols = chainGetLength(target);
+    
+    HBus* hBus = (HBus*) malloc(cols * sizeof(HBus));
+        
+    int movesLen = cols * rows;
+    Move* moves = (Move*) malloc(movesLen * sizeof(Move));
+    
+    int row;
+    int col; 
+    
+    for (col = 0; col < cols; ++col) {
+        hBus[col].scr = 0;
+        hBus[col].aff = SCORE_MIN;
+    }
+    
+    int score = SCORE_MIN;
+    int endRow = 0;
+    int endCol = 0;
+    
+    for (row = 0; row < rows; ++row) {
+    
+        int iScr = 0;
+        int iAff = SCORE_MIN;
+        
+        int diag = 0;
+        
+        for (col = 0; col < cols; ++col) {
+        
+            int moveIdx = row * cols + col;
+
+            // MATCHING
+            char rowCode = chainGetCode(query, row);
+            char colCode = chainGetCode(target, col);
+
+            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            // MATCHING END
+            
+            // INSERT                
+            int ins = MAX(iScr - gapOpen, iAff - gapExtend); 
+            
+            if (ins == iAff - gapExtend) {
+                moves[moveIdx].hGaps = moves[moveIdx - 1].hGaps + 1;
+            } else {
+                moves[moveIdx].hGaps = 0;
+            }
+            // INSERT END
+
+            // DELETE 
+            int del = MAX(hBus[col].scr - gapOpen, hBus[col].aff - gapExtend); 
+           
+            if (del == hBus[col].aff - gapExtend) {
+                moves[moveIdx].vGaps = moves[moveIdx - cols].vGaps + 1;
+            } else {
+                moves[moveIdx].vGaps = 0;
+            } 
+            // DELETE END
+            
+            int scr = MAX(mch, MAX(ins, del));
+            
+            if (del == scr) {
+                moves[moveIdx].move = MOVE_UP;
+            } else if (ins == scr) {
+                moves[moveIdx].move = MOVE_LEFT;
+            } else {
+                moves[moveIdx].move = MOVE_DIAG;
+            }
+            
+            if (scr > score && (row == rows - 1 || col == cols - 1)) {
+                score = scr;
+                endRow = row;
+                endCol = col;
+            }
+           
+            // UPDATE BUSES  
+            iScr = scr;
+            iAff = ins;
+            
+            diag = hBus[col].scr;
+            
+            hBus[col].scr = scr;
+            hBus[col].aff = del;
+            // UPDATE BUSES END
+        }
+    }
+    
+    row = endRow;
+    col = endCol;
+    
+    int pathEnd = endRow + endCol + 1;
+    int pathIdx = pathEnd;
+    
+    char* path = (char*) malloc(pathEnd * sizeof(char));
+    
+    while (row >= 0 && col >= 0) {
+        
+        int movesIdx = row * cols + col;
+        char move = moves[movesIdx].move;
+               
+        path[--pathIdx] = move;
+        
+        if (move == MOVE_DIAG) {
+            col--;
+            row--;
+        } else if (move == MOVE_LEFT) {
+
+            int gaps = moves[movesIdx].hGaps;
+            
+            pathIdx -= gaps;
+            memset(path + pathIdx, MOVE_LEFT, gaps);
+            
+            col -= gaps + 1;
+
+        } else if (move == MOVE_UP) {
+
+            int gaps = moves[movesIdx].vGaps;
+            
+            pathIdx -= gaps;
+            memset(path + pathIdx, MOVE_UP, gaps);
+
+            row -= gaps + 1;
+            
+        }
+        
+        // horizontal gaps till the end
+        if (col == -1 && row >= 0) {
+        
+            pathIdx -= row + 1;
+            memset(path + pathIdx, MOVE_UP, row + 1);
+
+            col = 0;
+            row = 0;
+            
+            break;
+        }
+    }
+    
+    // don't count last move
+    if (row == -1) {
+        row++;
+        col++;
+    }
+        
+    int pathLen = pathEnd - pathIdx;
+    
+    // shift data to begining of the array
+    int shiftIdx;
+    for (shiftIdx = 0; shiftIdx < pathLen; ++shiftIdx) {
+        path[shiftIdx] = path[pathIdx + shiftIdx];
+    }
+    
+    free(hBus);
+    free(moves);
+    
+    *alignment = alignmentCreate(query, row, endRow, target, col, endCol, 
+        score, scorer, path, pathLen);
+}
+
+static int ovScore(Chain* query, Chain* target, Scorer* scorer) {
+
+    int gapOpen = scorerGetGapOpen(scorer);
+    int gapExtend = scorerGetGapExtend(scorer);
+
+    int rows = chainGetLength(query);
+    int cols = chainGetLength(target);
+    
+    int max = SCORE_MIN;
+    
+    HBus* hBus = (HBus*) malloc(cols * sizeof(HBus));
+        
+    int row;
+    int col; 
+    
+    for (col = 0; col < cols; ++col) {
+        hBus[col].scr = 0;
+        hBus[col].aff = SCORE_MIN;
+    }
+    
+    for (row = 0; row < rows; ++row) {
+    
+        int iScr = 0;
+        int iAff = SCORE_MIN;
+        
+        int diag = 0;
+        
+        for (col = 0; col < cols; ++col) {
+        
+            // MATCHING
+            char rowCode = chainGetCode(query, row);
+            char colCode = chainGetCode(target, col);
+
+            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            // MATCHING END
+            
+            // INSERT                
+            int ins = MAX(iScr - gapOpen, iAff - gapExtend); 
+            // INSERT END
+
+            // DELETE 
+            int del = MAX(hBus[col].scr - gapOpen, hBus[col].aff - gapExtend); 
+            // DELETE END
+            
+            int scr = MAX(mch, MAX(ins, del));
+           
+            if (row == rows - 1 || col == cols - 1) {
+                max = MAX(max, scr);
+            }
+            
+            // UPDATE BUSES  
+            iScr = scr;
+            iAff = ins;
+            
+            diag = hBus[col].scr;
+            
+            hBus[col].scr = scr;
+            hBus[col].aff = del;
+            // UPDATE BUSES END
+        }
+    }
+    
+    free(hBus);
+    
+    return max;
+}
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------

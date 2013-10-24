@@ -182,6 +182,9 @@ __global__ void hwSolve(char* codes, int* starts, int* lengths, int* indexes,
 __global__ void nwSolve(char* codes, int* starts, int* lengths, int* indexes, 
     int* scores, int2* hBus);
 
+__global__ void ovSolve(char* codes, int* starts, int* lengths, int* indexes, 
+    int* scores, int2* hBus);
+
 __global__ void swSolve(char* codes, int* starts, int* lengths, int* indexes, 
     int* scores, int2* hBus);
 
@@ -191,6 +194,9 @@ __device__ void hwSolveSingle(int id, char* codes, int* starts, int* lengths,
     int* scores, int2* hBus);
 
 __device__ void nwSolveSingle(int id, char* codes, int* starts, int* lengths, 
+    int* scores, int2* hBus);
+
+__device__ void ovSolveSingle(int id, char* codes, int* starts, int* lengths, 
     int* scores, int2* hBus);
 
 __device__ void swSolveSingle(int id, char* codes, int* starts, int* lengths, 
@@ -552,6 +558,9 @@ static void* scoreDatabaseThread(void* param) {
         break;
     case HW_ALIGN:
         function = hwSolve;
+        break;
+    case OV_ALIGN:
+        function = ovSolve;
         break;
     default:
         ERROR("Wrong align type");
@@ -956,6 +965,14 @@ __global__ void nwSolve(char* codes, int* starts, int* lengths, int* indexes,
     }
 }
 
+__global__ void ovSolve(char* codes, int* starts, int* lengths, int* indexes, 
+    int* scores, int2* hBus) {
+
+    for (int i = blockIdx.x; i < length_; i += gridDim.x) {
+        ovSolveSingle(indexes[i], codes, starts, lengths, scores, hBus);
+    }
+}
+
 __global__ void swSolve(char* codes, int* starts, int* lengths, int* indexes, 
     int* scores, int2* hBus) {
 
@@ -1198,6 +1215,134 @@ __device__ void nwSolveSingle(int id, char* codes, int* starts, int* lengths,
             
             atom.mch = gap(row - 1);
             atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));;
+            atom.lAff = INT4_SCORE_MIN;
+        }
+        
+        __syncthreads();
+    }
+
+    // write all scores    
+    scoresShr[threadIdx.x] = score;
+    __syncthreads();
+    
+    // gather scores
+    if (threadIdx.x == 0) {
+    
+        for (int i = 1; i < blockDim.x; ++i) {
+            score = max(score, scoresShr[i]);
+        }
+    
+        scores[id] = score;
+    }
+}
+
+__device__ void ovSolveSingle(int id, char* codes, int* starts, int* lengths, 
+    int* scores, int2* hBus) {
+    
+    __shared__ int scoresShr[MAX_THREADS];
+
+    __shared__ int hBusScrShr[MAX_THREADS + 1];
+    __shared__ int hBusAffShr[MAX_THREADS + 1];
+
+    int off = starts[id];
+    int cols = lengths[id];
+
+    int score = SCORE_MIN;
+
+    int width = cols * iters_ + 2 * (blockDim.x - 1);
+    int col = -threadIdx.x;
+    int row = threadIdx.x * 4;
+    int iter = 0;
+    
+    Atom atom;
+    atom.mch = 0;
+    atom.lScr = INT4_ZERO;
+    atom.lAff = INT4_SCORE_MIN;
+    
+    hBusScrShr[threadIdx.x] = 0;
+    hBusAffShr[threadIdx.x] = SCORE_MIN;
+    
+    for (int i = 0; i < width; ++i) {
+    
+        int del;
+        int valid = col >= 0 && row < rowsPadded_;
+    
+        if (valid) {
+        
+            if (iter != 0 && threadIdx.x == 0) {
+                atom.up = hBus[off + col];
+            } else {
+                atom.up.x = hBusScrShr[threadIdx.x];
+                atom.up.y = hBusAffShr[threadIdx.x];
+            }
+            
+            char code = codes[off + col];
+            char4 rowScores = tex2D(qpTexture, code, row >> 2);
+            
+            del = max(atom.up.x - gapOpen_, atom.up.y - gapExtend_);
+            int ins = max(atom.lScr.x - gapOpen_, atom.lAff.x - gapExtend_);
+            int mch = atom.mch + rowScores.x;
+
+            atom.rScr.x = MAX3(mch, del, ins);
+            atom.rAff.x = ins;
+
+            del = max(atom.rScr.x - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.y - gapOpen_, atom.lAff.y - gapExtend_);
+            mch = atom.lScr.x + rowScores.y;
+
+            atom.rScr.y = MAX3(mch, del, ins);
+            atom.rAff.y = ins;
+            
+            del = max(atom.rScr.y - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.z - gapOpen_, atom.lAff.z - gapExtend_);
+            mch = atom.lScr.y + rowScores.z;
+
+            atom.rScr.z = MAX3(mch, del, ins);
+            atom.rAff.z = ins;
+
+            del = max(atom.rScr.z - gapOpen_, del - gapExtend_);
+            ins = max(atom.lScr.w - gapOpen_, atom.lAff.w - gapExtend_);
+            mch = atom.lScr.z + rowScores.w;
+
+            atom.rScr.w = MAX3(mch, del, ins);
+            atom.rAff.w = ins;
+
+            if (row + 0 == rows_ - 1) score = max(score, atom.rScr.x);
+            if (row + 1 == rows_ - 1) score = max(score, atom.rScr.y);
+            if (row + 2 == rows_ - 1) score = max(score, atom.rScr.z);
+            if (row + 3 == rows_ - 1) score = max(score, atom.rScr.w);
+
+            atom.mch = atom.up.x;   
+            VEC4_ASSIGN(atom.lScr, atom.rScr);
+            VEC4_ASSIGN(atom.lAff, atom.rAff);
+        }
+        
+        __syncthreads();
+
+        if (valid) {
+            if (iter < iters_ - 1 && threadIdx.x == blockDim.x - 1) {
+                VEC2_ASSIGN(hBus[off + col], make_int2(atom.rScr.w, del));
+            } else {
+                hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
+                hBusAffShr[threadIdx.x + 1] = del;
+            }
+        }
+        
+        col++;
+        
+        if (col == cols) {
+
+            score = max(score, atom.lScr.x);
+            score = max(score, atom.lScr.y);
+            score = max(score, atom.lScr.z);
+            score = max(score, atom.lScr.w);
+            
+            col = 0;
+            row += blockDim.x * 4;
+            iter++;
+            
+            atom.mch = 0;
+            atom.lScr = INT4_ZERO;
             atom.lAff = INT4_SCORE_MIN;
         }
         

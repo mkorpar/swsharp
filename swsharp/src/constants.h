@@ -47,6 +47,11 @@ extern "C" {
 #define SW_ALIGN    2
 
 /*!
+@brief Constant used for defining the overlap alignment.
+*/
+#define OV_ALIGN    3
+
+/*!
 @brief Constant used for defining an unknown score.
 */
 #define NO_SCORE    -1000000001

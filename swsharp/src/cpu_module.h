@@ -44,7 +44,7 @@ Function aligns query and the target chain with the scorer object.
 @param query query chain
 @param target target chain
 @param scorer scorer object used for alignment
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 */
 extern void alignPairCpu(Alignment** alignment, int type, Chain* query, 
     Chain* target, Scorer* scorer);
@@ -97,7 +97,7 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
 Function provides only the alignment score without any other information.
 Scoring types are equivalent to aligning types.
 
-@param type scoring type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type scoring type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 @param query query chain
 @param target target chain
 @param scorer scorer object used for alignment

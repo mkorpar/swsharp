@@ -176,6 +176,9 @@ __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths,
 __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
     int* lengthsPadded, int* offsets, int* indexes, int block);
 
+__global__ static void ovSolveShortGpu(int* scores, int2* hBus, int* lengths, 
+    int* lengthsPadded, int* offsets, int* indexes, int block);
+
 __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths, 
     int* lengthsPadded, int* offsets, int* indexes, int block);
     
@@ -632,6 +635,9 @@ static void* scoreDatabaseThread(void* param) {
         break;
     case HW_ALIGN:
         function = hwSolveShortGpu;
+        break;
+    case OV_ALIGN:
+        function = ovSolveShortGpu;
         break;
     default:
         ERROR("Wrong align type");
@@ -1307,6 +1313,142 @@ __global__ static void nwSolveShortGpu(int* scores, int2* hBus, int* lengths,
                 scrDown.w = max(scrDown.w, affDown.w);
                 mchDown.w = scrDown.z;
                 if (i + 7 == lastRow && lastCol) score = scrDown.w;
+                
+                wBus.x = scrDown.w;
+                wBus.y = del;
+                
+                hBus[(j * 4 + k) * width_ + tid] = wBus;
+            }
+        }
+    }
+    
+    scores[id] = score;
+}
+
+__global__ static void ovSolveShortGpu(int* scores, int2* hBus, int* lengths, 
+    int* lengthsPadded, int* offsets, int* indexes, int block) {
+
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    
+    if (tid + block * width_ >= length_) {
+        return;
+    }
+    
+    int id = indexes[tid + block * width_];
+    int cols = lengthsPadded[id];
+    int realCols = lengths[id];
+    
+    int colOff = id % width_;
+    int rowOff = offsets[id / width_];
+    
+    int score = SCORE_MIN;
+    
+    int4 scrUp;
+    int4 affUp;
+    int4 mchUp;
+    
+    int4 scrDown;
+    int4 affDown;
+    int4 mchDown;
+    
+    int2 wBus;
+    int del;
+    
+    int lastRow = rows_ - 1;
+    
+    for (int j = 0; j < cols * 4; ++j) {
+        hBus[j * width_ + tid] = make_int2(0, SCORE_MIN);
+    }
+    
+    for (int i = 0; i < rowsPadded_; i += 8) {
+    
+        scrUp = INT4_ZERO;
+        affUp = INT4_SCORE_MIN;
+        mchUp = INT4_ZERO;
+        
+        scrDown = INT4_ZERO;
+        affDown = INT4_SCORE_MIN;
+        mchDown = INT4_ZERO;
+        
+        for (int j = 0; j < cols; ++j) {
+        
+            int columnCodes = tex2D(seqsTexture, colOff, j + rowOff);
+            
+            #pragma unroll
+            for (int k = 0; k < 4; ++k) {
+            
+                int lastCol = (j * 4 + k) == (realCols - 1);
+                
+                wBus = hBus[(j * 4 + k) * width_ + tid];
+                
+                char code = (columnCodes >> (k << 3));
+                char4 rowScores = tex2D(qpTexture, code, i / 4);
+                
+                del = max(wBus.x - gapOpen_, wBus.y - gapExtend_);
+                affUp.x = max(scrUp.x - gapOpen_, affUp.x - gapExtend_);
+                scrUp.x = mchUp.x + rowScores.x; 
+                scrUp.x = max(scrUp.x, del);
+                scrUp.x = max(scrUp.x, affUp.x);
+                mchUp.x = wBus.x;
+                if (i + 0 == lastRow || lastCol) score = max(score, scrUp.x);
+                
+                del = max(scrUp.x - gapOpen_, del - gapExtend_);
+                affUp.y = max(scrUp.y - gapOpen_, affUp.y - gapExtend_);
+                scrUp.y = mchUp.y + rowScores.y; 
+                scrUp.y = max(scrUp.y, del);
+                scrUp.y = max(scrUp.y, affUp.y);
+                mchUp.y = scrUp.x;
+                if (i + 1 == lastRow || lastCol) score = max(score, scrUp.y);
+                
+                del = max(scrUp.y - gapOpen_, del - gapExtend_);
+                affUp.z = max(scrUp.z - gapOpen_, affUp.z - gapExtend_);
+                scrUp.z = mchUp.z + rowScores.z; 
+                scrUp.z = max(scrUp.z, del);
+                scrUp.z = max(scrUp.z, affUp.z);
+                mchUp.z = scrUp.y;
+                if (i + 2 == lastRow || lastCol) score = max(score, scrUp.z);
+                
+                del = max(scrUp.z - gapOpen_, del - gapExtend_);
+                affUp.w = max(scrUp.w - gapOpen_, affUp.w - gapExtend_);
+                scrUp.w = mchUp.w + rowScores.w; 
+                scrUp.w = max(scrUp.w, del);
+                scrUp.w = max(scrUp.w, affUp.w);
+                mchUp.w = scrUp.z;
+                if (i + 3 == lastRow || lastCol) score = max(score, scrUp.w);
+
+                rowScores = tex2D(qpTexture, code, i / 4 + 1);
+                
+                del = max(scrUp.w - gapOpen_, del - gapExtend_);
+                affDown.x = max(scrDown.x - gapOpen_, affDown.x - gapExtend_);
+                scrDown.x = mchDown.x + rowScores.x; 
+                scrDown.x = max(scrDown.x, del);
+                scrDown.x = max(scrDown.x, affDown.x);
+                mchDown.x = scrUp.w;
+                if (i + 4 == lastRow || lastCol) score = max(score, scrDown.x);
+                
+                del = max(scrDown.x - gapOpen_, del - gapExtend_);
+                affDown.y = max(scrDown.y - gapOpen_, affDown.y - gapExtend_);
+                scrDown.y = mchDown.y + rowScores.y; 
+                scrDown.y = max(scrDown.y, del);
+                scrDown.y = max(scrDown.y, affDown.y);
+                mchDown.y = scrDown.x;
+                if (i + 5 == lastRow || lastCol) score = max(score, scrDown.y);
+                
+                del = max(scrDown.y - gapOpen_, del - gapExtend_);
+                affDown.z = max(scrDown.z - gapOpen_, affDown.z - gapExtend_);
+                scrDown.z = mchDown.z + rowScores.z; 
+                scrDown.z = max(scrDown.z, del);
+                scrDown.z = max(scrDown.z, affDown.z);
+                mchDown.z = scrDown.y;
+                if (i + 6 == lastRow || lastCol) score = max(score, scrDown.z);
+                
+                del = max(scrDown.z - gapOpen_, del - gapExtend_);
+                affDown.w = max(scrDown.w - gapOpen_, affDown.w - gapExtend_);
+                scrDown.w = mchDown.w + rowScores.w; 
+                scrDown.w = max(scrDown.w, del);
+                scrDown.w = max(scrDown.w, affDown.w);
+                mchDown.w = scrDown.z;
+                if (i + 7 == lastRow || lastCol) score = max(score, scrDown.w);
                 
                 wBus.x = scrDown.w;
                 wBus.y = del;

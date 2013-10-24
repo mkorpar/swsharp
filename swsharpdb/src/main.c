@@ -52,7 +52,8 @@ static CharInt outFormats[] = {
 static CharInt algorithms[] = {
     { "SW", SW_ALIGN },
     { "NW", NW_ALIGN },
-    { "HW", HW_ALIGN }
+    { "HW", HW_ALIGN },
+    { "OV", OV_ALIGN }
 };
 
 static void help();
@@ -302,6 +303,7 @@ static void help() {
     "            SW - Smith-Waterman local alignment\n"
     "            NW - Needleman-Wunsch global alignment\n"
     "            HW - semiglobal alignment\n"
+    "            OV - overlap alignment\n"
     "    --cards <ints>\n"
     "        default: all available CUDA cards\n"
     "        list of cards should be given as an array of card indexes delimited with\n"

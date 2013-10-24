@@ -43,7 +43,7 @@ Function aligns query and the target chain with the scorer object.
 If needed function utilzes provided CUDA cards.
 
 @param alignment output alignment object
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 @param query query chain
 @param target target chain
 @param scorer scorer object used for alignment
@@ -63,7 +63,7 @@ Only the best scored pair is aligned and returned.
 If needed function utilzes provided CUDA cards.
 
 @param alignment output alignment object
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 @param queries query chains array
 @param queriesLen query chains array length
 @param target target chain
@@ -84,7 +84,7 @@ Function only returns the score of the alignment.
 If needed function utilzes provided CUDA cards.
 
 @param score output score
-@param type aligning type, can be #SW_ALIGN, #NW_ALIGN or #HW_ALIGN
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
 @param query query chain
 @param target target chain
 @param scorer scorer object used for alignment
