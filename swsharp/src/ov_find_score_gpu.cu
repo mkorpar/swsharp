@@ -110,6 +110,8 @@ extern void ovFindScoreGpu(int* queryStart, int* targetStart, Chain* query,
 
 __device__ bool valid(int row, int col);
 
+__device__ static int gap(int idx);
+
 template<class Sub>
 __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub);
 
@@ -189,6 +191,10 @@ __device__ bool valid(int row, int col) {
     return row == realRows_ - 1  || col == realCols_ - 1;
 }
 
+__device__ static int gap(int idx) {
+    return -gapOpen_ - gapExtend_ * idx;
+}
+
 template<class Sub>
 __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub) { 
     
@@ -231,8 +237,8 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub
         VEC4_ASSIGN(atom.lScr, vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)]);
         VEC4_ASSIGN(atom.lAff, vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)]);
     } else {
-        atom.mch = SCORE_MIN * (row != 0);
-        atom.lScr = SCORE4_MIN;
+        atom.mch = gap(row - 1) * (row != 0);
+        atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));
         atom.lAff = SCORE4_MIN;
     }
 
@@ -313,8 +319,8 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub
             col = 0;
             row = row + gridDim.x * blockDim.x * 4;
 
-            atom.mch = SCORE_MIN * (row != 0);
-            atom.lScr = SCORE4_MIN;
+            atom.mch = gap(row - 1) * (row != 0);
+            atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));
             atom.lAff = SCORE4_MIN;
 
             rowCodes = tex1Dfetch(rowTexture, row >> 2); 
@@ -698,7 +704,7 @@ static void* kernel(void* params) {
     int2* hBusCpu = (int2*) malloc(hBusSize);
     int2* hBusGpu;
     for (int i = 0; i < colsGpu; ++i) {
-        hBusCpu[i] = make_int2(SCORE_MIN, SCORE_MIN);
+        hBusCpu[i] = make_int2(-gapOpen - gapExtend * i, SCORE_MIN);
     }
     CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
     CUDA_SAFE_CALL(cudaMemcpy(hBusGpu, hBusCpu, hBusSize, TO_GPU));
