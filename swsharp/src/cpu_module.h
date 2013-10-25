@@ -90,7 +90,26 @@ For path format see ::Alignment.
 extern void nwReconstructCpu(char** path, int* pathLen, int* outScore, 
     Chain* query, int queryFrontGap, int queryBackGap, Chain* target, 
     int targetFrontGap, int targetBackGap, Scorer* scorer, int score);
-    
+
+/*!
+@brief Implementation of score finding function.
+
+Method uses Needleman-Wunsch algorithm with all of the start conditions set to
+infinity. This assures path contains the first cell and does not start with gaps.
+If the score is found and the indicies of the coresponding cell are on the border
+of the solving matrix, functions return the coordinates of the cell with the 
+provided score, (-1, -1) otherwise.
+
+@param queryStart output, if found query index of found cell, -1 otherwise
+@param targetStart output, if found target index of found cell, -1 otherwise
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param score input alignment score
+*/                 
+extern void ovFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score);
+
 /*!
 @brief Pairwise scoring function.
 

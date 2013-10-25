@@ -56,7 +56,10 @@ extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
 extern void nwReconstructCpu(char** path, int* pathLen, int* outScore, 
     Chain* query, int queryFrontGap, int queryBackGap, Chain* target, 
     int targetFrontGap, int targetBackGap, Scorer* scorer, int score);
-    
+
+extern void ovFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score);
+
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
     
 //******************************************************************************
@@ -438,7 +441,80 @@ extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
     
     free(hBus);
 }
+//------------------------------------------------------------------------------
 
+//------------------------------------------------------------------------------
+// OV MODULES
+
+extern void ovFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score) {
+    
+    *queryStart = -1;
+    *targetStart = -1;
+    
+    int gapOpen = scorerGetGapOpen(scorer);
+    int gapExtend = scorerGetGapExtend(scorer);
+
+    int rows = chainGetLength(query);
+    int cols = chainGetLength(target);
+    
+    HBus* hBus = (HBus*) malloc(cols * sizeof(HBus));
+        
+    int row;
+    int col; 
+    
+    for (col = 0; col < cols; ++col) {
+        hBus[col].scr = -gapOpen - col * gapExtend;
+        hBus[col].aff = SCORE_MIN;
+    }
+    
+    for (row = 0; row < rows; ++row) {
+    
+        int iScr = -gapOpen - row * gapExtend;
+        int iAff = SCORE_MIN;
+        
+        int diag = (-gapOpen - (row - 1) * gapExtend) * (row > 0);
+                
+        for (col = 0; col < cols; ++col) {
+        
+            // MATCHING
+            char rowCode = chainGetCode(query, row);
+            char colCode = chainGetCode(target, col);
+
+            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            // MATCHING END
+            
+            // INSERT                
+            int ins = MAX(iScr - gapOpen, iAff - gapExtend); 
+            // INSERT END
+
+            // DELETE 
+            int del = MAX(hBus[col].scr - gapOpen, hBus[col].aff - gapExtend); 
+            // DELETE END
+            
+            int scr = MAX(mch, MAX(ins, del));
+            
+            if (scr == score && (row == rows - 1 || col == cols - 1)) {
+                *queryStart = row;
+                *targetStart = col;
+                free(hBus);
+                return;
+            }
+                       
+            // UPDATE BUSES  
+            iScr = scr;
+            iAff = ins;
+            
+            diag = hBus[col].scr;
+            
+            hBus[col].scr = scr;
+            hBus[col].aff = del;
+            // UPDATE BUSES END
+        }
+    }
+    
+    free(hBus);
+}
 //------------------------------------------------------------------------------
 //******************************************************************************
 
@@ -860,7 +936,7 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
             // UPDATE BUSES END
         }
     }
-    
+
     row = endRow;
     col = endCol;
     
@@ -897,23 +973,17 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
 
             row -= gaps + 1;
             
-        }
-        
-        // horizontal gaps till the end
-        if (col == -1 && row >= 0) {
-        
-            pathIdx -= row + 1;
-            memset(path + pathIdx, MOVE_UP, row + 1);
-
-            col = 0;
-            row = 0;
-            
+        } else {
+            // don't count the stop move, it came from the diagonal
+            row++;
+            col++;
+            pathIdx++;
             break;
         }
     }
     
-    // don't count last move
-    if (row == -1) {
+    // don't count last move (diagonal) out of the matrix
+    if (row == -1 || col == -1) {
         row++;
         col++;
     }

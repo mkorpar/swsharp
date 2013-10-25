@@ -23,13 +23,13 @@ Contact the author by mkorpar@gmail.com.
 #include <stdio.h>
 
 #include "chain.h"
-#include "cuda_utils.h"
 #include "constants.h"
+#include "cuda_utils.h"
 #include "error.h"
 #include "scorer.h"
 #include "thread.h"
 #include "utils.h"
-
+    
 #include "gpu_module.h"
 
 #define MAX_THREADS MAX(THREADS_SM1, THREADS_SM2)
@@ -40,8 +40,7 @@ Contact the author by mkorpar@gmail.com.
 #define THREADS_SM2 128
 #define BLOCKS_SM2  480
 
-#define INT4_ZERO   make_int4(0, 0, 0, 0)
-#define SCORE4_MIN  make_int4(SCORE_MIN, SCORE_MIN, SCORE_MIN, SCORE_MIN)
+#define SCORE4_MIN make_int4(SCORE_MIN, SCORE_MIN, SCORE_MIN, SCORE_MIN)
 
 typedef struct Atom {
     int mch;
@@ -59,9 +58,9 @@ typedef struct VBus {
 } VBus;
 
 typedef struct Context {
-    int* queryEnd;
-    int* targetEnd;
-    int* score;
+    int* queryStart;
+    int* targetStart;
+    int score; 
     Chain* query;
     Chain* target;
     Scorer* scorer;
@@ -73,8 +72,13 @@ static __constant__ int gapExtend_;
 
 static __constant__ int rows_;
 static __constant__ int cols_;
-
+static __constant__ int realRows_;
+static __constant__ int realCols_;
 static __constant__ int cellWidth_;
+
+static __constant__ int score_;
+static __constant__ int pLeft_;
+static __constant__ int pRight_;
 
 static __constant__ int scorerLen_;
 static __constant__ int subLen_;
@@ -87,37 +91,36 @@ texture<char> colTexture;
 texture<int2> hBusTexture;
 texture<int> subTexture;
 
+static __device__ int2 res_;
+
 //******************************************************************************
 // PUBLIC
 
-extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
-    Chain* query, Chain* target, Scorer* scorer, int card, Thread* thread);
+extern void ovFindScoreGpu(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
 
 //******************************************************************************
 
 //******************************************************************************
 // PRIVATE
 
-
 // With visual c++ compiler and prototypes declared cuda global memory variables
 // do not work. No questions asked.
 #ifndef _WIN32
 
-template<class Sub>
-__device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, 
-    int3* results, Sub sub);
-    
-template<class Sub>
-__device__ static void solveShortNormal(int d, VBus vBus, int2* hBus, 
-    int3* results, Sub sub);
-    
-template<class Sub>
-__global__ static void solveShort(int d, VBus vBus, int2* hBus, int3* results, 
-    Sub sub);
+__device__ bool valid(int row, int col);
 
 template<class Sub>
-__global__ static void solveLong(int d, VBus vBus, int2* hBus, int3* results, 
-    Sub sub);
+__device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub);
+
+template<class Sub>
+__device__ static void solveShortNormal(int d, VBus vBus, int2* hBus, Sub sub);
+
+template<class Sub>
+__global__ static void solveShort(int d, VBus vBus, int2* hBus, Sub sub);
+
+template<class Sub>
+__global__ static void solveLong(int d, VBus vBus, int2* hBus, Sub sub);
 
 #endif
 
@@ -128,13 +131,13 @@ static void* kernel(void* params);
 //******************************************************************************
 // PUBLIC
 
-extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
-    Chain* query, Chain* target, Scorer* scorer, int card, Thread* thread) {
+extern void ovFindScoreGpu(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int card, Thread* thread) {
     
     Context* param = (Context*) malloc(sizeof(Context));
 
-    param->queryEnd = queryEnd;
-    param->targetEnd = targetEnd;
+    param->queryStart = queryStart;
+    param->targetStart = targetStart;
     param->score = score;
     param->query = query;
     param->target = target;
@@ -156,6 +159,13 @@ extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* score,
 //------------------------------------------------------------------------------
 // FUNCTORS
 
+class SubScalar {
+public:
+    __device__ int operator () (char a, char b) {
+        return a == b ? match_ : mismatch_;
+    }
+};
+
 class SubScalarRev {
 public:
     __device__ int operator () (char a, char b) {
@@ -175,9 +185,12 @@ public:
 //------------------------------------------------------------------------------
 // GPU KERNELS
 
+__device__ bool valid(int row, int col) {
+    return row == realRows_ - 1  || col == realCols_ - 1;
+}
+
 template<class Sub>
-__device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, 
-    int3* results, Sub sub) { 
+__device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub) { 
     
     __shared__ int hBusScrShr[MAX_THREADS];
     __shared__ int hBusAffShr[MAX_THREADS];
@@ -190,30 +203,50 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
     row -= (col < 0) * (gridDim.x * blockDim.x * 4);
     col += (col < 0) * cols_;
     
-    Atom atom;
+    int x1 = cellWidth_ * (gridDim.x - blockIdx.x - 1) + blockDim.x;
+    int y1 = (d + blockIdx.x - gridDim.x + 1) * (blockDim.x * 4);
     
+    int x2 = cellWidth_ * (gridDim.x - blockIdx.x - 1) - blockDim.x;
+    int y2 = (d + blockIdx.x - gridDim.x + 2) * (blockDim.x * 4);
+
+    y2 -= (x2 < 0) * (gridDim.x * blockDim.x * 4);
+    x2 += (x2 < 0) * cols_;
+    
+    if (y1 - x1 > pLeft_ && (x2 - y2 > pRight_ || y2 < 0)) {
+    
+        row += (col != 0) * gridDim.x * blockDim.x * 4;
+        vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE_MIN;
+        vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        
+        hBus[col] = make_int2(SCORE_MIN, SCORE_MIN);
+        
+        return;
+    }
+    
+    Atom atom;
+
     if (0 <= row && row < rows_ && col > 0) {
         atom.mch = vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)];
         VEC4_ASSIGN(atom.lScr, vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)]);
         VEC4_ASSIGN(atom.lAff, vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)]);
     } else {
-        atom.mch = 0;
-        VEC4_ASSIGN(atom.lScr, INT4_ZERO);
-        VEC4_ASSIGN(atom.lAff, SCORE4_MIN);
+        atom.mch = SCORE_MIN * (row != 0);
+        atom.lScr = SCORE4_MIN;
+        atom.lAff = SCORE4_MIN;
     }
 
     hBusScrShr[threadIdx.x] = tex1Dfetch(hBusTexture, col).x;
     hBusAffShr[threadIdx.x] = tex1Dfetch(hBusTexture, col).y;
 
     char4 rowCodes = tex1Dfetch(rowTexture, row >> 2); 
-    int3 res = { SCORE_MIN, 0, 0 }; 
     
     int del;
     
     for (int i = 0; i < blockDim.x; ++i) {
 
         if (0 <= row && row < rows_) {
-            
+
             char columnCode = tex1Dfetch(colTexture, col);
 
             if (threadIdx.x == 0) {
@@ -250,7 +283,12 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
 
             atom.rScr.w = MAX3(mch, del, ins);
             atom.rAff.w = ins;
-
+            
+            if (atom.rScr.x == score_ && valid(row, col)) { res_.x = row; res_.y = col; }
+            else if (atom.rScr.y == score_ && valid(row + 1, col)) { res_.x = row + 1; res_.y = col; }
+            else if (atom.rScr.z == score_ && valid(row + 2, col)) { res_.x = row + 2; res_.y = col; }
+            else if (atom.rScr.w == score_ && valid(row + 3, col)) { res_.x = row + 3; res_.y = col; }
+        
             atom.mch = atom.up.x;   
             VEC4_ASSIGN(atom.lScr, atom.rScr);
             VEC4_ASSIGN(atom.lAff, atom.rAff);
@@ -260,7 +298,7 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
         
         if (0 <= row && row < rows_) {
         
-            if (threadIdx.x == blockDim.x - 1 || i == blockDim.x - 1 || row == rows_ - 4) {
+            if (threadIdx.x == blockDim.x - 1 || i == blockDim.x - 1) {
                 VEC2_ASSIGN(hBus[col], make_int2(atom.rScr.w, del));
             } else {
                 hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
@@ -272,30 +310,19 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
 
         if (col == cols_) {
 
-            if (0 <= row && row < rows_) {
-                if (atom.rScr.x > res.x) { res.x = atom.rScr.x; res.y = row; res.z = col - 1; }
-                if (atom.rScr.y > res.x) { res.x = atom.rScr.y; res.y = row + 1; res.z = col - 1; }
-                if (atom.rScr.z > res.x) { res.x = atom.rScr.z; res.y = row + 2; res.z = col - 1; }
-                if (atom.rScr.w > res.x) { res.x = atom.rScr.w; res.y = row + 3; res.z = col - 1; }
-            }
-
             col = 0;
             row = row + gridDim.x * blockDim.x * 4;
 
-            atom.mch = 0;
-            VEC4_ASSIGN(atom.lScr, INT4_ZERO);
-            VEC4_ASSIGN(atom.lAff, SCORE4_MIN);
+            atom.mch = SCORE_MIN * (row != 0);
+            atom.lScr = SCORE4_MIN;
+            atom.lAff = SCORE4_MIN;
 
             rowCodes = tex1Dfetch(rowTexture, row >> 2); 
         }
 
         __syncthreads();
     }
-    
-    if (res.x > results[blockIdx.x * blockDim.x + threadIdx.x].x) {
-        VEC3_ASSIGN(results[blockIdx.x * blockDim.x + threadIdx.x], res); 
-    }
-    
+
     if (row < 0 || row >= rows_) return;
     
     vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = atom.up.x;
@@ -304,29 +331,58 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
 }
 
 template<class Sub>
-__device__ static void solveShortNormal(int d, VBus vBus, int2* hBus, 
-    int3* results, Sub sub) { 
+__device__ static void solveShortNormal(int d, VBus vBus, int2* hBus, Sub sub) { 
     
     __shared__ int hBusScrShr[MAX_THREADS];
     __shared__ int hBusAffShr[MAX_THREADS];
-
+    
     int row = (d + blockIdx.x - gridDim.x + 1) * (blockDim.x * 4) + threadIdx.x * 4;
     int col = cellWidth_ * (gridDim.x - blockIdx.x - 1) - threadIdx.x;
 
     if (row < 0 || row >= rows_) return;
     
+    int x1 = cellWidth_ * (gridDim.x - blockIdx.x - 1) + blockDim.x;
+    int y1 = (d + blockIdx.x - gridDim.x + 1) * (blockDim.x * 4);
+    
+    if (y1 - x1 > pLeft_) {
+
+        // only clear right, down is irelevant
+        vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE_MIN;
+        vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        
+        return;
+    }
+
+    int x2 = cellWidth_ * (gridDim.x - blockIdx.x - 1) - blockDim.x;
+    int y2 = (d + blockIdx.x - gridDim.x + 2) * (blockDim.x * 4);
+    
+    if (x2 - y2 > pRight_) {
+
+        // clear right
+        vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE_MIN;
+        vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+      
+        // clear down  
+        hBus[col] = make_int2(SCORE_MIN, SCORE_MIN);
+        hBus[col + blockDim.x] = make_int2(SCORE_MIN, SCORE_MIN);
+        
+        return;
+    }
+
     Atom atom;
     atom.mch = vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)];
     VEC4_ASSIGN(atom.lScr, vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)]);
     VEC4_ASSIGN(atom.lAff, vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)]);
-    
+
     hBusScrShr[threadIdx.x] = tex1Dfetch(hBusTexture, col).x;
     hBusAffShr[threadIdx.x] = tex1Dfetch(hBusTexture, col).y;
 
     const char4 rowCodes = tex1Dfetch(rowTexture, row >> 2); 
-
+    
     int del;
-
+    
     for (int i = 0; i < blockDim.x; ++i, ++col) {
 
         char columnCode = tex1Dfetch(colTexture, col);
@@ -334,13 +390,14 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus,
         if (threadIdx.x == 0) {
             atom.up = tex1Dfetch(hBusTexture, col);
         } else {
-            atom.up = make_int2(hBusScrShr[threadIdx.x], hBusAffShr[threadIdx.x]);
+            atom.up.x = hBusScrShr[threadIdx.x];
+            atom.up.y = hBusAffShr[threadIdx.x];
         }
 
         del = max(atom.up.x - gapOpen_, atom.up.y - gapExtend_);
         int ins = max(atom.lScr.x - gapOpen_, atom.lAff.x - gapExtend_);
         int mch = atom.mch + sub(columnCode, rowCodes.x);
-        
+
         atom.rScr.x = MAX3(mch, del, ins);
         atom.rAff.x = ins;
 
@@ -361,9 +418,14 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus,
         del = max(atom.rScr.z - gapOpen_, del - gapExtend_);
         ins = max(atom.lScr.w - gapOpen_, atom.lAff.w - gapExtend_);
         mch = atom.lScr.z + sub(columnCode, rowCodes.w);
-
+        
         atom.rScr.w = MAX3(mch, del, ins);
         atom.rAff.w = ins;
+
+        if (atom.rScr.x == score_ && valid(row, col)) { res_.x = row; res_.y = col; }
+        else if (atom.rScr.y == score_ && valid(row + 1, col)) { res_.x = row + 1; res_.y = col; }
+        else if (atom.rScr.z == score_ && valid(row + 2, col)) { res_.x = row + 2; res_.y = col; }
+        else if (atom.rScr.w == score_ && valid(row + 3, col)) { res_.x = row + 3; res_.y = col; }
 
         atom.mch = atom.up.x;   
         VEC4_ASSIGN(atom.lScr, atom.rScr);
@@ -371,7 +433,7 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus,
 
         __syncthreads();
         
-        if (threadIdx.x == blockDim.x - 1 || row == rows_ - 4) {
+        if (threadIdx.x == blockDim.x - 1) {
             VEC2_ASSIGN(hBus[col], make_int2(atom.rScr.w, del));
         } else {
             hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
@@ -380,50 +442,76 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus,
 
         __syncthreads();
     } 
-          
+    
+    VEC2_ASSIGN(hBus[col - 1], make_int2(atom.rScr.w, del));
+    
     const int vBusIdx = (row >> 2) % (gridDim.x * blockDim.x);
     vBus.mch[vBusIdx] = atom.up.x;
     VEC4_ASSIGN(vBus.scr[vBusIdx], atom.lScr);
-    VEC4_ASSIGN(vBus.aff[vBusIdx], atom.lAff);  
-    
-    VEC2_ASSIGN(hBus[col - 1], make_int2(atom.rScr.w, del));
+    VEC4_ASSIGN(vBus.aff[vBusIdx], atom.lAff);
 }
 
 template<class Sub>
-__global__ static void solveShort(int d, VBus vBus, int2* hBus, int3* results, Sub sub) { 
+__global__ static void solveShort(int d, VBus vBus, int2* hBus, Sub sub) { 
     
     if (blockIdx.x == (gridDim.x - 1)) {
-        solveShortDelegated(d, vBus, hBus, results, sub);
+        solveShortDelegated(d, vBus, hBus, sub);
     } else {
-        solveShortNormal(d, vBus, hBus, results, sub);
+        solveShortNormal(d, vBus, hBus, sub);
     }
 }
 
 template<class Sub>
-__global__ static void solveLong(int d, VBus vBus, int2* hBus, int3* results, Sub sub) {
+__global__ static void solveLong(int d, VBus vBus, int2* hBus, Sub sub) { 
 
     __shared__ int hBusScrShr[MAX_THREADS];
     __shared__ int hBusAffShr[MAX_THREADS];
     
-    hBusScrShr[threadIdx.x] = 0;
-
     int row = (d + blockIdx.x - gridDim.x + 1) * (blockDim.x * 4) + threadIdx.x * 4;
     int col = cellWidth_ * (gridDim.x - blockIdx.x - 1) - threadIdx.x + blockDim.x;
     
     if (row < 0 || row >= rows_) return;
-
+    
+    int x1 = cellWidth_ * (gridDim.x - blockIdx.x - 1) + cellWidth_;
+    int y1 = (d + blockIdx.x - gridDim.x + 1) * (blockDim.x * 4);
+    
+    if (y1 - x1 > pLeft_) {
+    
+        vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE_MIN;
+        vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        
+        return;
+    }
+    
+    int x2 = cellWidth_ * (gridDim.x - blockIdx.x - 1);
+    int y2 = (d + blockIdx.x - gridDim.x + 2) * (blockDim.x * 4);
+    
+    if (x2 - y2 > pRight_) {
+    
+        vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE_MIN;
+        vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)] = SCORE4_MIN;
+        
+        for (int i = 0; i < cellWidth_ - blockDim.x; i += blockDim.x) {
+            hBus[col + i] = make_int2(SCORE_MIN, SCORE_MIN);
+        }
+        
+        return;
+    }
+    
     Atom atom;
     atom.mch = vBus.mch[(row >> 2) % (gridDim.x * blockDim.x)];
     VEC4_ASSIGN(atom.lScr, vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)]);
     VEC4_ASSIGN(atom.lAff, vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)]);
-    
+
     hBusScrShr[threadIdx.x] = tex1Dfetch(hBusTexture, col).x;
     hBusAffShr[threadIdx.x] = tex1Dfetch(hBusTexture, col).y;
 
     const char4 rowCodes = tex1Dfetch(rowTexture, row >> 2); 
-
+    
     int del;
-
+    
     for (int i = 0; i < cellWidth_ - blockDim.x; ++i, ++col) {
 
         char columnCode = tex1Dfetch(colTexture, col);
@@ -431,13 +519,14 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, int3* results, Su
         if (threadIdx.x == 0) {
             atom.up = tex1Dfetch(hBusTexture, col);
         } else {
-            atom.up = make_int2(hBusScrShr[threadIdx.x], hBusAffShr[threadIdx.x]);
+            atom.up.x = hBusScrShr[threadIdx.x];
+            atom.up.y = hBusAffShr[threadIdx.x];
         }
 
         del = max(atom.up.x - gapOpen_, atom.up.y - gapExtend_);
         int ins = max(atom.lScr.x - gapOpen_, atom.lAff.x - gapExtend_);
         int mch = atom.mch + sub(columnCode, rowCodes.x);
-        
+
         atom.rScr.x = MAX3(mch, del, ins);
         atom.rAff.x = ins;
 
@@ -458,17 +547,22 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, int3* results, Su
         del = max(atom.rScr.z - gapOpen_, del - gapExtend_);
         ins = max(atom.lScr.w - gapOpen_, atom.lAff.w - gapExtend_);
         mch = atom.lScr.z + sub(columnCode, rowCodes.w);
-
+        
         atom.rScr.w = MAX3(mch, del, ins);
         atom.rAff.w = ins;
 
+        if (atom.rScr.x == score_ && valid(row, col)) { res_.x = row; res_.y = col; }
+        else if (atom.rScr.y == score_ && valid(row + 1, col)) { res_.x = row + 1; res_.y = col; }
+        else if (atom.rScr.z == score_ && valid(row + 2, col)) { res_.x = row + 2; res_.y = col; }
+        else if (atom.rScr.w == score_ && valid(row + 3, col)) { res_.x = row + 3; res_.y = col; }
+        
         atom.mch = atom.up.x;   
         VEC4_ASSIGN(atom.lScr, atom.rScr);
         VEC4_ASSIGN(atom.lAff, atom.rAff);
 
         __syncthreads();
         
-        if (threadIdx.x == blockDim.x - 1 || row == rows_ - 4) {
+        if (threadIdx.x == blockDim.x - 1) {
             VEC2_ASSIGN(hBus[col], make_int2(atom.rScr.w, del));
         } else {
             hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
@@ -477,13 +571,13 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, int3* results, Su
 
         __syncthreads();
     } 
-          
+    
+    VEC2_ASSIGN(hBus[col - 1], make_int2(atom.rScr.w, del));
+    
     const int vBusIdx = (row >> 2) % (gridDim.x * blockDim.x);
     vBus.mch[vBusIdx] = atom.up.x;
     VEC4_ASSIGN(vBus.scr[vBusIdx], atom.lScr);
     VEC4_ASSIGN(vBus.aff[vBusIdx], atom.lAff);  
-    
-    VEC2_ASSIGN(hBus[col - 1], make_int2(atom.rScr.w, del));
 }
 
 //------------------------------------------------------------------------------
@@ -494,15 +588,15 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, int3* results, Su
 static void* kernel(void* params) {
 
     Context* context = (Context*) params;
-    
-    int* queryEnd = context->queryEnd;
-    int* targetEnd = context->targetEnd;
-    int* score = context->score;
+  
+    int* queryStart = context->queryStart;
+    int* targetStart = context->targetStart;
+    int score = context->score;
     Chain* query = context->query;
     Chain* target = context->target;
     Scorer* scorer = context->scorer;
     int card = context->card;
-
+    
     int currentCard;
     CUDA_SAFE_CALL(cudaGetDevice(&currentCard));
     if (currentCard != card) {
@@ -517,8 +611,8 @@ static void* kernel(void* params) {
     int scorerLen = scorerGetMaxCode(scorer);
     int subLen = scorerLen + 1;
     int scalar = scorerIsScalar(scorer);
-    
-    TIMER_START("Ov end data %d %d", rows, cols);
+   
+    TIMER_START("Sw find start %d %d", rows, cols);
     
     cudaDeviceProp properties;
     CUDA_SAFE_CALL(cudaGetDeviceProperties(&properties, card));
@@ -532,23 +626,32 @@ static void* kernel(void* params) {
         threads = THREADS_SM2;
         blocks = BLOCKS_SM2;
     }
-
-    ASSERT(threads * 2 <= cols, "too short gpu target chain");
     
+    ASSERT(threads * 2 <= cols, "too short gpu target chain");
+
     if (threads * blocks * 2 > cols) {
         blocks = (int) (cols / (threads * 2.));
         blocks = blocks <= 30 ? blocks : blocks - (blocks % 30);
-        // LOG("Blocks trimmed to: %d", blocks);
+        LOG("Blocks trimmed to: %d", blocks);
     }
     
     int cellHeight = 4 * threads;
     int rowsGpu = rows + (4 - rows % 4) % 4;
-
+    int dRow = (rowsGpu - rows);
+    
     int colsGpu = cols + (blocks - cols % blocks) % blocks;
     int cellWidth = colsGpu / blocks;
 
     int diagonals = blocks + (int) ceil((float) rowsGpu / cellHeight);
 
+    int maxScore = scorerGetMaxScore(scorer);
+    int minMatch = maxScore ? score / maxScore : 0;
+    int t = MAX(rows, cols) - minMatch;
+    int p = (t - abs(rows - cols)) / 2;
+
+    int pLeft = (cols > rows ? p : p + rows - cols) + 1 + dRow;
+    int pRight = (cols > rows ? p + cols - rows : p) + 1 + dRow;
+    
     int memoryUsedGpu = 0;
     int memoryUsedCpu = 0;
     
@@ -557,19 +660,22 @@ static void* kernel(void* params) {
     LOG("Columns cpu: %d, gpu: %d", cols, colsGpu);
     LOG("Cell h: %d, w: %d", cellHeight, cellWidth);
     LOG("Diagonals: %d", diagonals);
+    LOG("Deformation: %d %d", pRight, pLeft);
     */
-
+    
     //**************************************************************************
     // PADD CHAINS
+    
     char* rowCpu = (char*) malloc(rowsGpu * sizeof(char));
-    memset(rowCpu, scorerLen, (rowsGpu - rows) * sizeof(char));
-    chainCopyCodes(query, rowCpu + (rowsGpu - rows));
+    memset(rowCpu + rows, scorerLen, dRow * sizeof(char));
+    chainCopyCodes(query, rowCpu);
     memoryUsedCpu += rowsGpu * sizeof(char);
 
     char* colCpu = (char*) malloc(colsGpu * sizeof(char));
-    memset(colCpu, scorerLen, (colsGpu - cols) * sizeof(char));
-    chainCopyCodes(target, colCpu + (colsGpu - cols));
+    memset(colCpu + cols, scorerLen + scalar, (colsGpu - cols) * sizeof(char));
+    chainCopyCodes(target, colCpu);
     memoryUsedCpu += colsGpu * sizeof(char);
+    
     //**************************************************************************
 
     //**************************************************************************
@@ -592,7 +698,7 @@ static void* kernel(void* params) {
     int2* hBusCpu = (int2*) malloc(hBusSize);
     int2* hBusGpu;
     for (int i = 0; i < colsGpu; ++i) {
-        hBusCpu[i] = make_int2(0, SCORE_MIN);
+        hBusCpu[i] = make_int2(SCORE_MIN, SCORE_MIN);
     }
     CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
     CUDA_SAFE_CALL(cudaMemcpy(hBusGpu, hBusCpu, hBusSize, TO_GPU));
@@ -608,14 +714,6 @@ static void* kernel(void* params) {
     memoryUsedGpu += blocks * threads * sizeof(int4);
     memoryUsedGpu += blocks * threads * sizeof(int4);
 
-    size_t resultsSize = blocks * threads * sizeof(int3);
-    int3* resultsCpu = (int3*) malloc(resultsSize);
-    int3* resultsGpu;
-    CUDA_SAFE_CALL(cudaMalloc(&resultsGpu, resultsSize));
-    CUDA_SAFE_CALL(cudaMemset(resultsGpu, 0, resultsSize));
-    memoryUsedCpu += resultsSize;
-    memoryUsedGpu += resultsSize;
-    
     size_t subSize = subLen * subLen * sizeof(int);
     int* subCpu = (int*) malloc(subSize);
     int* subGpu;
@@ -642,26 +740,55 @@ static void* kernel(void* params) {
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(subLen_, &subLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(rows_, &rowsGpu, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(cols_, &colsGpu, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(realRows_, &rows, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(realCols_, &cols, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(cellWidth_, &cellWidth, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(pLeft_, &pLeft, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(pRight_, &pRight, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(score_, &score, sizeof(int)));
     
-    // LOG("Memory used CPU: %fMB", memoryUsedCpu / 1024. / 1024.);
+    /*
+    LOG("Memory used CPU: %fMB", memoryUsedCpu / 1024. / 1024.);
     LOG("Memory used GPU: %fMB", memoryUsedGpu / 1024. / 1024.);
-
+    */
+    
     //**************************************************************************
 
     //**************************************************************************
     // KERNEL RUN
     
     // TIMER_START("Kernel");
+
+    int2 res = { -1, -1 };
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(res_, &res, sizeof(int2)));
     
     for (int diagonal = 0; diagonal < diagonals; ++diagonal) {
+    
         if (scalar) {
-            solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, resultsGpu, SubScalarRev());
-            solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, resultsGpu, SubScalarRev());
+            if (subCpu[0] >= subCpu[1]) {
+                solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalar());
+            } else {
+                solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalarRev());
+            }
         } else {
-            solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, resultsGpu, SubVector());
-            solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, resultsGpu, SubVector());
+            solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubVector());
         }
+        
+        CUDA_SAFE_CALL(cudaMemcpyFromSymbol(&res, res_, sizeof(int2), 0, FROM_GPU));
+        if (res.x != -1) break;
+        
+        if (scalar) {
+            if (subCpu[0] >= subCpu[1]) {
+                solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalar());
+            } else {
+                solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalarRev());
+            }
+        } else {
+            solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubVector());
+        }
+        
+        CUDA_SAFE_CALL(cudaMemcpyFromSymbol(&res, res_, sizeof(int2), 0, FROM_GPU));
+        if (res.x != -1) break;
     }
     
     // TIMER_STOP;
@@ -670,36 +797,25 @@ static void* kernel(void* params) {
 
     //**************************************************************************
     // SAVE RESULTS
-
-    CUDA_SAFE_CALL(cudaMemcpy(hBusCpu, hBusGpu, hBusSize, FROM_GPU));
-    CUDA_SAFE_CALL(cudaMemcpy(resultsCpu, resultsGpu, resultsSize, FROM_GPU));
-
-    int3 res = resultsCpu[0];
-    for (int i = 1; i < blocks * threads; ++i) {
-        if (resultsCpu[i].x > res.x) {
-            res = resultsCpu[i];
-        }
-    }
-
-    for (int i = colsGpu - cols; i < colsGpu; ++i) {
-        if (hBusCpu[i].x > res.x) {
-            res.x = hBusCpu[i].x;
-            res.y = rowsGpu - 1;
-            res.z = i;
-        }
-    }
-
-    // restore padding
-    res.y -= (rowsGpu - rows);
-    res.z -= (colsGpu - cols);
-
-    *score = res.x;
-    *queryEnd = res.y;
-    *targetEnd = res.z;
-
-    LOG("Score: %d, (%d, %d)", *score, *queryEnd, *targetEnd);    
-    ASSERT(res.y == rows - 1 || res.z == cols - 1, "invalid ov end data");
     
+    if (res.x >= rows) {
+        res.y += rows - res.x - 1;
+        res.x += rows - res.x - 1;
+    }
+    
+    if (res.y >= cols) {
+        res.x += cols - res.y - 1;
+        res.y += cols - res.y - 1;
+    }
+    
+    if (res.x == -1) {
+        LOG("Not found: %d", score);
+    } else {
+        LOG("Found: %d (%d, %d) (%d, %d)", score, res.x, res.y, rows, cols);
+    }
+    
+    *queryStart = res.x;
+    *targetStart = res.y;
     //**************************************************************************
     
     //**************************************************************************
@@ -708,9 +824,8 @@ static void* kernel(void* params) {
     free(subCpu);
     free(rowCpu);
     free(colCpu);
-    free(resultsCpu);
     free(hBusCpu);
-
+    
     CUDA_SAFE_CALL(cudaFree(subGpu));
     CUDA_SAFE_CALL(cudaFree(rowGpu));
     CUDA_SAFE_CALL(cudaFree(colGpu));
@@ -718,15 +833,14 @@ static void* kernel(void* params) {
     CUDA_SAFE_CALL(cudaFree(vBusGpu.scr));
     CUDA_SAFE_CALL(cudaFree(vBusGpu.aff));
     CUDA_SAFE_CALL(cudaFree(hBusGpu));
-    CUDA_SAFE_CALL(cudaFree(resultsGpu));
 
     CUDA_SAFE_CALL(cudaUnbindTexture(rowTexture));
     CUDA_SAFE_CALL(cudaUnbindTexture(colTexture));
     CUDA_SAFE_CALL(cudaUnbindTexture(hBusTexture));
     CUDA_SAFE_CALL(cudaUnbindTexture(subTexture));
     
-    free(params);
-    
+    free(params);   
+
     //**************************************************************************
     
     TIMER_STOP;

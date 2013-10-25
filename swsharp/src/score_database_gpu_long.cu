@@ -1332,11 +1332,13 @@ __device__ void ovSolveSingle(int id, char* codes, int* starts, int* lengths,
         
         if (col == cols) {
 
-            score = max(score, atom.lScr.x);
-            score = max(score, atom.lScr.y);
-            score = max(score, atom.lScr.z);
-            score = max(score, atom.lScr.w);
-            
+            if (row < rows_) {
+                score = max(score, atom.lScr.x);
+                score = max(score, atom.lScr.y);
+                score = max(score, atom.lScr.z);
+                score = max(score, atom.lScr.w);
+            }
+
             col = 0;
             row += blockDim.x * 4;
             iter++;

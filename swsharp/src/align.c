@@ -176,6 +176,9 @@ static int ovScorePairGpu(AlignData** data, Chain* query, Chain* target,
 static void ovReconstructPairGpu(Alignment** alignment, AlignData* data, 
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
 
+static void ovFindScoreSpecific(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
+
 // sw
 static int swScorePairGpuSingle(AlignData** data, Chain* query, Chain* target, 
     Scorer* scorer, int* cards, int cardsLen);
@@ -741,8 +744,65 @@ static void ovReconstructPairGpu(Alignment** alignment, AlignData* data_,
     
     AlignData* alignData = (AlignData*) data_;
     ASSERT(alignData->type == OV_DATA, "wrong align data type");
+    
+    OvData* data = (OvData*) alignData->data;
+    
+    int score = data->score;
+    int queryEnd = data->queryEnd;
+    int targetEnd = data->targetEnd;
+    
+    // find the start
+    int card = cards[0];
+    
+    Chain* queryFind = chainCreateView(query, 0, queryEnd, 1);
+    Chain* targetFind = chainCreateView(target, 0, targetEnd, 1);
 
-    printf("e jebiga\n");
+    int queryStart;
+    int targetStart;
+
+    ovFindScoreSpecific(&queryStart, &targetStart, queryFind, targetFind, 
+        scorer, score, card, NULL);
+
+    queryStart = chainGetLength(queryFind) - queryStart - 1;
+    targetStart = chainGetLength(targetFind) - targetStart - 1;
+
+    chainDelete(queryFind);
+    chainDelete(targetFind);
+    
+    Chain* queryRecn = chainCreateView(query, queryStart, queryEnd, 0);
+    Chain* targetRecn = chainCreateView(target, targetStart, targetEnd, 0);
+    
+    int pathLen;
+    char* path;
+    
+    nwReconstruct(&path, &pathLen, NULL, queryRecn, 0, 0, targetRecn, 0, 0, 
+        scorer, score, cards, cardsLen, NULL);
+    
+    chainDelete(queryRecn);
+    chainDelete(targetRecn);
+
+    ASSERT(queryStart == 0 || targetStart == 0, "invalid ov alignment");
+
+    *alignment = alignmentCreate(query, queryStart, queryEnd, target, 
+        targetStart, targetEnd, score, scorer, path, pathLen);
+}
+
+static void ovFindScoreSpecific(int* queryStart, int* targetStart, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int card, Thread* thread) {
+    
+    int rows = chainGetLength(query);
+    int cols = chainGetLength(target);
+    
+    double cells = (double) rows * cols;
+    
+    if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS) {
+        ovFindScoreCpu(queryStart, targetStart, query, target, scorer, score);
+    } else {
+        ovFindScoreGpu(queryStart, targetStart, query, target, scorer, score, 
+            card, thread);
+    }
+    
+    ASSERT(*queryStart != -1, "Score not found %d", score);
 }
 
 //------------------------------------------------------------------------------
