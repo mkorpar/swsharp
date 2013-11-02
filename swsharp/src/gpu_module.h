@@ -48,16 +48,18 @@ be equal to the length of the query minus one.
 
 @param queryEnd output, position of the maximum score on the query sequences
 @param targetEnd output, position of the maximum score on the target sequences
-@param score output, maximum score
+@param outScore output, maximum score
 @param query query chain
 @param target target chain
 @param scorer scorer object used for alignment
+@param score input alignment score if known, otherwise #NO_SCORE 
 @param card CUDA card on which the function will be executed
 @param thread thread on which the function will be executed, if NULL function is
     executed on the current thread
 */
-extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* score, Chain* query, 
-    Chain* target, Scorer* scorer, int card, Thread* thread);
+extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
+    Chain* query, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread);
     
 /*!
 @brief GPU implementation of score finding function.
@@ -119,16 +121,18 @@ length of the target minus one.
 
 @param queryEnd output, position of the maximum score on the query sequences
 @param targetEnd output, position of the maximum score on the target sequences
-@param score output, maximum score
+@param outScore output, maximum score
 @param query query chain
 @param target target chain
 @param scorer scorer object used for alignment
+@param score input alignment score if known, otherwise #NO_SCORE 
 @param card CUDA card on which the function will be executed
 @param thread thread on which the function will be executed, if NULL function is
     executed on the current thread
 */
-extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* score, Chain* query, 
-    Chain* target, Scorer* scorer, int card, Thread* thread);
+extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
+    Chain* query, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread);
 
 /*!
 @brief GPU implementation of score finding function.
@@ -164,17 +168,18 @@ row of the scoring matrix and the affine deletion matrix, respectively.
     new array is created
 @param affines output, if not NULL the last row of the affine deletion matrix,
     new array is created
-@param score output, maximum score
+@param outScore output, maximum score
 @param query query chain
 @param target target chain
 @param scorer scorer object used for alignment
+@param score input alignment score if known, otherwise #NO_SCORE 
 @param card CUDA card on which the function will be executed
 @param thread thread on which the function will be executed, if NULL function is
     executed on the current thread
 */
-extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
+extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
     int** scores, int** affines, Chain* query, Chain* target, Scorer* scorer, 
-    int card, Thread* thread);
+    int score, int card, Thread* thread);
 
 //******************************************************************************
 

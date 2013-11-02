@@ -61,10 +61,11 @@ typedef struct VBus {
 typedef struct Context {
     int* queryEnd;
     int* targetEnd;
-    int* score;
-    Chain* query;
+    int* outScore;
+    Chain* query; 
     Chain* target;
     Scorer* scorer;
+    int score;
     int card;
 } Context;
 
@@ -90,8 +91,9 @@ texture<int> subTexture;
 //******************************************************************************
 // PUBLIC
 
-extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
-    Chain* query, Chain* target, Scorer* scorer, int card, Thread* thread);
+extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
+    Chain* query, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread);
 
 //******************************************************************************
 
@@ -128,17 +130,19 @@ static void* kernel(void* params);
 //******************************************************************************
 // PUBLIC
 
-extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
-    Chain* query, Chain* target, Scorer* scorer, int card, Thread* thread) {
+extern void ovEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
+    Chain* query, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread) {
     
     Context* param = (Context*) malloc(sizeof(Context));
 
     param->queryEnd = queryEnd;
     param->targetEnd = targetEnd;
-    param->score = score;
+    param->outScore = outScore;
     param->query = query;
     param->target = target;
     param->scorer = scorer;
+    param->score = score;
     param->card = card;
     
     if (thread == NULL) {
@@ -497,10 +501,11 @@ static void* kernel(void* params) {
     
     int* queryEnd = context->queryEnd;
     int* targetEnd = context->targetEnd;
-    int* score = context->score;
+    int* outScore = context->outScore;
     Chain* query = context->query;
     Chain* target = context->target;
     Scorer* scorer = context->scorer;
+    // int score = context->score;
     int card = context->card;
 
     int currentCard;
@@ -693,11 +698,11 @@ static void* kernel(void* params) {
     res.y -= (rowsGpu - rows);
     res.z -= (colsGpu - cols);
 
-    *score = res.x;
+    *outScore = res.x;
     *queryEnd = res.y;
     *targetEnd = res.z;
 
-    LOG("Score: %d, (%d, %d)", *score, *queryEnd, *targetEnd);    
+    LOG("Score: %d, (%d, %d)", *outScore, *queryEnd, *targetEnd);    
     ASSERT(res.y == rows - 1 || res.z == cols - 1, "invalid ov end data");
     
     //**************************************************************************

@@ -92,7 +92,7 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
         }
     }
     
-    chain->origin = 0;
+    chain->origin = chain;
     
     chain->reverseCodes = NULL;
     chain->reverseCalculated = 0;
@@ -145,18 +145,14 @@ extern int chainGetLength(Chain* chain) {
 
 extern Chain* chainCreateView(Chain* chain, int start, int end, int reverse) {
 
-    if (reverse && !chain->reverseCalculated) {
-        createReverse(chain);
-    }
+    createReverse(chain);
 
     Chain* view = (Chain*) malloc(sizeof(struct Chain));
 
     view->length = (end - start) + 1;
     view->isView = 1;
     view->name = chain->name;
-    view->reverseCalculated = chain->reverseCalculated;
-    view->reverseWrite = chain->reverseWrite;
-    view->origin = chain->origin == NULL ? chain : chain->origin;
+    view->origin = chain->origin;
 
     if (reverse) {
         view->codes = chain->reverseCodes + (chain->length - end - 1);
@@ -201,7 +197,7 @@ extern Chain* chainDeserialize(char* bytes) {
     chain->codes = codes;
     chain->isView = 0;
     
-    chain->origin = NULL;
+    chain->origin = chain;
     
     chain->reverseCodes = NULL;
     chain->reverseCalculated = 0;
@@ -245,7 +241,7 @@ extern void chainSerialize(char** bytes, int* bytesLen, Chain* chain) {
 
 static void createReverse(Chain* chain) {
 
-    Chain* origin = chain->origin == NULL ? chain : chain->origin;
+    Chain* origin = chain->origin;
 
     if (origin->reverseCalculated) {
         return;
@@ -264,7 +260,7 @@ static void createReverse(Chain* chain) {
     for (i = 0; i < origin->length; ++i) {
         origin->reverseCodes[origin->length - i - 1] = origin->codes[i];
     }
-    
+
     origin->reverseCalculated = 1;
 
     mutexUnlock(&(origin->reverseWrite));

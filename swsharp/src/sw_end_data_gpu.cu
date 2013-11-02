@@ -23,6 +23,7 @@ Contact the author by mkorpar@gmail.com.
 #include <stdio.h>
 
 #include "chain.h"
+#include "constants.h"
 #include "cuda_utils.h"
 #include "error.h"
 #include "scorer.h"
@@ -61,10 +62,11 @@ typedef struct Context {
     int** affines;
     int* queryEnd;
     int* targetEnd;
-    int* score;
+    int* outScore;
     Chain* query;
     Chain* target;
     Scorer* scorer;
+    int score;
     int card;
 } Context;
 
@@ -93,9 +95,9 @@ texture<int> subTexture;
 //******************************************************************************
 // PUBLIC
 
-extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
+extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
     int** scores, int** affines, Chain* query, Chain* target, Scorer* scorer, 
-    int card, Thread* thread);
+    int score, int card, Thread* thread);
 
 //******************************************************************************
 
@@ -132,9 +134,9 @@ static void* kernel(void* params);
 //******************************************************************************
 // PUBLIC
 
-extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* score, 
+extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
     int** scores, int** affines, Chain* query, Chain* target, Scorer* scorer, 
-    int card, Thread* thread) {
+    int score, int card, Thread* thread) {
     
     Context* param = (Context*) malloc(sizeof(Context));
 
@@ -142,10 +144,11 @@ extern void swEndDataGpu(int* queryEnd, int* targetEnd, int* score,
     param->affines = affines;
     param->queryEnd = queryEnd;
     param->targetEnd = targetEnd;
-    param->score = score;
+    param->outScore = outScore;
     param->query = query;
     param->target = target;
     param->scorer = scorer;
+    param->score = score;
     param->card = card;
     
     if (thread == NULL) {
@@ -575,15 +578,16 @@ static void* kernel(void* params) {
     int** affines = context->affines;
     int* queryEnd = context->queryEnd;
     int* targetEnd = context->targetEnd;
-    int* score = context->score;
+    int* outScore = context->outScore;
     Chain* query = context->query;
     Chain* target = context->target;
     Scorer* scorer = context->scorer;
+    int score = context->score;
     int card = context->card;
 
     // if negative matrix, no need for SW, score will not be found
     if (scorerGetMaxScore(scorer) <= 0) {
-        *score = 0;
+        *outScore = NO_SCORE;
         *queryEnd = 0;
         *targetEnd = 0;
         if (scores != NULL) *scores = NULL;
@@ -754,7 +758,7 @@ static void* kernel(void* params) {
     //**************************************************************************
     // KERNEL RUN
     
-    int best = 0;
+    int best = MAX(0, score);
     int pruning = 1;
     int pruned = 0;
     int pruneHighOld = pruneHigh;
@@ -783,8 +787,10 @@ static void* kernel(void* params) {
             size_t bSize = pruneHigh * sizeof(int);
             CUDA_SAFE_CALL(cudaMemcpy(bCpu, bGpu, bSize, FROM_GPU));
             
-            for (int i = 0; i < pruneHigh; ++i) {
-                best = max(best, bCpu[i]);
+            if (score != NO_SCORE) {
+                for (int i = 0; i < pruneHigh; ++i) {
+                    best = max(best, bCpu[i]);
+                }
             }
 
             // delta j pruning
@@ -831,7 +837,7 @@ static void* kernel(void* params) {
                 size_t size = (colsGpu - offset) * sizeof(int2);
                 CUDA_SAFE_CALL(cudaMemset(hBusGpu + offset, 0, size));
             }
-        } 
+        }
     }
     
     // TIMER_STOP;
@@ -879,11 +885,11 @@ static void* kernel(void* params) {
         res.z += cols - res.z - 1;
     }
 
-    *score = res.x;
+    *outScore = res.x;
     *queryEnd = res.y;
     *targetEnd = res.z;
     
-    LOG("Score: %d, (%d, %d)", *score, *queryEnd, *targetEnd);
+    LOG("Score: %d, (%d, %d)", *outScore, *queryEnd, *targetEnd);
     
     //**************************************************************************
     

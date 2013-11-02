@@ -56,6 +56,29 @@ extern void alignPair(Alignment** alignment, int type, Chain* query,
     Chain* target, Scorer* scorer, int* cards, int cardsLen, Thread* thread);
 
 /*!
+@brief Pairwise alignment function.
+
+Function aligns previously score query and the target chain with the scorer 
+object. If the score isn't valid for the produced alignment an error will occur. 
+Function is primaraly provided to get alignments after calling #scorePair
+function. If needed function utilzes provided CUDA cards.
+
+@param alignment output alignment object
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param score alignment score
+@param cards cuda cards index array
+@param cardsLen cuda cards index array length
+@param thread thread on which the function will be executed, if NULL function is
+    executed on the current thread
+*/
+extern void alignScoredPair(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int* cards, int cardsLen, 
+    Thread* thread);
+
+/*!
 @brief Best scored pair alignment function.
 
 Function aligns queries and the target chain with the scorer object. 

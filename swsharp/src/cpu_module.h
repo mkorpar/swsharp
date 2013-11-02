@@ -50,6 +50,24 @@ extern void alignPairCpu(Alignment** alignment, int type, Chain* query,
     Chain* target, Scorer* scorer);
     
 /*!
+@brief Pairwise alignment function.
+
+Function aligns previously score query and the target chain with the scorer 
+object. If the score isn't valid for the produced alignment an error will occur. 
+Function is primaraly provided to get alignments after calling #scorePairCpu
+function. 
+
+@param alignment output alignment object
+@param type aligning type, can be #SW_ALIGN, #NW_ALIGN, #HW_ALIGN or #OV_ALIGN
+@param query query chain
+@param target target chain
+@param scorer scorer object used for alignment
+@param score alignment score
+*/
+extern void alignScoredPairCpu(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int score);
+
+/*!
 @brief Score finding function.
 
 Method uses Needleman-Wunsch algorithm with all of the start conditions set to

@@ -47,6 +47,11 @@ Contact the author by mkorpar@gmail.com.
 #define SW_DATA_SINGLE      3
 #define SW_DATA_DUAL        4
 
+typedef struct AlignData {
+    int type;
+    void* data;
+} AlignData;
+
 typedef struct ContextBest {
     Alignment** alignment;
     int type;
@@ -58,17 +63,13 @@ typedef struct ContextBest {
     int cardsLen;
 } ContextBest;
 
-typedef struct AlignData {
-    int type;
-    void* data;
-} AlignData;
-
 typedef struct ContextPair {
     Alignment** alignment;
     int type;
     Chain* query;
     Chain* target;
     Scorer* scorer;
+    int score;
     int* cards;
     int cardsLen;
 } ContextPair;
@@ -128,6 +129,10 @@ typedef struct SwDataDual {
 extern void alignPair(Alignment** alignment, int type, Chain* query, 
     Chain* target, Scorer* scorer, int* cards, int cardsLen, Thread* thread);
 
+extern void alignScoredPair(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int* cards, int cardsLen, 
+    Thread* thread);
+
 extern void alignBest(Alignment** alignment, int type, Chain** queries, 
     int queriesLen, Chain* target, Scorer* scorer, int* cards, int cardsLen, 
     Thread* thread);
@@ -147,21 +152,21 @@ static void* alignBestThread(void* param);
 static void* scorePairThread(void* param);
 
 static int scorePairGpu(AlignData** data, int type, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen);
+    Scorer* scorer, int score, int* cards, int cardsLen);
     
 static void reconstructPairGpu(Alignment** alignment, AlignData* data, int type, 
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
 
 // hw
 static int hwScorePairGpu(AlignData** data, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen);
+    Scorer* scorer, int score, int* cards, int cardsLen);
     
 static void hwReconstructPairGpu(Alignment** alignment, AlignData* data, 
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
     
 // nw
 static int nwScorePairGpu(AlignData** data, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen);
+    Scorer* scorer, int score, int* cards, int cardsLen);
 
 static void nwReconstructPairGpu(Alignment** alignment, AlignData* data, 
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
@@ -171,7 +176,7 @@ static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
     
 // ov
 static int ovScorePairGpu(AlignData** data, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen);
+    Scorer* scorer, int score, int* cards, int cardsLen);
     
 static void ovReconstructPairGpu(Alignment** alignment, AlignData* data, 
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
@@ -181,13 +186,13 @@ static void ovFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
 
 // sw
 static int swScorePairGpuSingle(AlignData** data, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen);
+    Scorer* scorer, int score, int* cards, int cardsLen);
 
 static void swReconstructPairGpuSingle(Alignment** alignment, AlignData* data,
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
     
 static int swScorePairGpuDual(AlignData** data, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen);
+    Scorer* scorer, int score, int* cards, int cardsLen);
 
 static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data, 
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
@@ -199,6 +204,13 @@ static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data,
 
 extern void alignPair(Alignment** alignment, int type, Chain* query, 
     Chain* target, Scorer* scorer, int* cards, int cardsLen, Thread* thread) {
+    alignScoredPair(alignment, type, query, target, scorer, NO_SCORE, cards, 
+        cardsLen, thread);
+}
+
+extern void alignScoredPair(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int score, int* cards, int cardsLen, 
+    Thread* thread) {
    
     ContextPair* param = (ContextPair*) malloc(sizeof(ContextPair));
 
@@ -207,6 +219,7 @@ extern void alignPair(Alignment** alignment, int type, Chain* query,
     param->query = query;
     param->target = target;
     param->scorer = scorer;
+    param->score = score;
     param->cards = cards;
     param->cardsLen = cardsLen;
 
@@ -284,6 +297,7 @@ static void* alignPairThread(void* param) {
     Chain* query = context->query;
     Chain* target = context->target;
     Scorer* scorer = context->scorer;
+    int score = context->score;
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
     
@@ -292,11 +306,15 @@ static void* alignPairThread(void* param) {
     double cells = (double) rows * cols;
 
     if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS || cardsLen == 0) {
-        alignPairCpu(alignment, type, query, target, scorer);
+        if (score == NO_SCORE) {
+            alignPairCpu(alignment, type, query, target, scorer);
+        } else {
+            alignScoredPairCpu(alignment, type, query, target, scorer, score);
+        }
     } else {
     
         AlignData* data;
-        scorePairGpu(&data, type, query, target, scorer, cards, cardsLen);
+        scorePairGpu(&data, type, query, target, scorer, score, cards, cardsLen);
 
         reconstructPairGpu(alignment, data, type, query, target, scorer, 
             cards, cardsLen);
@@ -469,18 +487,19 @@ static void* scorePairThread(void* param) {
     if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS || cardsLen == 0) {
         *score = scorePairCpu(type, query, target, scorer);
     } else {
-        *score = scorePairGpu(data, type, query, target, scorer, cards, cardsLen);
+        *score = scorePairGpu(data, type, query, target, scorer, NO_SCORE, 
+            cards, cardsLen);
     }
     
     return NULL;
 }
 
 static int scorePairGpu(AlignData** data, int type, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen) {
+    Scorer* scorer, int score, int* cards, int cardsLen) {
 
     int dual = cardsLen >= 2;
     
-    int (*function) (AlignData**, Chain*, Chain*, Scorer*, int*, int);
+    int (*function) (AlignData**, Chain*, Chain*, Scorer*, int, int*, int);
     
     switch (type) {
     case HW_ALIGN:
@@ -503,7 +522,7 @@ static int scorePairGpu(AlignData** data, int type, Chain* query, Chain* target,
         ERROR("invalid align type");
     }
     
-    return function(data, query, target, scorer, cards, cardsLen);
+    return function(data, query, target, scorer, score, cards, cardsLen);
 }
     
 static void reconstructPairGpu(Alignment** alignment, AlignData* data, int type, 
@@ -542,22 +561,24 @@ static void reconstructPairGpu(Alignment** alignment, AlignData* data, int type,
 // HW
 
 static int hwScorePairGpu(AlignData** data_, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen) {
+    Scorer* scorer, int score, int* cards, int cardsLen) {
     
     int card = cards[0];
     
     int queryEnd;
     int targetEnd;
-    int score;
+    int outScore;
 
-    hwEndDataGpu(&queryEnd, &targetEnd, &score, query, target, scorer, card, NULL);
+    hwEndDataGpu(&queryEnd, &targetEnd, &outScore, query, target, scorer, 
+        score, card, NULL);
 
+    ASSERT(outScore == score || score == NO_SCORE, "invalid alignment input score");
     ASSERT(queryEnd == chainGetLength(query) - 1, "invalid hw alignment");
     
     if (data_ != NULL) {
     
         HwData* data = (HwData*) malloc(sizeof(HwData));
-        data->score = score;
+        data->score = outScore;
         data->queryEnd = queryEnd;
         data->targetEnd = targetEnd;
         
@@ -568,7 +589,7 @@ static int hwScorePairGpu(AlignData** data_, Chain* query, Chain* target,
         *data_ = alignData;
     }
 
-    return score;
+    return outScore;
 }
     
 static void hwReconstructPairGpu(Alignment** alignment, AlignData* data_, 
@@ -636,26 +657,34 @@ static void hwReconstructPairGpu(Alignment** alignment, AlignData* data_,
 // NW
 
 static int nwScorePairGpu(AlignData** data_, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen) {
+    Scorer* scorer, int score, int* cards, int cardsLen) {
     
-    int* scores;
-    
-    nwLinearDataGpu(&scores, NULL, query, 0, target, 0, scorer, -1, -1, 
-        cards[0], NULL);
-        
-    int score = scores[chainGetLength(target) - 1];
-    free(scores);
+    ASSERT(!(score != NO_SCORE && data_ == NULL), "invalid score data");
+
+    int outScore = NO_SCORE;
 
     if (data_ != NULL) {
     
+        // score will be available through reconstruction, no need to score
+
         NwData* data = (NwData*) malloc(sizeof(NwData));
-        data->score = score;
+        data->score = outScore;
 
         AlignData* alignData = (AlignData*) malloc(sizeof(AlignData));
         alignData->type = NW_DATA;
         alignData->data = data;
     
         *data_ = alignData;
+
+    } else {
+
+        int* scores;
+        
+        nwLinearDataGpu(&scores, NULL, query, 0, target, 0, scorer, -1, -1, 
+            cards[0], NULL);
+            
+        outScore = scores[chainGetLength(target) - 1];
+        free(scores);
     }
     
     return score;
@@ -707,25 +736,27 @@ static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
 // OV
 
 static int ovScorePairGpu(AlignData** data_, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen) {
+    Scorer* scorer, int score, int* cards, int cardsLen) {
     
     int card = cards[0];
     
     int queryEnd;
     int targetEnd;
-    int score;
+    int outScore;
 
-    ovEndDataGpu(&queryEnd, &targetEnd, &score, query, target, scorer, card, NULL);
+    ovEndDataGpu(&queryEnd, &targetEnd, &outScore, query, target, scorer, 
+        score, card, NULL);
 
     int lastRow = queryEnd == chainGetLength(query) - 1;
     int lastCol = targetEnd == chainGetLength(target) - 1;
     
+    ASSERT(outScore == score || score == NO_SCORE, "invalid alignment input score");
     ASSERT(lastRow || lastCol, "invalid ov alignment");
     
     if (data_ != NULL) {
     
         OvData* data = (OvData*) malloc(sizeof(OvData));
-        data->score = score;
+        data->score = outScore;
         data->queryEnd = queryEnd;
         data->targetEnd = targetEnd;
         
@@ -736,7 +767,7 @@ static int ovScorePairGpu(AlignData** data_, Chain* query, Chain* target,
         *data_ = alignData;
     }
 
-    return score;
+    return outScore;
 }
     
 static void ovReconstructPairGpu(Alignment** alignment, AlignData* data_, 
@@ -811,21 +842,23 @@ static void ovFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
 // SW
 
 static int swScorePairGpuSingle(AlignData** data_, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen) {
+    Scorer* scorer, int score, int* cards, int cardsLen) {
     
     int card = cards[0];
     
     int queryEnd;
     int targetEnd;
-    int score;
+    int outScore;
 
-    swEndDataGpu(&queryEnd, &targetEnd, &score, NULL, NULL, query, target, 
-        scorer, card, NULL);
+    swEndDataGpu(&queryEnd, &targetEnd, &outScore, NULL, NULL, query, target, 
+        scorer, score, card, NULL);
+
+    ASSERT(outScore == score || score == NO_SCORE, "invalid alignment input score");
 
     if (data_ != NULL) {
     
         SwDataSingle* data = (SwDataSingle*) malloc(sizeof(SwDataSingle));
-        data->score = score;
+        data->score = outScore;
         data->queryEnd = queryEnd;
         data->targetEnd = targetEnd;
 
@@ -836,7 +869,7 @@ static int swScorePairGpuSingle(AlignData** data_, Chain* query, Chain* target,
         *data_ = alignData;
     }
     
-    return score;
+    return outScore;
 }
 
 static void swReconstructPairGpuSingle(Alignment** alignment, AlignData* data_,
@@ -889,7 +922,7 @@ static void swReconstructPairGpuSingle(Alignment** alignment, AlignData* data_,
 }
 
 static int swScorePairGpuDual(AlignData** data_, Chain* query, Chain* target, 
-    Scorer* scorer, int* cards, int cardsLen) {
+    Scorer* scorer, int score, int* cards, int cardsLen) {
 
     int rows = chainGetLength(query);
     int cols = chainGetLength(target);
@@ -915,20 +948,20 @@ static int swScorePairGpuDual(AlignData** data_, Chain* query, Chain* target,
     if (cardsLen == 1) {
     
         swEndDataGpu(&upQueryEnd, &upTargetEnd, &upScore, &upScores, &upAffines,
-            upRow, upCol, scorer, cards[0], NULL);
+            upRow, upCol, scorer, NO_SCORE, cards[0], NULL);
             
         swEndDataGpu(&downQueryEnd, &downTargetEnd, &downScore, &downScores, 
-            &downAffines, downRow, downCol, scorer, cards[0], NULL);
+            &downAffines, downRow, downCol, scorer, NO_SCORE, cards[0], NULL);
             
     } else {
     
         Thread thread;
         
         swEndDataGpu(&upQueryEnd, &upTargetEnd, &upScore, &upScores, &upAffines,
-            upRow, upCol, scorer, cards[1], &thread);
+            upRow, upCol, scorer, NO_SCORE, cards[1], &thread);
             
         swEndDataGpu(&downQueryEnd, &downTargetEnd, &downScore, &downScores, 
-            &downAffines, downRow, downCol, scorer, cards[0], NULL);
+            &downAffines, downRow, downCol, scorer, NO_SCORE, cards[0], NULL);
             
         threadJoin(thread); 
     }
@@ -980,14 +1013,16 @@ static int swScorePairGpuDual(AlignData** data_, Chain* query, Chain* target,
     free(downScores);
     free(downAffines);
 
-    int score = MAX(middleScore, MAX(upScore, downScore));
+    int outScore = MAX(middleScore, MAX(upScore, downScore));
+    
+    ASSERT(outScore == score || score == NO_SCORE, "invalid alignment input score");
     
     LOG("Scores | up: %d | down: %d | mid: %d", upScore, downScore, middleScore);
     
     if (data_ != NULL) {
     
         SwDataDual* data = (SwDataDual*) malloc(sizeof(SwDataDual));
-        data->score = score;
+        data->score = outScore;
         data->middleScore = middleScore;
         data->middleScoreUp = middleScoreUp;
         data->middleScoreDown = middleScoreDown;
@@ -1008,7 +1043,7 @@ static int swScorePairGpuDual(AlignData** data_, Chain* query, Chain* target,
         *data_ = alignData;
     }
     
-    return score;
+    return outScore;
 }
 
 static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data_,

@@ -50,6 +50,9 @@ typedef struct HBus {
 extern void alignPairCpu(Alignment** alignment, int type, Chain* query, 
     Chain* target, Scorer* scorer);
     
+extern void alignScoredPairCpu(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int score);
+
 extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
     Chain* target, Scorer* scorer, int score);
     
@@ -68,22 +71,22 @@ extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
 // PRIVATE
 
 static void hwAlign(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer);
+    Scorer* scorer, int score);
     
 static int hwScore(Chain* query, Chain* target, Scorer* scorer);
 
 static void nwAlign(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer);
+    Scorer* scorer, int score);
     
 static int nwScore(Chain* query, Chain* target, Scorer* scorer);
 
 static void ovAlign(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer);
+    Scorer* scorer, int score);
 
 static int ovScore(Chain* query, Chain* target, Scorer* scorer);
 
 static void swAlign(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer);
+    Scorer* scorer, int score);
 
 static int swScore(Chain* query, Chain* target, Scorer* scorer);
 
@@ -94,8 +97,13 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer);
 
 extern void alignPairCpu(Alignment** alignment, int type, Chain* query, 
     Chain* target, Scorer* scorer) {
+    alignScoredPairCpu(alignment, type, query, target, scorer, NO_SCORE);
+}
+
+extern void alignScoredPairCpu(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int score) {
     
-    void (*function) (Alignment**, Chain*, Chain*, Scorer*);
+    void (*function) (Alignment**, Chain*, Chain*, Scorer*, int);
     
     switch (type) {
     case HW_ALIGN: 
@@ -114,7 +122,10 @@ extern void alignPairCpu(Alignment** alignment, int type, Chain* query,
         ERROR("invalid align type");
     }
     
-    function(alignment, query, target, scorer);
+    function(alignment, query, target, scorer, score);
+    
+    int outScore = alignmentGetScore(*alignment);
+    ASSERT(score == NO_SCORE || score == outScore, "invalid alignment input score");
 }
 
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer) {
@@ -525,7 +536,7 @@ extern void ovFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
 // HW MODULES
 
 static void hwAlign(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer) {
+    Scorer* scorer, int score) {
     
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
@@ -546,7 +557,7 @@ static void hwAlign(Alignment** alignment, Chain* query, Chain* target,
         hBus[col].aff = SCORE_MIN;
     }
     
-    int score = SCORE_MIN;
+    int outScore = SCORE_MIN;
     int endRow = 0;
     int endCol = 0;
     
@@ -598,8 +609,8 @@ static void hwAlign(Alignment** alignment, Chain* query, Chain* target,
                 moves[moveIdx].move = MOVE_DIAG;
             }
             
-            if (scr > score && row == rows - 1) {
-                score = scr;
+            if (scr > outScore && row == rows - 1) {
+                outScore = scr;
                 endRow = row;
                 endCol = col;
             }
@@ -685,7 +696,7 @@ static void hwAlign(Alignment** alignment, Chain* query, Chain* target,
     free(moves);
     
     *alignment = alignmentCreate(query, row, endRow, target, col, endCol, 
-        score, scorer, path, pathLen);
+        outScore, scorer, path, pathLen);
 }
 
 static int hwScore(Chain* query, Chain* target, Scorer* scorer) {
@@ -761,20 +772,20 @@ static int hwScore(Chain* query, Chain* target, Scorer* scorer) {
 // NW MODULES
 
 static void nwAlign(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer) {
+    Scorer* scorer, int score) {
     
     int rows = chainGetLength(query);
     int cols = chainGetLength(target);
     
     char* path;
     int pathLen;
-    int score;
+    int outScore;
     
-    nwReconstructCpu(&path, &pathLen, &score, query, 0, 0, target, 0, 0, 
-        scorer, NO_SCORE);
+    nwReconstructCpu(&path, &pathLen, &outScore, query, 0, 0, target, 0, 0, 
+        scorer, score);
     
     *alignment = alignmentCreate(query, 0, rows - 1, target, 0, cols - 1, 
-        score, scorer, path, pathLen);
+        outScore, scorer, path, pathLen);
 }
 
 static int nwScore(Chain* query, Chain* target, Scorer* scorer) {
@@ -846,7 +857,7 @@ static int nwScore(Chain* query, Chain* target, Scorer* scorer) {
 // OV MODULES
 
 static void ovAlign(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer) {
+    Scorer* scorer, int score) {
     
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
@@ -867,7 +878,7 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
         hBus[col].aff = SCORE_MIN;
     }
     
-    int score = SCORE_MIN;
+    int outScore = SCORE_MIN;
     int endRow = 0;
     int endCol = 0;
     
@@ -919,8 +930,8 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
                 moves[moveIdx].move = MOVE_DIAG;
             }
             
-            if (scr > score && (row == rows - 1 || col == cols - 1)) {
-                score = scr;
+            if (scr > outScore && (row == rows - 1 || col == cols - 1)) {
+                outScore = scr;
                 endRow = row;
                 endCol = col;
             }
@@ -1000,7 +1011,7 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
     free(moves);
     
     *alignment = alignmentCreate(query, row, endRow, target, col, endCol, 
-        score, scorer, path, pathLen);
+        outScore, scorer, path, pathLen);
 }
 
 static int ovScore(Chain* query, Chain* target, Scorer* scorer) {
@@ -1075,7 +1086,7 @@ static int ovScore(Chain* query, Chain* target, Scorer* scorer) {
 // SW MODULES
 
 static void swAlign(Alignment** alignment, Chain* query, Chain* target, 
-    Scorer* scorer) {
+    Scorer* scorer, int score) {
     
     if (scorerGetMaxScore(scorer) <= 0) {
         *alignment = alignmentCreate(query, 0, 0, target, 0, 0, 0, scorer, NULL, 0);
@@ -1101,7 +1112,7 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         hBus[col].aff = SCORE_MIN;
     }
     
-    int score = 0;
+    int outScore = 0;
     int endRow = 0;
     int endCol = 0;
     
@@ -1110,6 +1121,8 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
     int pruneHigh = cols;
     int pruneFactor = scorerGetMaxScore(scorer);
     
+    int bestScore = MAX(outScore, score);
+
     for (row = 0; row < rows; ++row) {
     
         int iScr = 0;
@@ -1126,7 +1139,7 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
                     scr = MAX(scr, hBus[col - 1].scr);
                 }
                 
-                if (scr + (rows - row) * pruneFactor < score) {
+                if (scr + (rows - row) * pruneFactor < bestScore) {
                     pruneLow = col;
                 } else {
                     break;
@@ -1148,7 +1161,7 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
                     scr = MAX(scr, hBus[col - 1].scr);
                 }
                 
-                if (scr + (cols - col) * pruneFactor < score) {
+                if (scr + (cols - col) * pruneFactor < bestScore) {
                     pruneHigh = col;
                 } else {
                     break;
@@ -1204,10 +1217,11 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
                 moves[moveIdx].move = MOVE_STOP;
             }
             
-            if (scr > score) {
-                score = scr;
+            if (scr > outScore) {
+                outScore = scr;
                 endRow = row;
                 endCol = col;
+                bestScore = MAX(bestScore, scr);
             }
            
             // UPDATE BUSES  
@@ -1285,7 +1299,7 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
     free(moves);
     
     *alignment = alignmentCreate(query, row, endRow, target, col, endCol, 
-        score, scorer, path, pathLen);
+        outScore, scorer, path, pathLen);
 }
 
 static int swScore(Chain* query, Chain* target, Scorer* scorer) {

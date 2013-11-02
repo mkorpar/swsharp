@@ -60,10 +60,11 @@ typedef struct VBus {
 typedef struct Context {
     int* queryEnd;
     int* targetEnd;
-    int* score;
+    int* outScore;
     Chain* query; 
     Chain* target;
     Scorer* scorer;
+    int score;
     int card;
 } Context;
 
@@ -90,8 +91,9 @@ texture<int> subTexture;
 //******************************************************************************
 // PUBLIC
 
-extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* score, Chain* query, 
-    Chain* target, Scorer* scorer, int card, Thread* thread);
+extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
+    Chain* query, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread);
     
 //******************************************************************************
 
@@ -126,17 +128,19 @@ static void* kernel(void* params);
 //******************************************************************************
 // PUBLIC
 
-extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* score, Chain* query, 
-    Chain* target, Scorer* scorer, int card, Thread* thread) {
+extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* outScore, 
+    Chain* query, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread) {
     
     Context* param = (Context*) malloc(sizeof(Context));
 
     param->queryEnd = queryEnd;
     param->targetEnd = targetEnd;
-    param->score = score;
+    param->outScore = outScore;
     param->query = query;
     param->target = target;
     param->scorer = scorer;
+    param->score = score;
     param->card = card;
     
     if (thread == NULL) {
@@ -153,13 +157,6 @@ extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* score, Chain* query
 
 //------------------------------------------------------------------------------
 // FUNCTORS
-
-class SubScalar {
-public:
-    __device__ int operator () (char a, char b) {
-        return a == b ? match_ : mismatch_;
-    }
-};
 
 class SubScalarRev {
 public:
@@ -182,7 +179,7 @@ public:
 
 __device__ static int gap(int idx) {
     if (idx == dRow_ - 1) return 0;
-    if (idx < dRow_ - 1) return SCORE_MIN;
+    if (idx < dRow_ - 1) return 0;
     return -gapOpen_ - gapExtend_ * (idx - dRow_);
 }
 
@@ -243,8 +240,6 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub
             atom.rScr.x = MAX3(mch, del, ins);
             atom.rAff.x = ins;
 
-            if (row + 0 == dRow_ - 1) atom.rScr.x = 0;
-            
             del = max(atom.rScr.x - gapOpen_, del - gapExtend_);
             ins = max(atom.lScr.y - gapOpen_, atom.lAff.y - gapExtend_);
             mch = atom.lScr.x + sub(columnCode, rowCodes.y);
@@ -252,8 +247,6 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub
             atom.rScr.y = MAX3(mch, del, ins);
             atom.rAff.y = ins;
 
-            if (row + 1 == dRow_ - 1) atom.rScr.y = 0;
-            
             del = max(atom.rScr.y - gapOpen_, del - gapExtend_);
             ins = max(atom.lScr.z - gapOpen_, atom.lAff.z - gapExtend_);
             mch = atom.lScr.y + sub(columnCode, rowCodes.z);
@@ -261,8 +254,6 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub
             atom.rScr.z = MAX3(mch, del, ins);
             atom.rAff.z = ins;
 
-            if (row + 2 == dRow_ - 1) atom.rScr.w = 0;
-            
             del = max(atom.rScr.z - gapOpen_, del - gapExtend_);
             ins = max(atom.lScr.w - gapOpen_, atom.lAff.w - gapExtend_);
             mch = atom.lScr.z + sub(columnCode, rowCodes.w);
@@ -270,8 +261,6 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub
             atom.rScr.w = MAX3(mch, del, ins);
             atom.rAff.w = ins;
 
-            if (row + 3 == dRow_ - 1) atom.rScr.z = 0;
-            
             atom.mch = atom.up.x;   
             VEC4_ASSIGN(atom.lScr, atom.rScr);
             VEC4_ASSIGN(atom.lAff, atom.rAff);
@@ -354,8 +343,6 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus, Sub sub) {
         atom.rScr.x = MAX3(mch, del, ins);
         atom.rAff.x = ins;
 
-        if (row + 0 == dRow_ - 1) atom.rScr.x = 0;
-        
         del = max(atom.rScr.x - gapOpen_, del - gapExtend_);
         ins = max(atom.lScr.y - gapOpen_, atom.lAff.y - gapExtend_);
         mch = atom.lScr.x + sub(columnCode, rowCodes.y);
@@ -363,8 +350,6 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus, Sub sub) {
         atom.rScr.y = MAX3(mch, del, ins);
         atom.rAff.y = ins;
 
-        if (row + 1 == dRow_ - 1) atom.rScr.y = 0;
-        
         del = max(atom.rScr.y - gapOpen_, del - gapExtend_);
         ins = max(atom.lScr.z - gapOpen_, atom.lAff.z - gapExtend_);
         mch = atom.lScr.y + sub(columnCode, rowCodes.z);
@@ -372,8 +357,6 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus, Sub sub) {
         atom.rScr.z = MAX3(mch, del, ins);
         atom.rAff.z = ins;
 
-        if (row + 2 == dRow_ - 1) atom.rScr.z = 0;
-        
         del = max(atom.rScr.z - gapOpen_, del - gapExtend_);
         ins = max(atom.lScr.w - gapOpen_, atom.lAff.w - gapExtend_);
         mch = atom.lScr.z + sub(columnCode, rowCodes.w);
@@ -381,8 +364,6 @@ __device__ static void solveShortNormal(int d, VBus vBus, int2* hBus, Sub sub) {
         atom.rScr.w = MAX3(mch, del, ins);
         atom.rAff.w = ins;
 
-        if (row + 3 == dRow_ - 1) atom.rScr.w = 0;
-        
         atom.mch = atom.up.x;   
         VEC4_ASSIGN(atom.lScr, atom.rScr);
         VEC4_ASSIGN(atom.lAff, atom.rAff);
@@ -457,8 +438,6 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, Sub sub) {
         atom.rScr.x = MAX3(mch, del, ins);
         atom.rAff.x = ins;
 
-        if (row + 0 == dRow_ - 1) atom.rScr.x = 0;
-        
         del = max(atom.rScr.x - gapOpen_, del - gapExtend_);
         ins = max(atom.lScr.y - gapOpen_, atom.lAff.y - gapExtend_);
         mch = atom.lScr.x + sub(columnCode, rowCodes.y);
@@ -466,8 +445,6 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, Sub sub) {
         atom.rScr.y = MAX3(mch, del, ins);
         atom.rAff.y = ins;
 
-        if (row + 1 == dRow_ - 1) atom.rScr.y = 0;
-        
         del = max(atom.rScr.y - gapOpen_, del - gapExtend_);
         ins = max(atom.lScr.z - gapOpen_, atom.lAff.z - gapExtend_);
         mch = atom.lScr.y + sub(columnCode, rowCodes.z);
@@ -475,8 +452,6 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, Sub sub) {
         atom.rScr.z = MAX3(mch, del, ins);
         atom.rAff.z = ins;
 
-        if (row + 2 == dRow_ - 1) atom.rScr.z = 0;
-        
         del = max(atom.rScr.z - gapOpen_, del - gapExtend_);
         ins = max(atom.lScr.w - gapOpen_, atom.lAff.w - gapExtend_);
         mch = atom.lScr.z + sub(columnCode, rowCodes.w);
@@ -484,8 +459,6 @@ __global__ static void solveLong(int d, VBus vBus, int2* hBus, Sub sub) {
         atom.rScr.w = MAX3(mch, del, ins);
         atom.rAff.w = ins;
 
-        if (row + 3 == dRow_ - 1) atom.rScr.w = 0;
-        
         atom.mch = atom.up.x;   
         VEC4_ASSIGN(atom.lScr, atom.rScr);
         VEC4_ASSIGN(atom.lAff, atom.rAff);
@@ -520,10 +493,11 @@ static void* kernel(void* params) {
     
     int* queryEnd = context->queryEnd;
     int* targetEnd = context->targetEnd;
-    int* score = context->score;
+    int* outScore = context->outScore;
     Chain* query = context->query; 
     Chain* target = context->target;
     Scorer* scorer = context->scorer;
+    // int score = context->score;
     int card = context->card;
 
     int currentCard;
@@ -619,7 +593,7 @@ static void* kernel(void* params) {
     int2* hBusCpu = (int2*) malloc(hBusSize);
     int2* hBusGpu;
     for (int i = 0; i < colsGpu; ++i) {
-        hBusCpu[i] = dRow == 0 ? make_int2(0, SCORE_MIN) : make_int2(SCORE_MIN, SCORE_MIN);
+        hBusCpu[i] = make_int2(0, SCORE_MIN);
     }
     CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
     CUDA_SAFE_CALL(cudaMemcpy(hBusGpu, hBusCpu, hBusSize, TO_GPU));
@@ -678,14 +652,8 @@ static void* kernel(void* params) {
     
     for (int diagonal = 0; diagonal < diagonals; ++diagonal) {
         if (scalar) {
-            if (subCpu[0] >= subCpu[1]) {
-                solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalar());
-                solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalar());
-            } else {
-                // cannot use mismatch negative trick
-                solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalarRev());
-                solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalarRev());
-            }
+            solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalarRev());
+            solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubScalarRev());
         } else {
             solveShort<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubVector());
             solveLong<<< blocks, threads >>>(diagonal, vBusGpu, hBusGpu, SubVector());
@@ -702,12 +670,12 @@ static void* kernel(void* params) {
     
     *queryEnd = rows - 1;
     
-    *score = hBusCpu[0].x;
+    *outScore = hBusCpu[0].x;
     *targetEnd = 0;
     
     for (int i = 1; i < cols; ++i) {
-        if (hBusCpu[i].x > *score) {
-            *score = hBusCpu[i].x;
+        if (hBusCpu[i].x > *outScore) {
+            *outScore = hBusCpu[i].x;
             *targetEnd = i;
         }
     }
