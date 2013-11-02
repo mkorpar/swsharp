@@ -38,6 +38,7 @@ static struct option options[] = {
     {"evalue", required_argument, 0, 'E'},
     {"max-aligns", required_argument, 0, 'M'},
     {"algorithm", required_argument, 0, 'A'},
+    {"cache", no_argument, 0, 'C'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
@@ -87,6 +88,8 @@ int main(int argc, char* argv[]) {
 
     int algorithm = SW_ALIGN;
     
+    int cache = 0;
+
     while (1) {
 
         char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
@@ -129,6 +132,9 @@ int main(int argc, char* argv[]) {
         case 'A':
             algorithm = getAlgorithm(optarg);
             break;
+        case 'C':
+            cache = 1;
+            break;
         case 'h':
         default:
             help();
@@ -158,6 +164,10 @@ int main(int argc, char* argv[]) {
     int databaseLen = 0;
     readFastaChains(&database, &databaseLen, databasePath);
     
+    if (cache) {
+        dumpFastaChains(database, databaseLen, databasePath);
+    }
+
     threadPoolInitialize(cardsLen + 8);
 
     EValueParams* eValueParams = createEValueParams(database, databaseLen, scorer);
@@ -318,6 +328,9 @@ static void help() {
     "            bm8      - blast m8 tabular output format\n"
     "            bm9      - blast m9 commented tabular output format\n"
     "            light    - score-name tabbed output\n"
+    "    --cache\n"
+    "        serialized database is stored to speed up future runs with the\n"
+    "        the same database\n"
     "    -h, -help\n"
     "        prints out the help\n");
 }

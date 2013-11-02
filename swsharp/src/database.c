@@ -417,6 +417,8 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
     //**************************************************************************
     // EXTRACT BEST CHAINS AND SAVE THEIR DATA MULTITHREADED
     
+    TIMER_START("Extract best");
+    
     DbAlignmentData** dbAlignmentsData = 
         (DbAlignmentData**) malloc(queriesLen * sizeof(DbAlignmentData*));
 
@@ -452,6 +454,8 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
     free(eTasks);
     free(scores); // this is big, release immediately
     
+    TIMER_STOP;
+
     //**************************************************************************
     
     //**************************************************************************

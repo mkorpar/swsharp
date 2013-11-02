@@ -265,6 +265,49 @@ extern void outputShotgunDatabase(DbAlignment*** dbAlignments,
     if (file != stdout) fclose(file);
 }
 
+extern void dumpFastaChains(Chain** chains, int chainsLen, char* path_) {
+    
+    const char ext[] = ".swsharp";
+
+    char* path = (char*) malloc(strlen(path_) + sizeof(ext) + 1);
+    sprintf(path, "%s%s", path_, ext);
+
+    FILE* file = fopen(path, "r");
+
+    if (file != NULL) {
+        WARNING(1, "File %s exists, chains are not dumped.", path);
+    } else {
+        
+        TIMER_START("Dumping chains");
+        
+        LOG("Dumping chains to: %s", path);
+
+        file = fileSafeOpen(path, "w");
+        
+        fwrite(&chainsLen, sizeof(int), 1, file);
+        
+        int chainIdx;
+        for (chainIdx = 0; chainIdx < chainsLen; ++chainIdx) {
+        
+            Chain* chain = chains[chainIdx];
+            
+            char* buffer;
+            int bufferLen;
+            chainSerialize(&buffer, &bufferLen, chain);
+            
+            fwrite(&bufferLen, sizeof(int), 1, file);
+            fwrite(buffer, sizeof(char), bufferLen, file);
+            
+            free(buffer);
+        }
+        
+        TIMER_STOP;
+    }
+
+    free(path);    
+    fclose(file);
+}
+
 extern void deleteFastaChains(Chain** chains, int chainsLen) {
 
     int i;

@@ -60,6 +60,9 @@ static ScorerEntry scorers[] = {
 //******************************************************************************
 // PRIVATE
 
+static int readSerializedFastaChains(Chain*** chains, int* chainsLen, 
+    const char* path_);
+
 //******************************************************************************
 
 //******************************************************************************
@@ -154,6 +157,10 @@ extern void readFastaChain(Chain** chain, const char* path) {
 }
 
 extern void readFastaChains(Chain*** chains_, int* chainsLen_, const char* path) {
+
+    if (readSerializedFastaChains(chains_, chainsLen_, path)) {
+        return;
+    }
 
     TIMER_START("Reading database");
     
@@ -279,4 +286,61 @@ extern void scorerCreateMatrix(Scorer** scorer, char* name, int gapOpen,
 //******************************************************************************
 // PRIVATE
 
+//------------------------------------------------------------------------------
+// DATABASE UTILS
+
+static int readSerializedFastaChains(Chain*** chains, int* chainsLen, 
+    const char* path_) {
+
+    const char ext[] = ".swsharp";
+
+    char* path = (char*) malloc(strlen(path_) + sizeof(ext) + 1);
+    sprintf(path, "%s%s", path_, ext);
+    
+    FILE* file = fopen(path, "r");
+    
+    if (file == NULL) {
+        free(path);
+        return 0;
+    }
+
+    TIMER_START("Reading serialized database");
+    
+    WARNING(1, "Reading serilized database %s.", path);
+
+    fread(chainsLen, sizeof(int), 1, file);
+    *chains = (Chain**) malloc(*chainsLen * sizeof(Chain*));
+
+    int bufferSize = 65000;
+    char* buffer = (char*) malloc(bufferSize);
+    
+    int chainSize;
+    int chainIdx;
+
+    for (chainIdx = 0; chainIdx < *chainsLen; ++chainIdx) {
+    
+        fread(&chainSize, sizeof(int), 1, file);
+        
+        if (chainSize > bufferSize) {
+            bufferSize = 2 * chainSize;
+            buffer = (char*) realloc(buffer, bufferSize);
+        }
+        
+        fread(buffer, 1, chainSize, file);
+
+        Chain* chain = chainDeserialize(buffer);
+        (*chains)[chainIdx] = chain;
+    }
+    
+    free(buffer);
+
+    fclose(file);
+    free(path);
+    
+    TIMER_STOP;
+    
+    return 1;
+}
+
+//------------------------------------------------------------------------------
 //******************************************************************************
