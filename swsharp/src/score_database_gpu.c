@@ -211,6 +211,8 @@ static void* scoreDatabaseThread(void* param) {
     
     int databaseLen = chainDatabaseGpu->databaseLen;
     
+    int i, j;
+    
     //**************************************************************************
     // FILTER INDEXES
     
@@ -227,8 +229,8 @@ static void* scoreDatabaseThread(void* param) {
     
     *scores = (int*) malloc(queriesLen * databaseLen * sizeof(int));
 
-    for (int i = 0; i < queriesLen; ++i) {
-        for (int j = 0; j < databaseLen; ++j) {
+    for (i = 0; i < queriesLen; ++i) {
+        for (j = 0; j < databaseLen; ++j) {
             (*scores)[i * databaseLen + j] = NO_SCORE;
         }
     }

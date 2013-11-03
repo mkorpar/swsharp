@@ -251,9 +251,16 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
     int length = 0;
     
     for (int i = 0; i < databaseLen; ++i) {
-        if (chainGetLength(database[i]) < maxLen) {
+    
+        const int n = chainGetLength(database[i]);
+        
+        if (n < maxLen) {
             length++;
         }
+    }
+    
+    if (length == 0) {
+        return NULL;
     }
     
     int2* orderPacked = (int2*) malloc(length * sizeof(int2));
@@ -493,6 +500,10 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
 
 static void deleteDatabase(ShortDatabase* database) {
 
+    if (database == NULL) {
+        return;
+    }
+    
     for (int i = 0; i < database->gpuDatabasesLen; ++i) {
     
         GpuDatabase* gpuDatabase = &(database->gpuDatabases[i]);
@@ -568,6 +579,10 @@ static void* scoreDatabaseThread(void* param) {
     int indexesLen = context->indexesLen;
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
+
+    if (shortDatabase == NULL) {
+        return NULL;
+    }
 
     //**************************************************************************
     // CREATE NEW INDEXES ARRAY IF NEEDED

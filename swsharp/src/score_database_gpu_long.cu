@@ -271,6 +271,10 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
         }
     }
     
+    if (length == 0) {
+        return NULL;
+    }
+    
     int* order = (int*) malloc(length * sizeof(int));
 
     for (int i = 0, j = 0; i < databaseLen; ++i) {
@@ -438,6 +442,10 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
 
 static void deleteDatabase(LongDatabase* database) {
 
+    if (database == NULL) {
+        return;
+    }
+
     for (int i = 0; i < database->gpuDatabasesLen; ++i) {
     
         GpuDatabase* gpuDatabase = &(database->gpuDatabases[i]);
@@ -505,6 +513,10 @@ static void* scoreDatabaseThread(void* param) {
     int indexesLen = context->indexesLen;
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
+
+    if (longDatabase == NULL) {
+        return NULL;
+    }
 
     //**************************************************************************
     // CREATE NEW INDEXES ARRAY IF NEEDED
