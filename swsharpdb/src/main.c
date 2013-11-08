@@ -330,7 +330,7 @@ static void help() {
     "            light    - score-name tabbed output\n"
     "    --cache\n"
     "        serialized database is stored to speed up future runs with the\n"
-    "        the same database\n"
+    "        same database\n"
     "    -h, -help\n"
     "        prints out the help\n");
 }
