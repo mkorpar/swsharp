@@ -200,6 +200,8 @@ typedef struct ChainDatabaseGpu ChainDatabaseGpu;
 
 @param database chain array
 @param databaseLen chain array length
+@param cards cuda cards index array which the database will be available on
+@param cardsLen cuda cards index array length, greater or equal to 1
 
 @return chainDatabaseGpu object
 */

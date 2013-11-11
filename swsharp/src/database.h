@@ -69,6 +69,8 @@ typedef void (*ValueFunction)(double* values, int* scores, Chain* query,
 @param databaseStart index of the first chain to solve
 @param databaseLen length offset from databaseStart to last chain that needs to 
     be solved
+@param cards cuda cards index array which the database will be available on
+@param cardsLen cuda cards index array length, greater or equal to 1
 
 @return chainDatabase object
 */
