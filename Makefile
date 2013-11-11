@@ -40,7 +40,7 @@ uninstall:
 	@rm $(INC_DST) $(LIB_DST) $(BIN_DST) -rf
 
 $(INS_DIR)/%: %
-	@echo [CP] $@ $<
+	@echo [CP] $@
 	@mkdir -p $(dir $@)
 	@cp $< $@ -r
 
