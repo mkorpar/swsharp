@@ -23,8 +23,8 @@ Contact the author by mkorpar@gmail.com.
 \mainpage 
 
 Simple library usage can be seen in the following simple.c file. This short 
-program aligns two pair of nucleotides in fasta format. The nucleotides paths 
-are read from the command line as the first two arguments. This examples is for 
+program aligns two nucleotide sequences in fasta format. The nucleotides paths 
+are read from the command line as the first two arguments. This example is for 
 the linux platform.
 
 simple.c:
