@@ -9,7 +9,7 @@ INC_DIR = include/$(CORE)
 LIB_DIR = lib
 BIN_DIR = bin
 
-INC_SRC = $(shell find $(INC_DIR) -type f -regex ".*\.\(h\)")
+INC_SRC = $(INC_DIR)
 LIB_SRC = $(LIB_DIR)/lib$(CORE).a
 BIN_SRC = $(addprefix $(BIN_DIR)/, $(MODULES))
 
@@ -37,12 +37,12 @@ install: $(CORE) $(MODULES) $(INC_DST) $(LIB_DST) $(BIN_DST)
 
 uninstall:
 	@echo [RM] uninstalling
-	@rm $(INC_DST) $(LIB_DST) $(DST_DST) $(INS_DIR)/$(INC_DIR) -rf
+	@rm $(INC_DST) $(LIB_DST) $(BIN_DST) -rf
 
 $(INS_DIR)/%: %
 	@echo [CP] $@
 	@mkdir -p $(dir $@)
-	@cp $< $@
+	@cp $< $@ -r
 
 $(CORE): 
 	@echo [CORE] $@
