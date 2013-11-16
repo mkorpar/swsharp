@@ -81,7 +81,7 @@ simple.c:
     
         // do the pairwise alignment, use Smith-Waterman algorithm
         Alignment* alignment;
-        alignPair(&alignment, query, target, scorer, SW_ALIGN, cards, cardsLen, NULL);
+        alignPair(&alignment, SW_ALIGN, query, target, scorer, cards, cardsLen, NULL);
          
         // output the results in emboss stat-pair format
         outputAlignment(alignment, NULL, SW_OUT_STAT_PAIR);
