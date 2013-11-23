@@ -131,7 +131,7 @@ texture<char4, 2, cudaReadModeElementType> qpTexture;
 // PUBLIC
 
 extern LongDatabase* longDatabaseCreate(Chain** database, int databaseLen, 
-    int maxLen, int* cards, int cardsLen);
+    int minLen, int maxLen, int* cards, int cardsLen);
 
 extern void longDatabaseDelete(LongDatabase* longDatabase);
 
@@ -150,7 +150,7 @@ extern void scoreLongDatabasesGpu(int* scores, int type, Chain** queries,
 
 // constructor
 static LongDatabase* createDatabase(Chain** database, int databaseLen, 
-    int maxLen, int* cards, int cardsLen);
+    int minLen, int maxLen, int* cards, int cardsLen);
 
 // destructor
 static void deleteDatabase(LongDatabase* database);
@@ -220,8 +220,8 @@ static void deleteQueryProfileGpu(QueryProfileGpu* queryProfileGpu);
 // CONSTRUCTOR, DESTRUCTOR
 
 extern LongDatabase* longDatabaseCreate(Chain** database, int databaseLen, 
-    int maxLen, int* cards, int cardsLen) {
-    return createDatabase(database, databaseLen, maxLen, cards, cardsLen);
+    int minLen, int maxLen, int* cards, int cardsLen) {
+    return createDatabase(database, databaseLen, minLen, maxLen, cards, cardsLen);
 }
 
 extern void longDatabaseDelete(LongDatabase* longDatabase) {
@@ -258,7 +258,7 @@ extern void scoreLongDatabasesGpu(int* scores, int type, Chain** queries,
 // CONSTRUCTOR, DESTRUCTOR 
 
 static LongDatabase* createDatabase(Chain** database, int databaseLen, 
-    int maxLen, int* cards, int cardsLen) {
+    int minLen, int maxLen, int* cards, int cardsLen) {
     
     //**************************************************************************
     // FILTER DATABASE AND REMEBER ORDER
@@ -266,7 +266,10 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
     int length = 0;
     
     for (int i = 0; i < databaseLen; ++i) {
-        if (chainGetLength(database[i]) >= maxLen) {
+    
+        const int n = chainGetLength(database[i]);
+        
+        if (n >= minLen && n < maxLen) {
             length++;
         }
     }
@@ -281,7 +284,7 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
     
         const int n = chainGetLength(database[i]);
         
-        if (n >= maxLen) {
+        if (n >= minLen && n < maxLen) {
             order[j++] = i;
         }
     }
@@ -684,7 +687,7 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
             contexts[k].indexesLen = idxChunksLens[j];
             contexts[k].card = cCards[j];
             
-            tasks[k] = threadPoolSubmit(kernelThread, &(contexts[k]));
+            tasks[k] = threadPoolSubmitToFront(kernelThread, &(contexts[k]));
         }
     }
     
@@ -768,7 +771,7 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
     }
     
     for (int i = 0; i < cardsLen; ++i) {
-        tasks[i] = threadPoolSubmit(kernelsThread, &(contexts[i]));
+        tasks[i] = threadPoolSubmitToFront(kernelsThread, &(contexts[i]));
     }
 
     for (int i = 0; i < cardsLen; ++i) {

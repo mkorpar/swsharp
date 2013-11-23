@@ -35,7 +35,7 @@ extern "C" {
 typedef struct ShortDatabase ShortDatabase;
 
 extern ShortDatabase* shortDatabaseCreate(Chain** database, int databaseLen, 
-    int maxLen, int* cards, int cardsLen);
+    int minLen, int maxLen, int* cards, int cardsLen);
 
 extern void shortDatabaseDelete(ShortDatabase* shortDatabase);
 

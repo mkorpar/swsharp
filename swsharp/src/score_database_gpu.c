@@ -19,23 +19,28 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Contact the author by mkorpar@gmail.com.
 */
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "chain.h"
 #include "constants.h"
-#include "scorer.h"
-#include "error.h"
+#include "cpu_module.h"
 #include "cuda_utils.h"
-#include "utils.h"
+#include "error.h"
+#include "scorer.h"
 #include "score_database_gpu_long.h"
 #include "score_database_gpu_short.h"
 #include "thread.h"
+#include "threadpool.h"
+#include "utils.h"
 
 #include "gpu_module.h"
 
-#define THRESHOLD       2800
+#define CPU_PACKET_LEN     200
+#define MAX_CPU_LEN        20
+#define MAX_SHORT_LEN      2800
 
 typedef struct Context {
     int** scores;
@@ -50,19 +55,25 @@ typedef struct Context {
     int cardsLen;
 } Context;
 
-typedef struct KernelContext {
-    int* scoresShort;
-    int* scoresLong;
+typedef struct CpuDatabase {
+    Chain** database;
+    int databaseLen;
+    int* databaseIdx;
+    int databaseIdxLen;
+} CpuDatabase;
+
+typedef struct CpuDatabaseContext {
+    Chain* query;
+    Chain* target;
+    int* score;
+} CpuDatabaseContext;
+
+typedef struct CpuDatabaseContexts {
+    CpuDatabaseContext* contexts;
+    int contextsLen;
     int type;
-    Chain** queries; 
-    int queriesLen;
-    ChainDatabaseGpu* chainDatabaseGpu;
     Scorer* scorer;
-    int* indexes;
-    int indexesLen;
-    int card;
-    int cardsLen;
-} KernelContext;
+} CpuDatabaseContexts;
 
 struct ChainDatabaseGpu {
     Chain** database;
@@ -70,6 +81,7 @@ struct ChainDatabaseGpu {
     int thresholded;
     int* order;
     int* position;
+    CpuDatabase* cpuDatabase;
     ShortDatabase* shortDatabase;
     LongDatabase* longDatabase;
 };
@@ -104,6 +116,16 @@ static void* scoreDatabaseThread(void* param);
 static void filterIndexesArray(int** indexesNew, int* indexesNewLen, 
     int* indexes, int indexesLen, int minIndex, int maxIndex);
 
+// cpu database
+static CpuDatabase* cpuDatabaseCreate(Chain** database, int databaseLen,
+    int minLen, int maxLen);
+
+static void cpuDatabaseDelete();
+
+static void* cpuDatabaseScore(void* param);
+
+static void* cpuDatabaseScoreThread(void* param);
+
 //******************************************************************************
 
 //******************************************************************************
@@ -112,14 +134,15 @@ static void filterIndexesArray(int** indexesNew, int* indexesNewLen,
 extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen,
     int* cards, int cardsLen) {
 
-    int threshold = THRESHOLD;
-
     // create databases
+    CpuDatabase* cpuDatabase = cpuDatabaseCreate(database, databaseLen, 
+        0, MAX_CPU_LEN);
+
     ShortDatabase* shortDatabase = shortDatabaseCreate(database, databaseLen, 
-        threshold, cards, cardsLen);
+        MAX_CPU_LEN, MAX_SHORT_LEN, cards, cardsLen);
         
     LongDatabase* longDatabase = longDatabaseCreate(database, databaseLen, 
-        threshold, cards, cardsLen);
+        MAX_SHORT_LEN, INT_MAX, cards, cardsLen);
     
     // save struct
     ChainDatabaseGpu* chainDatabaseGpu = 
@@ -127,16 +150,18 @@ extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLe
     
     chainDatabaseGpu->database = database;
     chainDatabaseGpu->databaseLen = databaseLen;
-    chainDatabaseGpu->longDatabase = longDatabase;
+    chainDatabaseGpu->cpuDatabase = cpuDatabase;
     chainDatabaseGpu->shortDatabase = shortDatabase;
-    
+    chainDatabaseGpu->longDatabase = longDatabase;
+
     return chainDatabaseGpu;
 }
 
 extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu) {
 
-    longDatabaseDelete(chainDatabaseGpu->longDatabase);
+    cpuDatabaseDelete(chainDatabaseGpu->cpuDatabase);
     shortDatabaseDelete(chainDatabaseGpu->shortDatabase);
+    longDatabaseDelete(chainDatabaseGpu->longDatabase);
 
     free(chainDatabaseGpu);
 }
@@ -205,7 +230,8 @@ static void* scoreDatabaseThread(void* param) {
     int indexesLen = context->indexesLen;
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
-    
+
+    CpuDatabase* cpuDatabase = chainDatabaseGpu->cpuDatabase;
     ShortDatabase* shortDatabase = chainDatabaseGpu->shortDatabase;
     LongDatabase* longDatabase = chainDatabaseGpu->longDatabase;
     
@@ -239,9 +265,13 @@ static void* scoreDatabaseThread(void* param) {
     
     //**************************************************************************
     // SOLVE MULTICARDED
-    
     TIMER_START("Database solving GPU");
-    
+
+    Thread thread;
+    if (cpuDatabase != NULL) {
+        threadCreate(&thread, cpuDatabaseScore, context);
+    }
+
     TIMER_START("Short solve");
     
     scoreShortDatabasesGpu(*scores, type, queries, queriesLen, 
@@ -255,9 +285,13 @@ static void* scoreDatabaseThread(void* param) {
         longDatabase, scorer, indexesNew, indexesNewLen, cards, cardsLen, NULL);
         
     TIMER_STOP;
-    
+
+    if (cpuDatabase != NULL) {
+        threadJoin(thread);
+    }
+
     TIMER_STOP;
-    
+
     //**************************************************************************
 
     //**************************************************************************
@@ -271,6 +305,211 @@ static void* scoreDatabaseThread(void* param) {
     
     return NULL;
 }
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// CPU DATABASE
+
+static CpuDatabase* cpuDatabaseCreate(Chain** database, int databaseLen,
+    int minLen, int maxLen) {
+
+    int i;
+
+    // calculate length
+    int length = 0;
+
+    for (i = 0; i < databaseLen; ++i) {
+    
+        const int n = chainGetLength(database[i]);
+        
+        if (n >= minLen && n < maxLen) {
+            length++;
+        }
+    }
+
+    if (length == 0) {
+        return NULL;
+    }
+
+    // create indexes array
+    int* indexes = (int*) malloc(length * sizeof(int));
+    int indexesLen = 0;
+
+    for (i = 0; i < databaseLen; ++i) {
+    
+        const int n = chainGetLength(database[i]);
+        
+        if (n >= minLen && n < maxLen) {
+            indexes[indexesLen++] = i;
+        }
+    }
+
+    CpuDatabase* cpuDatabase = 
+        (CpuDatabase*) malloc(sizeof(struct CpuDatabase));
+
+    cpuDatabase->database = database;
+    cpuDatabase->databaseLen = databaseLen;
+    cpuDatabase->databaseIdx = indexes;
+    cpuDatabase->databaseIdxLen = indexesLen;
+
+    return cpuDatabase;
+}
+
+static void cpuDatabaseDelete(CpuDatabase* cpuDatabase) {
+    if (cpuDatabase != NULL) {
+        free(cpuDatabase->databaseIdx);
+        free(cpuDatabase);
+    }
+}
+
+static void* cpuDatabaseScore(void* param) {
+
+    TIMER_START("Cpu database solve");
+
+    Context* context = (Context*) param;
+
+    int* scores = *(context->scores);
+    int type = context->type;
+    Chain** queries = context->queries;
+    int queriesLen = context->queriesLen;
+    CpuDatabase* cpuDatabase = context->chainDatabaseGpu->cpuDatabase;
+    Scorer* scorer = context->scorer;
+    int* indexes = context->indexes;
+    int indexesLen = context->indexesLen;
+
+    Chain** database = cpuDatabase->database;
+    int databaseLen = cpuDatabase->databaseLen;
+    int* databaseIdx = cpuDatabase->databaseIdx;
+    int databaseIdxLen = cpuDatabase->databaseIdxLen;
+
+    int i, j;
+
+    //**************************************************************************
+    // CREATE SOLVING MASK
+
+    char* mask;
+    if (indexes == NULL) {
+        mask = NULL;
+    } else {
+
+        size_t maskSize = databaseLen * sizeof(char);
+        mask = (char*) malloc(maskSize);
+        memset(mask, 0, maskSize);
+
+        for (i = 0; i < indexesLen; ++i) {
+            mask[indexes[i]] = 1;
+        }
+    }
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // SOLVE MULTITHREADED
+
+    int maxLen = databaseIdxLen * queriesLen;
+
+    size_t contextsSize = maxLen * sizeof(CpuDatabaseContext);
+    CpuDatabaseContext* contexts = (CpuDatabaseContext*) malloc(contextsSize);
+    int contextIdx = 0;
+
+    size_t packedSize = (maxLen / CPU_PACKET_LEN + 1) * sizeof(CpuDatabaseContexts);
+    CpuDatabaseContexts* packed = (CpuDatabaseContexts*) malloc(packedSize);
+    int packedIdx = 0;
+
+    size_t tasksSize = (maxLen / CPU_PACKET_LEN + 1) * sizeof(ThreadPoolTask*);
+    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+
+    CpuDatabaseContext* start = contexts;
+    int length = 0;
+
+    for (i = 0; i < queriesLen; ++i) {
+
+        Chain* query = queries[i];
+        int lastQuery = i == queriesLen - 1;
+
+        for (j = 0; j < databaseIdxLen; ++j) {
+
+            int idx = databaseIdx[j];
+            int last = lastQuery && j == databaseIdxLen - 1;
+
+            if (mask != NULL && mask[idx] == 0) {
+                scores[i * databaseLen + idx] = NO_SCORE;
+            }
+
+            Chain* target = database[idx];
+
+            contexts[contextIdx].query = query;
+            contexts[contextIdx].target = target;
+            contexts[contextIdx].score = scores + i * databaseLen + idx;
+            contextIdx++;
+
+            length++;
+
+            if (contextIdx % CPU_PACKET_LEN == 0 || last) {
+
+                packed[packedIdx].contexts = start;
+                packed[packedIdx].contextsLen = length;
+                packed[packedIdx].type = type;
+                packed[packedIdx].scorer = scorer;
+
+                tasks[packedIdx] = threadPoolSubmit(cpuDatabaseScoreThread, 
+                    &(packed[packedIdx]));
+
+                packedIdx++;
+
+                start = start + length;
+                length = 0;
+            }
+        }
+    }
+
+    for (i = 0; i < packedIdx; ++i) {
+        threadPoolTaskWait(tasks[i]);
+        threadPoolTaskDelete(tasks[i]);
+    }
+
+    free(tasks);
+    free(packed);
+    free(contexts);
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // CLEAN MEMORY
+    
+    if (mask != NULL) {
+        free(mask);
+    }
+    
+    //**************************************************************************
+
+    TIMER_STOP;
+
+    return NULL;
+}
+
+static void* cpuDatabaseScoreThread(void* param) {
+
+    CpuDatabaseContexts* context = (CpuDatabaseContexts*) param;
+
+    CpuDatabaseContext* contexts = context->contexts;
+    int contextsLen = context->contextsLen;
+    int type = context->type;
+    Scorer* scorer = context->scorer;
+
+    int i; 
+    for (i = 0; i < contextsLen; ++i) {
+
+        Chain* query = contexts[i].query;
+        Chain* target = contexts[i].target;
+        int* score = contexts[i].score;
+
+        *score = scorePairCpu(type, query, target, scorer);
+    }
+
+    return NULL;
+}
+
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
