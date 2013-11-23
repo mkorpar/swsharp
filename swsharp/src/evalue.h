@@ -37,7 +37,8 @@ extern EValueParams* createEValueParams(Chain** database, int databaseLen,
 extern void deleteEValueParams(EValueParams* eValueParams);
 
 extern void eValues(double* values, int* scores, Chain* query, 
-    Chain** database, int databaseLen, EValueParams* eValueParams);
+    Chain** database, int databaseLen, int* cards, int cardsLen, 
+    EValueParams* eValueParams);
 
 #ifdef __cplusplus 
 }

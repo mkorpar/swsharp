@@ -57,10 +57,12 @@ should have smaller value.
 @param query query chain
 @param database target chain array
 @param databaseLen target chain array length
+@param cards cuda cards index array which the database will be available on
+@param cardsLen cuda cards index array length, greater or equal to 1
 @param param additional parameters for the value function
 */
 typedef void (*ValueFunction)(double* values, int* scores, Chain* query, 
-    Chain** database, int databaseLen, void* param);
+    Chain** database, int databaseLen, int* cards, int cardsLen, void* param);
 
 /*!
 @brief ChainDatabase constructor.

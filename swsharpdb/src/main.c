@@ -65,7 +65,7 @@ static int getOutFormat(char* optarg);
 static int getAlgorithm(char* optarg);
 
 static void valueFunction(double* values, int* scores, Chain* query, 
-    Chain** database, int databaseLen, void* param);
+    Chain** database, int databaseLen, int* cards, int cardsLen, void* param);
 
 int main(int argc, char* argv[]) {
 
@@ -264,10 +264,10 @@ static int getAlgorithm(char* optarg) {
 }
 
 static void valueFunction(double* values, int* scores, Chain* query, 
-    Chain** database, int databaseLen, void* param_ ) {
+    Chain** database, int databaseLen, int* cards, int cardsLen, void* param_ ) {
     
     EValueParams* eValueParams = (EValueParams*) param_;
-    eValues(values, scores, query, database, databaseLen, eValueParams);
+    eValues(values, scores, query, database, databaseLen, cards, cardsLen, eValueParams);
 }
 
 static void help() {

@@ -81,7 +81,14 @@ typedef struct ExtractContext {
     ValueFunction valueFunction;
     void* valueFunctionParam;
     double valueThreshold;
+    int* cards;
+    int cardsLen;
 } ExtractContext;
+
+typedef struct ExtractContexts {
+    ExtractContext* contexts;
+    int contextsLen;
+} ExtractContexts;
 
 typedef struct AlignContext {
     DbAlignment** dbAlignment;
@@ -157,6 +164,8 @@ static void* alignThread(void* param);
 static void* alignsThread(void* param);
 
 static void* extractThread(void* param);
+
+static void* extractsThread(void* param);
 
 static void scoreDatabasesCpu(int** scores, int type, Chain** queries, 
     int queriesLen, Chain** database, int databaseLen, Scorer* scorer, 
@@ -436,24 +445,77 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
         eContexts[i].valueFunction = valueFunction;
         eContexts[i].valueFunctionParam = valueFunctionParam;
         eContexts[i].valueThreshold = valueThreshold;
+        eContexts[i].cards = cards;
+        eContexts[i].cardsLen = cardsLen;
     }
-    
-    ThreadPoolTask** eTasks = 
-        (ThreadPoolTask**) malloc(queriesLen * sizeof(ThreadPoolTask*));
 
-    for (i = 0; i < queriesLen; ++i) {
-        eTasks[i] = threadPoolSubmit(extractThread, (void*) &(eContexts[i]));
-    }
-    
-    for (i = 0; i < queriesLen; ++i) {
-        threadPoolTaskWait(eTasks[i]);
-        threadPoolTaskDelete(eTasks[i]);
+    if (cells < GPU_DB_MIN_CELLS || cardsLen == 0) {
+
+        size_t tasksSize = queriesLen * sizeof(ThreadPoolTask*);
+        ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+
+        for (i = 0; i < queriesLen; ++i) {
+            tasks[i] = threadPoolSubmit(extractThread, (void*) &(eContexts[i]));
+        }
+        
+        for (i = 0; i < queriesLen; ++i) {
+            threadPoolTaskWait(tasks[i]);
+            threadPoolTaskDelete(tasks[i]);
+        }
+
+        free(tasks);
+
+    } else {
+
+        int chunks = MIN(queriesLen, cardsLen);
+
+        int cardsChunk = cardsLen / chunks;
+        int cardsAdd = cardsLen % chunks;
+        int cardsOff = 0;
+
+        int contextsChunk = queriesLen / chunks;
+        int contextsAdd = queriesLen % chunks;
+        int contextsOff = 0;
+
+        size_t contextsSize = chunks * sizeof(ExtractContexts);
+        ExtractContexts* contexts = (ExtractContexts*) malloc(contextsSize);
+
+        size_t tasksSize = chunks * sizeof(ThreadPoolTask*);
+        ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+
+        for (i = 0; i < chunks; ++i) {
+
+            int* cards_ = cards + cardsOff;
+            int cardsLen_ = cardsChunk + (i < cardsAdd);
+            cardsOff += cardsLen_;
+
+            ExtractContext* contexts_ = eContexts + contextsOff;
+            int contextsLen_ = contextsChunk + (i < contextsAdd);
+            contextsOff += contextsLen_;
+
+            for (j = 0; j < contextsLen_; ++j) {
+                contexts_[j].cards = cards_;
+                contexts_[j].cardsLen = cardsLen_;
+            }
+
+            contexts[i].contexts = contexts_;
+            contexts[i].contextsLen = contextsLen_;
+
+            tasks[i] = threadPoolSubmit(extractsThread, &(contexts[i]));
+        }
+
+        for (i = 0; i < chunks; ++i) {
+            threadPoolTaskWait(tasks[i]);
+            threadPoolTaskDelete(tasks[i]);
+        }
+
+        free(tasks);
+        free(contexts);
     }
 
     free(eContexts);
-    free(eTasks);
     free(scores); // this is big, release immediately
-    
+
     TIMER_STOP;
 
     //**************************************************************************
@@ -543,7 +605,7 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
             contexts[i].cells = 0;
         }
         
-        // balance tasks by round roobin, chunks is pretty small (CUDA cards)
+        // balance tasks by round roobin, chunks are pretty small (CUDA cards)
         for (i = 0; i < aContextsGpuLen; ++i) {
         
             int minIdx = 0;
@@ -696,14 +758,17 @@ static void* extractThread(void* param) {
     ValueFunction valueFunction = context->valueFunction;
     void* valueFunctionParam = context->valueFunctionParam;
     double valueThreshold = context->valueThreshold;
-    
+    int* cards = context->cards;
+    int cardsLen = context->cardsLen;
+
     int i;
     
     size_t packedSize = databaseLen * sizeof(DbAlignmentData);
     DbAlignmentData* packed = (DbAlignmentData*) malloc(packedSize);
     double* values = (double*) malloc(databaseLen * sizeof(double));
     
-    valueFunction(values, scores, query, database, databaseLen, valueFunctionParam);
+    valueFunction(values, scores, query, database, databaseLen, 
+        cards, cardsLen, valueFunctionParam);
 
     int thresholded = 0;
     for (i = 0; i < databaseLen; ++i) {
@@ -731,6 +796,20 @@ static void* extractThread(void* param) {
     free(packed);
     free(values);
 
+    return NULL;
+}
+
+static void* extractsThread(void* param) {
+
+    ExtractContexts* context = (ExtractContexts*) param;
+    ExtractContext* contexts = context->contexts;
+    int contextsLen = context->contextsLen;
+
+    int i = 0;
+    for (i = 0; i < contextsLen; ++i) {
+        extractThread(contexts + i);
+    }
+    
     return NULL;
 }
 
