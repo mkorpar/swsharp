@@ -135,7 +135,7 @@ extern void threadPoolTerminate() {
     
     threadPool->terminated = 1;
 
-	// unlock all threads
+    // unlock all threads
     for (i = 0; i < threadPool->threadsLen; ++i) {
         semaphorePost(&(queue->submit));
     }
@@ -145,12 +145,12 @@ extern void threadPoolTerminate() {
     
     semaphorePost(&(queue->mutex));
     
-	// wait for threads to be killed
+    // wait for threads to be killed
     for (i = 0; i < threadPool->threadsLen; ++i) {
         threadJoin(threadPool->threads[i]);
     }
     
-	// release all waiting on tasks
+    // release all waiting on tasks
     for (i = queue->current; i != queue->last; ++i) {
         if (i == queue->maxLength) i = 0;
         semaphorePost(&(queue->data[i]->wait));
@@ -209,24 +209,24 @@ static ThreadPoolTask* sumbit(void* (*routine)(void*), void* param, int toFront)
     
     ThreadPoolQueue* queue = &(threadPool->queue);
     
-	semaphoreWait(&(queue->mutex));
+    semaphoreWait(&(queue->mutex));
 
     if (threadPool->terminated) {
-    	semaphorePost(&(queue->mutex));
+        semaphorePost(&(queue->mutex));
         return NULL;
     }
     
-	if (queue->current == (queue->last + 1) % queue->maxLength) {
-		queue->full = 1;
-		semaphorePost(&(queue->mutex));
-		semaphoreWait(&(queue->wait));
-		semaphoreWait(&(queue->mutex));
-	}
+    if (queue->current == (queue->last + 1) % queue->maxLength) {
+        queue->full = 1;
+        semaphorePost(&(queue->mutex));
+        semaphoreWait(&(queue->wait));
+        semaphoreWait(&(queue->mutex));
+    }
 
-	if (threadPool->terminated) {
-		semaphorePost(&(queue->mutex));
-		return NULL;
-	}
+    if (threadPool->terminated) {
+        semaphorePost(&(queue->mutex));
+        return NULL;
+    }
     
     ThreadPoolTask* task = (ThreadPoolTask*) malloc(sizeof(ThreadPoolTask));
     task->routine = routine;
