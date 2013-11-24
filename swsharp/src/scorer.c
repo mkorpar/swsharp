@@ -194,6 +194,10 @@ extern int scorerIsScalar(Scorer* scorer) {
     return scorer->scalar;
 }
 
+extern const int* scorerGetTable(Scorer* scorer) {
+    return scorer->table;
+}
+
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------

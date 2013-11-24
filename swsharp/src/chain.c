@@ -134,6 +134,10 @@ extern const char* chainGetName(Chain* chain) {
     return chain->name;
 }
 
+extern const char* chainGetCodes(Chain* chain) {
+    return chain->codes;
+}
+
 extern int chainGetLength(Chain* chain) {
     return chain->length;
 }

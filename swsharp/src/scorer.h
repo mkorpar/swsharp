@@ -122,6 +122,15 @@ Scorer name usually coresponds to similarity matrix names.
 extern const char* scorerGetName(Scorer* scorer);
 
 /*!
+@brief Table getter.
+
+@param scorer scorer object
+
+@return table
+*/
+extern const int* scorerGetTable(Scorer* scorer);
+
+/*!
 @brief Scalar getter.
 
 Getter for scalar property. Scorer is scalar if the similarity matrix can be 

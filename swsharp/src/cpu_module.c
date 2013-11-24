@@ -29,6 +29,7 @@ Contact the author by mkorpar@gmail.com.
 #include "constants.h"
 #include "error.h"
 #include "scorer.h"
+#include "sse_module.h"
 #include "utils.h"
 
 #include "cpu_module.h"
@@ -88,7 +89,9 @@ static int ovScore(Chain* query, Chain* target, Scorer* scorer);
 static void swAlign(Alignment** alignment, Chain* query, Chain* target, 
     Scorer* scorer, int score);
 
+#ifndef __SSE2__
 static int swScore(Chain* query, Chain* target, Scorer* scorer);
+#endif
 
 //******************************************************************************
 
@@ -131,7 +134,13 @@ extern void alignScoredPairCpu(Alignment** alignment, int type, Chain* query,
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer) {
 
     int (*function) (Chain*, Chain*, Scorer*);
-    
+
+    if (type != HW_ALIGN) {
+        if (chainGetLength(query) < chainGetLength(target)) {
+            SWAP(query, target);
+        }
+    }
+
     switch (type) {
     case HW_ALIGN: 
         function = hwScore;
@@ -140,7 +149,11 @@ extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer) {
         function = nwScore;
         break;
     case SW_ALIGN: 
+#ifdef __SSE2__
+        function = swScoreSse;
+#else
         function = swScore;
+#endif
         break;
     case OV_ALIGN: 
         function = ovScore;
@@ -216,7 +229,13 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
     
     int row;
     int col; 
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     for (col = 0; col < width; ++col) {
         hBus[col].scr = -gapOpen - col * gapExtend;
         hBus[col].aff = SCORE_MIN;
@@ -243,10 +262,7 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
             int moveIdx = row * width + col;
 
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col + start);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -399,7 +415,13 @@ extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
         
     int row;
     int col; 
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     for (col = 0; col < cols; ++col) {
         hBus[col].scr = -gapOpen - col * gapExtend;
         hBus[col].aff = SCORE_MIN;
@@ -415,10 +437,7 @@ extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
         for (col = 0; col < cols; ++col) {
         
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -473,7 +492,13 @@ extern void ovFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
         
     int row;
     int col; 
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     for (col = 0; col < cols; ++col) {
         hBus[col].scr = -gapOpen - col * gapExtend;
         hBus[col].aff = SCORE_MIN;
@@ -489,10 +514,7 @@ extern void ovFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
         for (col = 0; col < cols; ++col) {
         
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -551,7 +573,13 @@ static void hwAlign(Alignment** alignment, Chain* query, Chain* target,
     
     int row;
     int col; 
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     for (col = 0; col < cols; ++col) {
         hBus[col].scr = 0;
         hBus[col].aff = SCORE_MIN;
@@ -573,10 +601,7 @@ static void hwAlign(Alignment** alignment, Chain* query, Chain* target,
             int moveIdx = row * cols + col;
 
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -713,7 +738,13 @@ static int hwScore(Chain* query, Chain* target, Scorer* scorer) {
         
     int row;
     int col; 
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     for (col = 0; col < cols; ++col) {
         hBus[col].scr = 0;
         hBus[col].aff = SCORE_MIN;
@@ -729,10 +760,7 @@ static int hwScore(Chain* query, Chain* target, Scorer* scorer) {
         for (col = 0; col < cols; ++col) {
         
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -800,7 +828,13 @@ static int nwScore(Chain* query, Chain* target, Scorer* scorer) {
         
     int row;
     int col; 
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     for (col = 0; col < cols; ++col) {
         hBus[col].scr = -gapOpen - col * gapExtend;
         hBus[col].aff = SCORE_MIN;
@@ -816,10 +850,7 @@ static int nwScore(Chain* query, Chain* target, Scorer* scorer) {
         for (col = 0; col < cols; ++col) {
         
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -872,7 +903,13 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
     
     int row;
     int col; 
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     for (col = 0; col < cols; ++col) {
         hBus[col].scr = 0;
         hBus[col].aff = SCORE_MIN;
@@ -894,10 +931,7 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
             int moveIdx = row * cols + col;
 
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -1028,7 +1062,13 @@ static int ovScore(Chain* query, Chain* target, Scorer* scorer) {
         
     int row;
     int col; 
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     for (col = 0; col < cols; ++col) {
         hBus[col].scr = 0;
         hBus[col].aff = SCORE_MIN;
@@ -1044,10 +1084,7 @@ static int ovScore(Chain* query, Chain* target, Scorer* scorer) {
         for (col = 0; col < cols; ++col) {
         
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -1100,7 +1137,7 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
     int cols = chainGetLength(target);
     
     HBus* hBus = (HBus*) malloc(cols * sizeof(HBus));
-        
+
     int movesLen = cols * rows;
     Move* moves = (Move*) malloc(movesLen * sizeof(Move));
     
@@ -1111,7 +1148,13 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         hBus[col].scr = 0;
         hBus[col].aff = SCORE_MIN;
     }
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     int outScore = 0;
     int endRow = 0;
     int endCol = 0;
@@ -1179,10 +1222,7 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
             int moveIdx = row * cols + col;
 
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -1302,6 +1342,7 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         outScore, scorer, path, pathLen);
 }
 
+#ifndef __SSE2__
 static int swScore(Chain* query, Chain* target, Scorer* scorer) {
 
     if (scorerGetMaxScore(scorer) <= 0) {
@@ -1317,15 +1358,17 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
     int max = 0;
     
     HBus* hBus = (HBus*) malloc(cols * sizeof(HBus));
-        
+    memset(hBus, 0, cols * sizeof(HBus));
+
     int row;
     int col; 
-    
-    for (col = 0; col < cols; ++col) {
-        hBus[col].scr = 0;
-        hBus[col].aff = SCORE_MIN;
-    }
-    
+
+    const char* const rowCodes = chainGetCodes(query);
+    const char* const colCodes = chainGetCodes(target);
+
+    const int* const scorerTable = scorerGetTable(scorer);
+    int scorerMaxCode = scorerGetMaxCode(scorer);
+
     int pruning = 1;
     int pruneLow = 0;
     int pruneHigh = cols;
@@ -1385,10 +1428,7 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
         for (col = 0; col < cols; ++col) {
         
             // MATCHING
-            char rowCode = chainGetCode(query, row);
-            char colCode = chainGetCode(target, col);
-
-            int mch = scorerScore(scorer, rowCode, colCode) + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
             // MATCHING END
             
             // INSERT                
@@ -1419,5 +1459,6 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
     
     return max;
 }
+#endif
 //------------------------------------------------------------------------------
 //******************************************************************************

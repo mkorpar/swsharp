@@ -76,7 +76,7 @@ to zero and less than chain length.
 
 @return chain char
 */
-extern char chainGetChar(Chain* chain, int index);
+extern inline char chainGetChar(Chain* chain, int index);
 
 /*!
 @brief Chain code getter.
@@ -109,6 +109,15 @@ extern int chainGetLength(Chain* chain);
 @return name
 */
 extern const char* chainGetName(Chain* chain);
+
+/*!
+@brief Chain codes getter.
+
+@param chain chain object 
+
+@return chain codes
+*/
+extern const char* chainGetCodes(Chain* chain);
 
 /*!
 @brief Creates a view to the chain object.
