@@ -262,7 +262,7 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
             int moveIdx = row * width + col;
 
             // MATCHING
-            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;
+            int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col + start]] + diag;
             // MATCHING END
             
             // INSERT                
