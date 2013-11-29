@@ -81,6 +81,7 @@ static ScorerConstants scorerConstants[] = {
     { "BLOSUM_62", 9, 1, 0.206, 0.010, 0.052, 4.0, 0.731887, 210.333000, 214.842000 },
 };
 
+#ifdef __CUDACC__
 static __constant__ int length_;
 static __constant__ int queryLen_;
 
@@ -93,6 +94,7 @@ static __constant__ double paramsAlpha_;
 static __constant__ double paramsBeta_;
 static __constant__ double paramsSigma_;
 static __constant__ double paramsTau_;
+#endif // __CUDACC__
 
 //******************************************************************************
 // PUBLIC
@@ -105,9 +107,11 @@ static __constant__ double paramsTau_;
 static void eValuesCpu(double* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, EValueParams* eValueParams);
 
+#ifdef __CUDACC__
 static void eValuesGpu(double* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, int* cards, int cardsLen, 
     EValueParams* eValueParams);
+#endif // __CUDACC__
 
 static double calculateEValue(int score, int queryLen, int targetLen, 
     EValueParams* params);
@@ -116,11 +120,13 @@ static double calculateEValue(int score, int queryLen, int targetLen,
 double erf(double x);
 #endif
 
+#ifdef __CUDACC__
 // With visual c++ compiler and prototypes declared cuda global memory variables
 // do not work. No questions asked.
 #ifndef _WIN32
 __global__ static void kernel(double* values, int2* data);
 #endif
+#endif // __CUDACC__
 
 //******************************************************************************
 
@@ -144,7 +150,7 @@ extern EValueParams* createEValueParams(Chain** database, int databaseLen,
     double G = gapOpen + gapExtend;
     
     int index = -1;
-    for (int i = 0; i < SCORER_CONSTANTS_LEN; ++i) {
+    for (int i = 0; i < (int) SCORER_CONSTANTS_LEN; ++i) {
 
         ScorerConstants entry = scorerConstants[i];
         
@@ -189,12 +195,16 @@ extern void eValues(double* values, int* scores, Chain* query,
     Chain** database, int databaseLen, int* cards, int cardsLen, 
     EValueParams* eValueParams) {
 
+#ifdef __CUDACC__
     if (cardsLen == 0) {
+#endif // __CUDACC__
         eValuesCpu(values, scores, query, database, databaseLen, eValueParams);
+#ifdef __CUDACC__
     } else {
         eValuesGpu(values, scores, query, database, databaseLen, cards, 
             cardsLen, eValueParams);
     }
+#endif // __CUDACC__
 }
 
 //******************************************************************************
@@ -221,6 +231,7 @@ static void eValuesCpu(double* values, int* scores, Chain* query,
     }
 }
 
+#ifdef __CUDACC__
 static void eValuesGpu(double* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, int* cards, int cardsLen, 
     EValueParams* params) {
@@ -271,10 +282,12 @@ static void eValuesGpu(double* values, int* scores, Chain* query,
 
     free(dataCpu);
 }
+#endif // __CUDACC__
 
 //------------------------------------------------------------------------------
 // GPU MODULES
 
+#ifdef __CUDACC__
 __global__ static void kernel(double* values, int2* data) {
 
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -337,6 +350,7 @@ __global__ static void kernel(double* values, int2* data) {
         idx += gridDim.x * blockDim.x;
     }
 }
+#endif // __CUDACC__
 
 //------------------------------------------------------------------------------
 

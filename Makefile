@@ -3,7 +3,7 @@ INS_DIR = /usr
 
 # uncomment swsharpdbmpi module if mpi is available 
 CORE = swsharp
-MODULES = swsharpn swsharpp swsharpnc swsharpdb swsharpout # swsharpdbmpi
+MODULES = swsharpn swsharpp swsharpnc swsharpdb swsharpout swsharpdbmpi
 
 INC_DIR = include/$(CORE)
 LIB_DIR = lib
@@ -19,6 +19,7 @@ BIN_DST = $(addprefix $(INS_DIR)/, $(BIN_SRC))
 
 all: TARGETS=install
 debug: TARGETS=debug install
+cpu: TARGETS=cpu install
 win: TARGETS=win
 clean: TARGETS=remove clean
 install: TARGETS=install
@@ -26,6 +27,8 @@ install: TARGETS=install
 all: $(CORE) $(MODULES)
 
 debug: $(CORE) $(MODULES)
+
+cpu: $(CORE) $(MODULES)
 
 win: $(CORE) $(MODULES)
 

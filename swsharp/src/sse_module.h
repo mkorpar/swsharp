@@ -29,7 +29,8 @@ Contact the author by mkorpar@gmail.com.
 extern "C" {
 #endif
 
-extern int swScoreSse(Chain* query, Chain* target, Scorer* scorer);
+extern int scoreDatabaseSse(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer);
 
 #ifdef __cplusplus 
 }

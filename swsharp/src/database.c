@@ -167,7 +167,7 @@ static void* extractThread(void* param);
 
 static void* extractsThread(void* param);
 
-static void scoreDatabasesCpu(int** scores, int type, Chain** queries, 
+static void scoreCpu(int** scores, int type, Chain** queries, 
     int queriesLen, Chain** database, int databaseLen, Scorer* scorer, 
     int* indexes, int indexesLen);
 
@@ -414,7 +414,7 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
     int* scores;
     
     if (cells < GPU_DB_MIN_CELLS || cardsLen == 0) {
-        scoreDatabasesCpu(&scores, type, queries, queriesLen, database, 
+        scoreCpu(&scores, type, queries, queriesLen, database, 
             databaseLen, scorer, indexes, indexesLen);
     } else {
         scoreDatabasesGpu(&scores, type, queries, queriesLen, chainDatabaseGpu, 
@@ -818,7 +818,7 @@ static void* extractsThread(void* param) {
 //------------------------------------------------------------------------------
 // CPU MODULES
 
-static void scoreDatabasesCpu(int** scores, int type, Chain** queries, 
+static void scoreCpu(int** scores, int type, Chain** queries, 
     int queriesLen, Chain** database, int databaseLen, Scorer* scorer, 
     int* indexes, int indexesLen) {
     
@@ -829,44 +829,37 @@ static void scoreDatabasesCpu(int** scores, int type, Chain** queries,
     int i, j;
     
     if (indexes == NULL) {
-    
         for (i = 0; i < queriesLen; ++i) {
-        
-            Chain* query = queries[i];
-            
-            for (j = 0; j < databaseLen; ++j) {
-            
-                Chain* target = database[j];
-                int score = scorePairCpu(type, query, target, scorer);
-                
-                (*scores)[i * databaseLen + j] = score;
-            }
-        }        
-        
+            scoreDatabaseCpu(*scores + i * databaseLen, type, queries[i],
+                database, databaseLen, scorer);
+        }
     } else {
-    
+
+        Chain** filtered = (Chain**) malloc(indexesLen * sizeof(Chain*));
+
+        for (i = 0; i < indexesLen; ++i) {
+            filtered[i] = database[indexes[i]];
+        }
+
+        int* unsorted = (int*) malloc(indexesLen * sizeof(int));
+
         for (i = 0; i < queriesLen; ++i) {
+
+            scoreDatabaseCpu(unsorted, type, queries[i], database, databaseLen,
+                scorer);
+
             for (j = 0; j < databaseLen; ++j) {
                 (*scores)[i * databaseLen + j] = NO_SCORE;
             }
-        }
-        
-        for (i = 0; i < queriesLen; ++i) {
-        
-            Chain* query = queries[i];
-            
-            for (j = 0; j < indexesLen; ++j) {
-            
-                int idx = indexes[j];
-                
-                ASSERT(idx < databaseLen, "wrong index: %d", idx);
 
-                Chain* target = database[idx];
-                int score = scorePairCpu(type, query, target, scorer);
-                
-                (*scores)[i * databaseLen + idx] = score;
+            for (j = 0; j < indexesLen; ++j) {
+                int score = unsorted[i * databaseLen + j];
+                (*scores)[i * databaseLen + indexes[j]] = score;
             }
-        }    
+        }
+
+        free(unsorted);
+        free(filtered);
     }
     
     TIMER_STOP;

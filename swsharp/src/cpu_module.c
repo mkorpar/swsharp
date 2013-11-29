@@ -65,7 +65,10 @@ extern void ovFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
     Chain* target, Scorer* scorer, int score);
 
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
-    
+
+extern void scoreDatabaseCpu(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer);
+
 //******************************************************************************
 
 //******************************************************************************
@@ -89,9 +92,7 @@ static int ovScore(Chain* query, Chain* target, Scorer* scorer);
 static void swAlign(Alignment** alignment, Chain* query, Chain* target, 
     Scorer* scorer, int score);
 
-#ifndef __SSE2__
 static int swScore(Chain* query, Chain* target, Scorer* scorer);
-#endif
 
 //******************************************************************************
 
@@ -149,11 +150,7 @@ extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer) {
         function = nwScore;
         break;
     case SW_ALIGN: 
-#ifdef __SSE2__
-        function = swScoreSse;
-#else
         function = swScore;
-#endif
         break;
     case OV_ALIGN: 
         function = ovScore;
@@ -164,7 +161,22 @@ extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer) {
     
     return function(query, target, scorer);
 }
-    
+
+extern void scoreDatabaseCpu(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer) {
+
+    // if sse is available return
+    if (scoreDatabaseSse(scores, type, query, database, databaseLen, scorer) == 0) {
+        return;
+    }
+
+    int databaseIdx;
+    for (databaseIdx = 0; databaseIdx < databaseLen; ++ databaseIdx) {
+        Chain* target = database[databaseIdx];
+        scores[databaseIdx] = scorePairCpu(type, query, target, scorer);
+    }
+}
+
 //------------------------------------------------------------------------------
 // NW MODULES
 
@@ -1342,7 +1354,6 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         outScore, scorer, path, pathLen);
 }
 
-#ifndef __SSE2__
 static int swScore(Chain* query, Chain* target, Scorer* scorer) {
 
     if (scorerGetMaxScore(scorer) <= 0) {
@@ -1459,6 +1470,5 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
     
     return max;
 }
-#endif
 //------------------------------------------------------------------------------
 //******************************************************************************

@@ -138,7 +138,10 @@ Scoring types are equivalent to aligning types.
 @param scorer scorer object used for alignment
 */
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
-    
+
+extern void scoreDatabaseCpu(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer);
+
 #ifdef __cplusplus 
 }
 #endif

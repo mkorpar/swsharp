@@ -19,14 +19,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Contact the author by mkorpar@gmail.com.
 */
 
-#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "error.h"
 
 #include "cuda_utils.h"
 
 extern void cudaGetCards(int** cards, int* cardsLen) {
-    
+
+#ifdef __CUDACC__
     cudaGetDeviceCount(cardsLen);
     
     *cards = (int*) malloc(*cardsLen * sizeof(int));
@@ -34,10 +36,15 @@ extern void cudaGetCards(int** cards, int* cardsLen) {
     for (int i = 0; i < *cardsLen; ++i) {
         (*cards)[i] = i;   
     }
+#else
+    *cards = NULL;
+    *cardsLen = 0;
+#endif
 }
 
 extern int cudaCheckCards(int* cards, int cardsLen) {
-    
+
+#ifdef __CUDACC__
     int maxDeviceId;
     cudaGetDeviceCount(&maxDeviceId);
     
@@ -48,6 +55,9 @@ extern int cudaCheckCards(int* cards, int cardsLen) {
     }
     
     return 1;
+#else
+    return cardsLen == 0;
+#endif
 }
 
 extern void cudaCardBuckets(int*** cardBuckets, int** cardBucketsLens, 

@@ -134,6 +134,10 @@ static void* cpuDatabaseScoreThread(void* param);
 extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen,
     int* cards, int cardsLen) {
 
+    if (cardsLen == 0) {
+        return NULL;
+    }
+
     // create databases
     CpuDatabase* cpuDatabase = cpuDatabaseCreate(database, databaseLen, 
         0, MAX_CPU_LEN);
@@ -159,11 +163,14 @@ extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLe
 
 extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu) {
 
-    cpuDatabaseDelete(chainDatabaseGpu->cpuDatabase);
-    shortDatabaseDelete(chainDatabaseGpu->shortDatabase);
-    longDatabaseDelete(chainDatabaseGpu->longDatabase);
+    if (chainDatabaseGpu != 0) {
 
-    free(chainDatabaseGpu);
+        cpuDatabaseDelete(chainDatabaseGpu->cpuDatabase);
+        shortDatabaseDelete(chainDatabaseGpu->shortDatabase);
+        longDatabaseDelete(chainDatabaseGpu->longDatabase);
+
+        free(chainDatabaseGpu);
+    }
 }
 
 extern void scoreDatabaseGpu(int** scores, int type, Chain* query, 

@@ -43,8 +43,11 @@ debug: CC_FLAGS := $(CC_FLAGS) -DDEBUG -DTIMERS
 debug: CP_FLAGS := $(CP_FLAGS) -DDEBUG -DTIMERS
 debug: CU_FLAGS := $(CU_FLAGS) -DDEBUG -DTIMERS --ptxas-options=-v
 
+cpu: LD = $(CC)
+
 all: $(OBJ) $(DEP_LIBS)
 debug: all
+cpu: all
 
 install: lib include win
 
@@ -72,10 +75,15 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@$(CP) $< -c -o $@ -MMD $(CP_FLAGS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cu
-	@echo [CU] $<
 	@mkdir -p $(dir $@)
+ifeq (,$(findstring cpu,$(MAKECMDGOALS)))
+	@echo [CU] $<
 	@$(CU) $< -M -o $(@:.o=.d) $(CU_FLAGS) --output-directory $(dir $@)
 	@$(CU) $< -c -o $@ $(CU_FLAGS)
+else
+	@echo [CP] $<
+	@$(CP) -x c++ $< -c -o $@ -MMD $(CP_FLAGS)
+endif
 
 $(INC_DIR)/%.h: $(SRC_DIR)/%.h
 	@echo [CP] $@

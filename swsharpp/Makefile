@@ -22,7 +22,7 @@ DEP_LIBS = ../lib/libswsharp.a
 CC_FLAGS = $(I_CMD) -O3 -Wall
 CP_FLAGS = $(CC_FLAGS)
 CU_FLAGS = $(I_CMD) -O3 -arch sm_13
-LD_FLAGS = $(I_CMD) $(L_CMD) -lswsharp -lpthread
+LD_FLAGS = $(I_CMD) $(L_CMD) -lswsharp -lpthread -lm
 
 API = $(addprefix $(SRC_DIR)/, )
 
@@ -41,8 +41,11 @@ debug: CC_FLAGS := $(CC_FLAGS) -DDEBUG -DTIMERS
 debug: CP_FLAGS := $(CP_FLAGS) -DDEBUG -DTIMERS
 debug: CU_FLAGS := $(CU_FLAGS) -DDEBUG -DTIMERS --ptxas-options=-v
 
+cpu: LD = $(CC)
+
 all: $(EXC)
 debug: all
+cpu: all
 
 install: bin win
 
@@ -70,10 +73,15 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@$(CP) $< -c -o $@ -MMD $(CP_FLAGS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cu
-	@echo [CU] $<
 	@mkdir -p $(dir $@)
+ifeq (,$(findstring cpu,$(MAKECMDGOALS)))
+	@echo [CU] $<
 	@$(CU) $< -M -o $(@:.o=.d) $(CU_FLAGS) --output-directory $(dir $@)
 	@$(CU) $< -c -o $@ $(CU_FLAGS)
+else
+	@echo [CP] $<
+	@$(CP) -x c++ $< -c -o $@ -MMD $(CP_FLAGS)
+endif
 
 $(INC_DIR)/%.h: $(SRC_DIR)/%.h
 	@echo [CP] $@

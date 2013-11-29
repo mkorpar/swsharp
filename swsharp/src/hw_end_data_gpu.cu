@@ -19,6 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Contact the author by mkorpar@gmail.com.
 */
 
+#ifdef __CUDACC__
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -714,3 +716,6 @@ static void* kernel(void* params) {
 
 //------------------------------------------------------------------------------
 //******************************************************************************
+
+#endif // __CUDACC__
+

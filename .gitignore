@@ -12,5 +12,6 @@ swsharpp/swsharpp
 swsharpout/swsharpout
 swsharpwin/*/*.cu
 swsharpwin/*/*.c
+swsharpwin/*/*.cpp
 swsharpwin/*/*.h
 
