@@ -3,7 +3,7 @@ INS_DIR = /usr
 
 # uncomment swsharpdbmpi module if mpi is available 
 CORE = swsharp
-MODULES = swsharpn swsharpp swsharpnc swsharpdb swsharpout swsharpdbmpi
+MODULES = swsharpn swsharpp swsharpnc swsharpdb swsharpout # swsharpdbmpi
 
 INC_DIR = include/$(CORE)
 LIB_DIR = lib
