@@ -32,6 +32,7 @@ static struct option options[] = {
     {"out", required_argument, 0, 'o'},
     {"outfmt", required_argument, 0, 't'},
     {"algorithm", required_argument, 0, 'A'},
+    {"cpu", no_argument, 0, 'P'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
@@ -78,7 +79,9 @@ int main(int argc, char* argv[]) {
     int outFormat = SW_OUT_STAT_PAIR;
 
     int algorithm = SW_ALIGN;
-    
+
+    int forceCpu = 0;
+
     while (1) {
 
         char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
@@ -121,6 +124,9 @@ int main(int argc, char* argv[]) {
         case 'A':
             algorithm = getAlgorithm(optarg);
             break;
+        case 'P':
+            forceCpu = 1;
+            break;
         case 'h':
         default:
             help();
@@ -131,8 +137,16 @@ int main(int argc, char* argv[]) {
     ASSERT(queryPath != NULL, "missing option -i (query file)");
     ASSERT(targetPath != NULL, "missing option -j (target file)");
     
-    if (cardsLen == -1) {
-        cudaGetCards(&cards, &cardsLen);
+    if (forceCpu) {
+        cards = NULL;
+        cardsLen = 0;
+    } else {
+
+        if (cardsLen == -1) {
+            cudaGetCards(&cards, &cardsLen);
+        }
+
+        ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
     }
     
     ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
@@ -264,6 +278,8 @@ static void help() {
     "            plot      - output used for plotting alignment with gnuplot \n"
     "            stat      - statistics of the alignment\n"
     "            dump      - binary format for usage with swsharpout\n"
+    "    --cpu\n"
+    "        only cpu is used\n"
     "    -h, -help\n"
     "        prints out the help\n");
 }

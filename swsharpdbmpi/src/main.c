@@ -41,6 +41,7 @@ static struct option options[] = {
     {"max-aligns", required_argument, 0, 'M'},
     {"algorithm", required_argument, 0, 'A'},
     {"cache", no_argument, 0, 'C'},
+    {"cpu", no_argument, 0, 'P'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
@@ -99,6 +100,8 @@ int main(int argc, char* argv[]) {
     
     int cache = 0;
 
+    int forceCpu = 0;
+
     while (1) {
 
         char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
@@ -144,6 +147,9 @@ int main(int argc, char* argv[]) {
         case 'C':
             cache = 1;
             break;
+        case 'P':
+            forceCpu = 1;
+            break;
         case 'h':
         default:
             help();
@@ -154,8 +160,16 @@ int main(int argc, char* argv[]) {
     ASSERT(queryPath != NULL, "missing option -i (query file)");
     ASSERT(databasePath != NULL, "missing option -j (database file)");
     
-    if (cardsLen == -1) {
-        cudaGetCards(&cards, &cardsLen);
+    if (forceCpu) {
+        cards = NULL;
+        cardsLen = 0;
+    } else {
+
+        if (cardsLen == -1) {
+            cudaGetCards(&cards, &cardsLen);
+        }
+
+        ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
     }
     
     ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
@@ -374,6 +388,8 @@ static void help() {
     "    --cache\n"
     "        serialized database is stored to speed up future runs with the\n"
     "        same database\n"
+    "    --cpu\n"
+    "        only cpu is used\n"
     "    -h, -help\n"
     "        prints out the help\n");
 }
