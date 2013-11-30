@@ -38,9 +38,10 @@ Contact the author by mkorpar@gmail.com.
 
 #include "gpu_module.h"
 
-#define CPU_PACKET_LEN     200
-#define MAX_CPU_LEN        20
-#define MAX_SHORT_LEN      2800
+#define CPU_THREAD_CHUNK    32
+
+#define MAX_CPU_LEN         20
+#define MAX_SHORT_LEN       2800
 
 typedef struct Context {
     int** scores;
@@ -56,16 +57,19 @@ typedef struct Context {
 } Context;
 
 typedef struct CpuDatabase {
-    Chain** database;
     int databaseLen;
-    int* databaseIdx;
-    int databaseIdxLen;
+    Chain** filtered;
+    int filteredLen;
+    int* positions;
 } CpuDatabase;
 
 typedef struct CpuDatabaseContext {
+    int* scores;
+    int type;
     Chain* query;
-    Chain* target;
-    int* score;
+    Chain** database;
+    int databaseLen;
+    Scorer* scorer;
 } CpuDatabaseContext;
 
 typedef struct CpuDatabaseContexts {
@@ -338,33 +342,37 @@ static CpuDatabase* cpuDatabaseCreate(Chain** database, int databaseLen,
         return NULL;
     }
 
-    // create indexes array
-    int* indexes = (int*) malloc(length * sizeof(int));
-    int indexesLen = 0;
+    Chain** filtered = (Chain**) malloc(length * sizeof(Chain*));
+    int filteredLen = 0;
+
+    int* positions = (int*) malloc(length * sizeof(int));
 
     for (i = 0; i < databaseLen; ++i) {
     
         const int n = chainGetLength(database[i]);
         
         if (n >= minLen && n < maxLen) {
-            indexes[indexesLen++] = i;
+            filtered[filteredLen] = database[i];
+            positions[filteredLen] = i;
+            filteredLen++;
         }
     }
 
     CpuDatabase* cpuDatabase = 
         (CpuDatabase*) malloc(sizeof(struct CpuDatabase));
 
-    cpuDatabase->database = database;
     cpuDatabase->databaseLen = databaseLen;
-    cpuDatabase->databaseIdx = indexes;
-    cpuDatabase->databaseIdxLen = indexesLen;
+    cpuDatabase->filtered = filtered;
+    cpuDatabase->filteredLen = filteredLen;
+    cpuDatabase->positions = positions;
 
     return cpuDatabase;
 }
 
 static void cpuDatabaseDelete(CpuDatabase* cpuDatabase) {
     if (cpuDatabase != NULL) {
-        free(cpuDatabase->databaseIdx);
+        free(cpuDatabase->filtered);
+        free(cpuDatabase->positions);
         free(cpuDatabase);
     }
 }
@@ -375,7 +383,7 @@ static void* cpuDatabaseScore(void* param) {
 
     Context* context = (Context*) param;
 
-    int* scores = *(context->scores);
+    int* scores_ = *(context->scores);
     int type = context->type;
     Chain** queries = context->queries;
     int queriesLen = context->queriesLen;
@@ -384,110 +392,137 @@ static void* cpuDatabaseScore(void* param) {
     int* indexes = context->indexes;
     int indexesLen = context->indexesLen;
 
-    Chain** database = cpuDatabase->database;
     int databaseLen = cpuDatabase->databaseLen;
-    int* databaseIdx = cpuDatabase->databaseIdx;
-    int databaseIdxLen = cpuDatabase->databaseIdxLen;
+    Chain** filtered_ = cpuDatabase->filtered;
+    int filteredLen_ = cpuDatabase->filteredLen;
+    int* positions_ = cpuDatabase->positions;
+
+    Chain** filtered;
+    int filteredLen;
+
+    int* positions;
+
+    int* scores;
 
     int i, j;
 
     //**************************************************************************
-    // CREATE SOLVING MASK
+    // INIT STRUCTURES
 
-    char* mask;
     if (indexes == NULL) {
-        mask = NULL;
+
+        filtered = filtered_;
+        filteredLen = filteredLen_;
+
+        positions = positions_;
+
     } else {
 
-        size_t maskSize = databaseLen * sizeof(char);
-        mask = (char*) malloc(maskSize);
-        memset(mask, 0, maskSize);
+        char* mask = (char*) malloc(databaseLen * sizeof(char));
+        memset(mask, 0, databaseLen * sizeof(char));
 
         for (i = 0; i < indexesLen; ++i) {
             mask[indexes[i]] = 1;
         }
+
+        filtered = (Chain**) malloc(indexesLen * sizeof(Chain*));
+        filteredLen = 0;
+
+        positions = (int*) malloc(indexesLen * sizeof(int));
+
+        for (i = 0; i < filteredLen_; ++i) {
+
+            int idx = positions_[i];
+
+            if (mask[idx]) {
+                filtered[filteredLen] = filtered_[i];
+                positions[filteredLen] = idx;
+                filteredLen++;
+            }
+        }
+
+        free(mask);
     }
+
+    scores = (int*) malloc(filteredLen * queriesLen * sizeof(int));
 
     //**************************************************************************
 
     //**************************************************************************
     // SOLVE MULTITHREADED
 
-    int maxLen = databaseIdxLen * queriesLen;
+    LOG("Cpu length %dx%d", queriesLen, filteredLen);
+
+    int maxLen = (queriesLen * filteredLen) / CPU_THREAD_CHUNK + queriesLen; 
+    int length = 0;
 
     size_t contextsSize = maxLen * sizeof(CpuDatabaseContext);
     CpuDatabaseContext* contexts = (CpuDatabaseContext*) malloc(contextsSize);
-    int contextIdx = 0;
 
-    size_t packedSize = (maxLen / CPU_PACKET_LEN + 1) * sizeof(CpuDatabaseContexts);
-    CpuDatabaseContexts* packed = (CpuDatabaseContexts*) malloc(packedSize);
-    int packedIdx = 0;
-
-    size_t tasksSize = (maxLen / CPU_PACKET_LEN + 1) * sizeof(ThreadPoolTask*);
+    size_t tasksSize = maxLen * sizeof(ThreadPoolTask*);
     ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
 
-    CpuDatabaseContext* start = contexts;
-    int length = 0;
-
     for (i = 0; i < queriesLen; ++i) {
+        for (j = 0; j < filteredLen; j += CPU_THREAD_CHUNK) {
 
-        Chain* query = queries[i];
-        int lastQuery = i == queriesLen - 1;
+            contexts[length].scores = scores + i * filteredLen + j;
+            contexts[length].type = type;
+            contexts[length].query = queries[i];
+            contexts[length].database = filtered + j;
+            contexts[length].databaseLen = MIN(CPU_THREAD_CHUNK, filteredLen - j);
+            contexts[length].scorer = scorer;
 
-        for (j = 0; j < databaseIdxLen; ++j) {
-
-            int idx = databaseIdx[j];
-            int last = lastQuery && j == databaseIdxLen - 1;
-
-            if (mask != NULL && mask[idx] == 0) {
-                scores[i * databaseLen + idx] = NO_SCORE;
-            }
-
-            Chain* target = database[idx];
-
-            contexts[contextIdx].query = query;
-            contexts[contextIdx].target = target;
-            contexts[contextIdx].score = scores + i * databaseLen + idx;
-            contextIdx++;
+            tasks[length] = threadPoolSubmit(cpuDatabaseScoreThread, &(contexts[length]));
 
             length++;
-
-            if (contextIdx % CPU_PACKET_LEN == 0 || last) {
-
-                packed[packedIdx].contexts = start;
-                packed[packedIdx].contextsLen = length;
-                packed[packedIdx].type = type;
-                packed[packedIdx].scorer = scorer;
-
-                tasks[packedIdx] = threadPoolSubmit(cpuDatabaseScoreThread, 
-                    &(packed[packedIdx]));
-
-                packedIdx++;
-
-                start = start + length;
-                length = 0;
-            }
         }
     }
 
-    for (i = 0; i < packedIdx; ++i) {
+    for (i = 0; i < length; ++i) {
         threadPoolTaskWait(tasks[i]);
         threadPoolTaskDelete(tasks[i]);
     }
 
     free(tasks);
-    free(packed);
     free(contexts);
 
     //**************************************************************************
 
     //**************************************************************************
-    // CLEAN MEMORY
-    
-    if (mask != NULL) {
-        free(mask);
+    // SAVE RESULTS
+
+    if (indexes != NULL) {
+
+        // init results, not all are solved
+        for (i = 0; i < queriesLen; ++i) {
+            for (j = 0; j < filteredLen_; ++j) {
+                scores_[i * databaseLen + j] = NO_SCORE;
+            }
+        }
     }
-    
+
+    for (i = 0; i < queriesLen; ++i) {
+        for (j = 0; j < filteredLen; ++j) {
+
+            int idx = positions[j];
+            int score = scores[i * filteredLen + j];
+
+            scores_[i * databaseLen + idx] = score;
+        }
+    }
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // CLEAN MEMORY
+
+    if (indexes != NULL) {
+        free(filtered);
+        free(positions);
+    }
+
+    free(scores);
+
     //**************************************************************************
 
     TIMER_STOP;
@@ -497,22 +532,16 @@ static void* cpuDatabaseScore(void* param) {
 
 static void* cpuDatabaseScoreThread(void* param) {
 
-    CpuDatabaseContexts* context = (CpuDatabaseContexts*) param;
+    CpuDatabaseContext* context = (CpuDatabaseContext*) param;
 
-    CpuDatabaseContext* contexts = context->contexts;
-    int contextsLen = context->contextsLen;
+    int* scores = context->scores;
     int type = context->type;
+    Chain* query = context->query;
+    Chain** database = context->database;
+    int databaseLen = context->databaseLen;
     Scorer* scorer = context->scorer;
 
-    int i; 
-    for (i = 0; i < contextsLen; ++i) {
-
-        Chain* query = contexts[i].query;
-        Chain* target = contexts[i].target;
-        int* score = contexts[i].score;
-
-        *score = scorePairCpu(type, query, target, scorer);
-    }
+    scoreDatabaseCpu(scores, type, query, database, databaseLen, scorer);
 
     return NULL;
 }

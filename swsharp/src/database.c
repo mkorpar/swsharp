@@ -41,6 +41,8 @@ Contact the author by mkorpar@gmail.com.
 
 #include "database.h"
 
+#define CPU_THREAD_CHUNK    32
+
 #define GPU_DB_MIN_CELLS    49000000ll
 #define GPU_MIN_CELLS       1000000ll
 #define GPU_MIN_LEN         256
@@ -111,6 +113,15 @@ typedef struct AlignContexts {
     long long cells;
 } AlignContexts;
 
+typedef struct ScoreCpuContext {
+    int* scores;
+    int type;
+    Chain* query;
+    Chain** database;
+    int databaseLen;
+    Scorer* scorer;
+} ScoreCpuContext;
+
 struct ChainDatabase {
     ChainDatabaseGpu* chainDatabaseGpu;
     Chain** database;
@@ -170,6 +181,8 @@ static void* extractsThread(void* param);
 static void scoreCpu(int** scores, int type, Chain** queries, 
     int queriesLen, Chain** database, int databaseLen, Scorer* scorer, 
     int* indexes, int indexesLen);
+
+static void* scoreCpuThread(void* param);
 
 static void filterIndexesArray(int** indexesNew, int* indexesNewLen, 
     int* indexes, int indexesLen, int minIndex, int maxIndex);
@@ -818,51 +831,122 @@ static void* extractsThread(void* param) {
 //------------------------------------------------------------------------------
 // CPU MODULES
 
-static void scoreCpu(int** scores, int type, Chain** queries, 
-    int queriesLen, Chain** database, int databaseLen, Scorer* scorer, 
+static void scoreCpu(int** scores_, int type, Chain** queries, 
+    int queriesLen, Chain** database_, int databaseLen_, Scorer* scorer, 
     int* indexes, int indexesLen) {
     
     TIMER_START("CPU database scoring");
     
-    *scores = (int*) malloc(queriesLen * databaseLen * sizeof(int));
-    
+    *scores_ = (int*) malloc(queriesLen * databaseLen_ * sizeof(int));
+
     int i, j;
-    
+
+    int* scores;
+
+    Chain** database;
+    int databaseLen;
+
+    //**************************************************************************
+    // INIT STRUCTURES
+
     if (indexes == NULL) {
-        for (i = 0; i < queriesLen; ++i) {
-            scoreDatabaseCpu(*scores + i * databaseLen, type, queries[i],
-                database, databaseLen, scorer);
-        }
+
+        scores = *scores_;
+
+        database = database_;
+        databaseLen = databaseLen_;
+
     } else {
 
-        Chain** filtered = (Chain**) malloc(indexesLen * sizeof(Chain*));
+        scores = (int*) malloc(indexesLen * queriesLen * sizeof(int));
+
+        database = (Chain**) malloc(indexesLen * sizeof(Chain*));
+        databaseLen = indexesLen;
 
         for (i = 0; i < indexesLen; ++i) {
-            filtered[i] = database[indexes[i]];
+            database[i] = database_[indexes[i]];
         }
+    }
 
-        int* unsorted = (int*) malloc(indexesLen * sizeof(int));
+    //**************************************************************************
+
+    //**************************************************************************
+    // SOLVE MULTITHREADED
+
+    int maxLen = (queriesLen * databaseLen) / CPU_THREAD_CHUNK + queriesLen; 
+    int length = 0;
+
+    size_t contextsSize = maxLen * sizeof(ScoreCpuContext);
+    ScoreCpuContext* contexts = (ScoreCpuContext*) malloc(contextsSize);
+
+    size_t tasksSize = maxLen * sizeof(ThreadPoolTask*);
+    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+
+    for (i = 0; i < queriesLen; ++i) {
+        for (j = 0; j < databaseLen; j += CPU_THREAD_CHUNK) {
+
+            contexts[length].scores = scores + i * databaseLen + j;
+            contexts[length].type = type;
+            contexts[length].query = queries[i];
+            contexts[length].database = database + j;
+            contexts[length].databaseLen = MIN(CPU_THREAD_CHUNK, databaseLen - j);
+            contexts[length].scorer = scorer;
+
+            tasks[length] = threadPoolSubmit(scoreCpuThread, &(contexts[length]));
+
+            length++;
+        }
+    }
+
+    for (i = 0; i < length; ++i) {
+        threadPoolTaskWait(tasks[i]);
+        threadPoolTaskDelete(tasks[i]);
+    }
+
+    free(tasks);
+    free(contexts);
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // SAVE RESULTS
+
+    if (indexes != NULL) {
 
         for (i = 0; i < queriesLen; ++i) {
 
-            scoreDatabaseCpu(unsorted, type, queries[i], database, databaseLen,
-                scorer);
-
-            for (j = 0; j < databaseLen; ++j) {
-                (*scores)[i * databaseLen + j] = NO_SCORE;
+            for (j = 0; j < databaseLen_; ++j) {
+                (*scores_)[i * databaseLen_ + j] = NO_SCORE;
             }
 
             for (j = 0; j < indexesLen; ++j) {
-                int score = unsorted[i * databaseLen + j];
-                (*scores)[i * databaseLen + indexes[j]] = score;
+                (*scores_)[i * databaseLen_ + indexes[j]] = scores[i * indexesLen + j];
             }
         }
 
-        free(unsorted);
-        free(filtered);
+        free(database);
+        free(scores);
     }
-    
+
+    //**************************************************************************
+
     TIMER_STOP;
+}
+
+static void* scoreCpuThread(void* param) {
+
+    ScoreCpuContext* context = (ScoreCpuContext*) param;
+
+    int* scores = context->scores;
+    int type = context->type;
+    Chain* query = context->query;
+    Chain** database = context->database;
+    int databaseLen = context->databaseLen;
+    Scorer* scorer = context->scorer;
+
+    scoreDatabaseCpu(scores, type, query, database, databaseLen, scorer);
+
+    return NULL;
 }
 
 //------------------------------------------------------------------------------
