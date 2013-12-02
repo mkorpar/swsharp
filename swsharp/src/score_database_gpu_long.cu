@@ -63,6 +63,7 @@ struct LongDatabase {
     int* indexes;
     GpuDatabase* gpuDatabases;
     int gpuDatabasesLen;
+    int hBusSingleLen;
 };
 
 typedef struct Context {
@@ -126,6 +127,7 @@ static __constant__ int rows_;
 static __constant__ int rowsPadded_; 
 static __constant__ int length_;
 static __constant__ int iters_;
+static __constant__ int hBusSingleLen_;
 
 texture<char4, 2, cudaReadModeElementType> qpTexture;
 
@@ -266,13 +268,15 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
     // FILTER DATABASE AND REMEBER ORDER
     
     int length = 0;
-    
+    int hBusSingleLen = 0;
+
     for (int i = 0; i < databaseLen; ++i) {
     
         const int n = chainGetLength(database[i]);
         
         if (n >= minLen && n < maxLen) {
             length++;
+            hBusSingleLen = max(n, hBusSingleLen);
         }
     }
     
@@ -400,7 +404,7 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
         CUDA_SAFE_CALL(cudaMalloc(&scoresGpu, scoresSize));
 
         int2* hBusGpu;
-        size_t hBusSize = codesLen * sizeof(int2);
+        size_t hBusSize = hBusSingleLen * BLOCKS * sizeof(int2);
         CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
 
         gpuDatabases[i].card = card;
@@ -410,7 +414,7 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
         gpuDatabases[i].indexes = indexesGpu;
         gpuDatabases[i].scores = scoresGpu;
         gpuDatabases[i].hBus = hBusGpu;
-        
+
         #ifdef DEBUG
         size_t memory = codesSize + startsSize + lengthsSize + indexesSize + 
             scoresSize + hBusSize;
@@ -441,7 +445,8 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
     longDatabase->indexes = indexes;
     longDatabase->gpuDatabases = gpuDatabases;
     longDatabase->gpuDatabasesLen = cardsLen;
-    
+    longDatabase->hBusSingleLen = hBusSingleLen;
+
     return longDatabase;
 }
 
@@ -841,7 +846,7 @@ static void* kernelThread(void* param) {
     int* indexes = context->indexes;
     int indexesLen = context->indexesLen;
     int card = context->card;
-    
+
     //**************************************************************************
     // FIND DATABASE
     
@@ -902,6 +907,7 @@ static void* kernelThread(void* param) {
     int rows = queryProfile->length;
     int rowsGpu = queryProfile->height * 4;
     int iters = rowsGpu / (THREADS * 4) + (rowsGpu % (THREADS * 4) != 0);
+    int hBusSingleLen = longDatabase->hBusSingleLen;
 
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapOpen_, &gapOpen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapExtend_, &gapExtend, sizeof(int)));
@@ -909,6 +915,7 @@ static void* kernelThread(void* param) {
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(rowsPadded_, &rowsGpu, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(length_, &indexesLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(iters_, &iters, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(hBusSingleLen_, &hBusSingleLen, sizeof(int)));
     
     //**************************************************************************
     
@@ -1027,7 +1034,9 @@ __device__ void hwSolveSingle(int id, char* codes, int* starts, int* lengths,
     
     hBusScrShr[threadIdx.x] = 0;
     hBusAffShr[threadIdx.x] = SCORE_MIN;
-    
+
+    int hOff = hBusSingleLen_ * blockIdx.x;
+
     for (int i = 0; i < width; ++i) {
     
         int del;
@@ -1036,7 +1045,7 @@ __device__ void hwSolveSingle(int id, char* codes, int* starts, int* lengths,
         if (valid) {
         
             if (iter != 0 && threadIdx.x == 0) {
-                atom.up = hBus[off + col];
+                atom.up = hBus[hOff + col];
             } else {
                 atom.up.x = hBusScrShr[threadIdx.x];
                 atom.up.y = hBusAffShr[threadIdx.x];
@@ -1087,7 +1096,7 @@ __device__ void hwSolveSingle(int id, char* codes, int* starts, int* lengths,
 
         if (valid) {
             if (iter < iters_ - 1 && threadIdx.x == blockDim.x - 1) {
-                VEC2_ASSIGN(hBus[off + col], make_int2(atom.rScr.w, del));
+                VEC2_ASSIGN(hBus[hOff + col], make_int2(atom.rScr.w, del));
             } else {
                 hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
                 hBusAffShr[threadIdx.x + 1] = del;
@@ -1147,10 +1156,9 @@ __device__ void nwSolveSingle(int id, char* codes, int* starts, int* lengths,
     atom.mch = gap(row - 1);
     atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));
     atom.lAff = INT4_SCORE_MIN;
-    
-    hBusScrShr[threadIdx.x] = gap(off);
-    hBusAffShr[threadIdx.x] = SCORE_MIN;
-    
+
+    int hOff = hBusSingleLen_ * blockIdx.x;
+
     for (int i = 0; i < width; ++i) {
     
         int del;
@@ -1158,12 +1166,12 @@ __device__ void nwSolveSingle(int id, char* codes, int* starts, int* lengths,
     
         if (valid) {
         
-            if (iter != 0 && threadIdx.x == 0) {
+            if (threadIdx.x == 0) {
                 if (iter == 0) {
-                   atom.up.x = gap(off);
+                   atom.up.x = gap(col);
                    atom.up.y = SCORE_MIN;
                 } else {
-                    atom.up = hBus[off + col];
+                    atom.up = hBus[hOff + col];
                 }
             } else {
                 atom.up.x = hBusScrShr[threadIdx.x];
@@ -1210,7 +1218,7 @@ __device__ void nwSolveSingle(int id, char* codes, int* starts, int* lengths,
 
         if (valid) {
             if (iter < iters_ - 1 && threadIdx.x == blockDim.x - 1) {
-                VEC2_ASSIGN(hBus[off + col], make_int2(atom.rScr.w, del));
+                VEC2_ASSIGN(hBus[hOff + col], make_int2(atom.rScr.w, del));
             } else {
                 hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
                 hBusAffShr[threadIdx.x + 1] = del;
@@ -1278,7 +1286,9 @@ __device__ void ovSolveSingle(int id, char* codes, int* starts, int* lengths,
     
     hBusScrShr[threadIdx.x] = 0;
     hBusAffShr[threadIdx.x] = SCORE_MIN;
-    
+
+    int hOff = hBusSingleLen_ * blockIdx.x;
+
     for (int i = 0; i < width; ++i) {
     
         int del;
@@ -1287,7 +1297,7 @@ __device__ void ovSolveSingle(int id, char* codes, int* starts, int* lengths,
         if (valid) {
         
             if (iter != 0 && threadIdx.x == 0) {
-                atom.up = hBus[off + col];
+                atom.up = hBus[hOff + col];
             } else {
                 atom.up.x = hBusScrShr[threadIdx.x];
                 atom.up.y = hBusAffShr[threadIdx.x];
@@ -1338,7 +1348,7 @@ __device__ void ovSolveSingle(int id, char* codes, int* starts, int* lengths,
 
         if (valid) {
             if (iter < iters_ - 1 && threadIdx.x == blockDim.x - 1) {
-                VEC2_ASSIGN(hBus[off + col], make_int2(atom.rScr.w, del));
+                VEC2_ASSIGN(hBus[hOff + col], make_int2(atom.rScr.w, del));
             } else {
                 hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
                 hBusAffShr[threadIdx.x + 1] = del;
@@ -1409,6 +1419,8 @@ __device__ void swSolveSingle(int id, char* codes, int* starts, int* lengths,
     hBusScrShr[threadIdx.x] = 0;
     hBusAffShr[threadIdx.x] = SCORE_MIN;
     
+    int hOff = hBusSingleLen_ * blockIdx.x;
+
     for (int i = 0; i < width; ++i) {
     
         int del;
@@ -1417,7 +1429,7 @@ __device__ void swSolveSingle(int id, char* codes, int* starts, int* lengths,
         if (valid) {
         
             if (iter != 0 && threadIdx.x == 0) {
-                atom.up = hBus[off + col];
+                atom.up = hBus[hOff + col];
             } else {
                 atom.up.x = hBusScrShr[threadIdx.x];
                 atom.up.y = hBusAffShr[threadIdx.x];
@@ -1468,7 +1480,7 @@ __device__ void swSolveSingle(int id, char* codes, int* starts, int* lengths,
 
         if (valid) {
             if (iter < iters_ - 1 && threadIdx.x == blockDim.x - 1) {
-                VEC2_ASSIGN(hBus[off + col], make_int2(atom.rScr.w, del));
+                VEC2_ASSIGN(hBus[hOff + col], make_int2(atom.rScr.w, del));
             } else {
                 hBusScrShr[threadIdx.x + 1] = atom.rScr.w;
                 hBusAffShr[threadIdx.x + 1] = del;
