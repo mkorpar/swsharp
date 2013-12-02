@@ -379,8 +379,6 @@ static void cpuDatabaseDelete(CpuDatabase* cpuDatabase) {
 
 static void* cpuDatabaseScore(void* param) {
 
-    TIMER_START("Cpu database solve");
-
     Context* context = (Context*) param;
 
     int* scores_ = *(context->scores);
@@ -405,6 +403,12 @@ static void* cpuDatabaseScore(void* param) {
     int* scores;
 
     int i, j;
+
+    if (cpuDatabase == NULL) {
+        return NULL;
+    }
+
+    TIMER_START("Cpu database solve");
 
     //**************************************************************************
     // INIT STRUCTURES
