@@ -41,7 +41,7 @@ Contact the author by mkorpar@gmail.com.
 
 #include "database.h"
 
-#define CPU_THREAD_CHUNK    32
+#define CPU_THREAD_CHUNK    250
 
 #define GPU_DB_MIN_CELLS    49000000ll
 #define GPU_MIN_CELLS       1000000ll
@@ -353,7 +353,7 @@ static void* databaseSearchThread(void* param) {
     memory = (memory * 1.1) / 1024.0 / 1024.0; // 10% offset and to MB
     
     // chop in pieces
-    int steps = (int) ceil(memory / (1 * 1024.0));
+    int steps = MIN(queriesLen, (int) ceil(memory / (1 * 1024.0)));
     int queriesStep = queriesLen / steps;
     
     LOG("need %.2lfMB total, solving in %d steps", memory, steps);
