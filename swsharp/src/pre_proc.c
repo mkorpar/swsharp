@@ -308,7 +308,7 @@ static int readSerializedFastaChains(Chain*** chains, int* chainsLen,
     
     WARNING(1, "Reading serilized database %s.", path);
 
-    fread(chainsLen, sizeof(int), 1, file);
+    ASSERT(fread(chainsLen, sizeof(int), 1, file) == 1, "io error");
     *chains = (Chain**) malloc(*chainsLen * sizeof(Chain*));
 
     int bufferSize = 65000;
@@ -319,14 +319,14 @@ static int readSerializedFastaChains(Chain*** chains, int* chainsLen,
 
     for (chainIdx = 0; chainIdx < *chainsLen; ++chainIdx) {
     
-        fread(&chainSize, sizeof(int), 1, file);
+        ASSERT(fread(&chainSize, sizeof(int), 1, file) == 1, "io error");
         
         if (chainSize > bufferSize) {
             bufferSize = 2 * chainSize;
             buffer = (char*) realloc(buffer, bufferSize);
         }
         
-        fread(buffer, 1, chainSize, file);
+        ASSERT(fread(buffer, 1, chainSize, file) == chainSize, "io error");
 
         Chain* chain = chainDeserialize(buffer);
         (*chains)[chainIdx] = chain;
