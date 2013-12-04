@@ -750,6 +750,8 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     int idxChunksLen = 0;
     int idxLastFix = (sequencesCols - indexesLen % sequencesCols) % sequencesCols;
 
+    int length = 0;
+
     for (int i = 0, k = 0; i < queriesLen; ++i) {
 
         int cCardsLen = cardsChunk + (i < cardsAdd);
@@ -782,10 +784,11 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
             contexts[k].card = cCards[j];
             
             tasks[k] = threadPoolSubmitToFront(kernelThread, &(contexts[k]));
+            length++;
         }
     }
     
-    for (int i = 0; i < contextsLen; ++i) {
+    for (int i = 0; i < length; ++i) {
         threadPoolTaskWait(tasks[i]);
         threadPoolTaskDelete(tasks[i]);
     }
