@@ -20,9 +20,9 @@ L_CMD = $(addprefix -L, )
 DEP_LIBS =
 
 CC_FLAGS = $(I_CMD) -O3 -Wall
-CP_FLAGS = $(CC_FLAGS)
+CP_FLAGS = $(CC_FLAGS) -msse4.1
 CU_FLAGS = $(I_CMD) -O3 -arch sm_13
-LD_FLAGS = $(I_CMD) $(L_CMD) -lpthread
+LD_FLAGS = $(I_CMD) $(L_CMD) -lpthread -lstdc++
 
 API = $(addprefix $(SRC_DIR)/, align.h alignment.h chain.h constants.h \
 	cpu_module.h cuda_utils.h database.h db_alignment.h evalue.h gpu_module.h \
