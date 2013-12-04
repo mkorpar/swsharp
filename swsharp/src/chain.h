@@ -76,7 +76,7 @@ to zero and less than chain length.
 
 @return chain char
 */
-extern inline char chainGetChar(Chain* chain, int index);
+extern char chainGetChar(Chain* chain, int index);
 
 /*!
 @brief Chain code getter.
