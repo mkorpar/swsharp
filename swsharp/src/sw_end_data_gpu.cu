@@ -789,7 +789,7 @@ static void* kernel(void* params) {
             size_t bSize = pruneHigh * sizeof(int);
             CUDA_SAFE_CALL(cudaMemcpy(bCpu, bGpu, bSize, FROM_GPU));
             
-            if (score != NO_SCORE) {
+            if (score == NO_SCORE) {
                 for (int i = 0; i < pruneHigh; ++i) {
                     best = max(best, bCpu[i]);
                 }
