@@ -34,7 +34,7 @@ extern int scoreDatabaseSse(int* scores, int type, Chain* query,
     Chain** database, int databaseLen, Scorer* scorer) {
 
     if (type == SW_ALIGN) {
-
+/*
         int gapOpen = scorerGetGapOpen(scorer);
         int gapExtend = scorerGetGapExtend(scorer);
 
@@ -62,6 +62,7 @@ extern int scoreDatabaseSse(int* scores, int type, Chain* query,
         free(databaseLens);
 
         return status;
+*/
     }
 
     return -1;
