@@ -769,7 +769,8 @@ static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
             card, thread);
     }
     
-    ASSERT(*queryStart != -1, "Score not found %d", score);
+    ASSERT(*queryStart != -1, "Score not found %d (%s) (%s)", score,
+        chainGetName(query), chainGetName(target));
 }
 
 static void* nwFindScoreSpecificThread(void* param) {
@@ -1078,12 +1079,13 @@ static int swScorePairGpuDual(AlignData** data_, Chain* query, Chain* target,
 
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
-    
+    int gapDiff = gapOpen - gapExtend;
+
     int up, down;
     for(up = 0, down = cols - 2; up < cols - 1; ++up, --down) {
     
         int scr = upScores[up] + downScores[down];
-        int aff = upAffines[up] + downAffines[down] + gapOpen - gapExtend;
+        int aff = upAffines[up] + downAffines[down] + gapDiff;
 
         if (scr > middleScore) {
             middleScoreUp = upScores[up];
@@ -1094,8 +1096,8 @@ static int swScorePairGpuDual(AlignData** data_, Chain* query, Chain* target,
         }
 
         if (aff >= middleScore) {
-            middleScoreUp = upAffines[up];
-            middleScoreDown = downAffines[down];
+            middleScoreUp = upAffines[up] + gapDiff;
+            middleScoreDown = downAffines[down] + gapDiff;
             middleScore = aff;
             gap = 1;
             col = up;   
