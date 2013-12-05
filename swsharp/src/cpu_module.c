@@ -55,7 +55,7 @@ extern void alignScoredPairCpu(Alignment** alignment, int type, Chain* query,
     Chain* target, Scorer* scorer, int score);
 
 extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score);
+    int queryFrontGap, Chain* target, Scorer* scorer, int score);
     
 extern void nwReconstructCpu(char** path, int* pathLen, int* outScore, 
     Chain* query, int queryFrontGap, int queryBackGap, Chain* target, 
@@ -412,13 +412,14 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
 }
 
 extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score) {
+    int queryFrontGap, Chain* target, Scorer* scorer, int score) {
     
     *queryStart = -1;
     *targetStart = -1;
     
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
+    int gapDiff = gapOpen - gapExtend;
 
     int rows = chainGetLength(query);
     int cols = chainGetLength(target);
@@ -441,10 +442,10 @@ extern void nwFindScoreCpu(int* queryStart, int* targetStart, Chain* query,
     
     for (row = 0; row < rows; ++row) {
     
-        int iScr = -gapOpen - row * gapExtend;
+        int iScr = -gapOpen - row * gapExtend + queryFrontGap * gapDiff;
         int iAff = SCORE_MIN;
         
-        int diag = (-gapOpen - (row - 1) * gapExtend) * (row > 0);
+        int diag = (-gapOpen - (row - 1) * gapExtend + queryFrontGap * gapDiff) * (row > 0);
                 
         for (col = 0; col < cols; ++col) {
         

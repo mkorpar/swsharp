@@ -123,6 +123,25 @@ typedef struct SwDataDual {
     int downTargetEnd;
 } SwDataDual;
 
+typedef struct OvFindScoreSpecificContext {
+    int* queryStart;
+    int* targetStart;
+    Chain* query;
+    Chain* target;
+    Scorer* scorer;
+    int score;
+} OvFindScoreSpecificContext;
+
+typedef struct NwFindScoreSpecificContext {
+    int* queryStart;
+    int* targetStart;
+    Chain* query;
+    int queryFrontGap;
+    Chain* target;
+    Scorer* scorer;
+    int score;
+} NwFindScoreSpecificContext;
+
 //******************************************************************************
 // PUBLIC
 
@@ -172,8 +191,11 @@ static void nwReconstructPairGpu(Alignment** alignment, AlignData* data,
     Chain* query, Chain* target, Scorer* scorer, int* cards, int cardsLen);
     
 static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
-    
+    int queryFrontGap, Chain* target, Scorer* scorer, int score, int card,
+    Thread* thread);
+
+static void* nwFindScoreSpecificThread(void* param);
+
 // ov
 static int ovScorePairGpu(AlignData** data, Chain* query, Chain* target, 
     Scorer* scorer, int score, int* cards, int cardsLen);
@@ -183,6 +205,8 @@ static void ovReconstructPairGpu(Alignment** alignment, AlignData* data,
 
 static void ovFindScoreSpecific(int* queryStart, int* targetStart, Chain* query, 
     Chain* target, Scorer* scorer, int score, int card, Thread* thread);
+
+static void* ovFindScoreSpecificThread(void* param);
 
 // sw
 static int swScorePairGpuSingle(AlignData** data, Chain* query, Chain* target, 
@@ -713,7 +737,8 @@ static void nwReconstructPairGpu(Alignment** alignment, AlignData* data_,
 }
 
 static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread) {
+    int queryFrontGap, Chain* target, Scorer* scorer, int score, int card,
+    Thread* thread) {
     
     int rows = chainGetLength(query);
     int cols = chainGetLength(target);
@@ -721,13 +746,49 @@ static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
     double cells = (double) rows * cols;
     
     if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS) {
-        nwFindScoreCpu(queryStart, targetStart, query, target, scorer, score);
+        if (thread == NULL) {
+            nwFindScoreCpu(queryStart, targetStart, query, queryFrontGap, target,
+                scorer, score);
+        } else {
+
+            NwFindScoreSpecificContext* context = 
+                (NwFindScoreSpecificContext*) malloc(sizeof(NwFindScoreSpecificContext));
+
+            context->queryStart = queryStart;
+            context->targetStart = targetStart;
+            context->query = query;
+            context->queryFrontGap = queryFrontGap;
+            context->target = target;
+            context->scorer = scorer;
+            context->score = score;
+
+            threadCreate(thread, nwFindScoreSpecificThread, (void*) context);
+        }
     } else {
         nwFindScoreGpu(queryStart, targetStart, query, target, scorer, score, 
             card, thread);
     }
     
     ASSERT(*queryStart != -1, "Score not found %d", score);
+}
+
+static void* nwFindScoreSpecificThread(void* param) {
+
+    NwFindScoreSpecificContext* context = (NwFindScoreSpecificContext*) param;
+
+    int* queryStart = context->queryStart;
+    int* targetStart = context->targetStart;
+    Chain* query = context->query;
+    int queryFrontGap = context->queryFrontGap;
+    Chain* target = context->target;
+    Scorer* scorer = context->scorer;
+    int score = context->score;
+
+    nwFindScoreCpu(queryStart, targetStart, query, queryFrontGap, target, scorer, score);
+
+    free(param);
+
+    return NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -827,13 +888,46 @@ static void ovFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
     double cells = (double) rows * cols;
     
     if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS) {
-        ovFindScoreCpu(queryStart, targetStart, query, target, scorer, score);
+        if (thread == NULL) {
+            ovFindScoreCpu(queryStart, targetStart, query, target, scorer, score);
+        } else {
+
+            OvFindScoreSpecificContext* context = 
+                (OvFindScoreSpecificContext*) malloc(sizeof(OvFindScoreSpecificContext));
+
+            context->queryStart = queryStart;
+            context->targetStart = targetStart;
+            context->query = query;
+            context->target = target;
+            context->scorer = scorer;
+            context->score = score;
+
+            threadCreate(thread, ovFindScoreSpecificThread, (void*) context);
+        }
     } else {
         ovFindScoreGpu(queryStart, targetStart, query, target, scorer, score, 
             card, thread);
     }
     
     ASSERT(*queryStart != -1, "Score not found %d", score);
+}
+
+static void* ovFindScoreSpecificThread(void* param) {
+
+    OvFindScoreSpecificContext* context = (OvFindScoreSpecificContext*) param;
+
+    int* queryStart = context->queryStart;
+    int* targetStart = context->targetStart;
+    Chain* query = context->query;
+    Chain* target = context->target;
+    Scorer* scorer = context->scorer;
+    int score = context->score;
+
+    ovFindScoreCpu(queryStart, targetStart, query, target, scorer, score);
+
+    free(param);
+
+    return NULL;
 }
 
 //------------------------------------------------------------------------------
@@ -896,7 +990,7 @@ static void swReconstructPairGpuSingle(Alignment** alignment, AlignData* data_,
     int queryStart;
     int targetStart;
 
-    nwFindScoreSpecific(&queryStart, &targetStart, queryFind, targetFind, 
+    nwFindScoreSpecific(&queryStart, &targetStart, queryFind, 0, targetFind, 
         scorer, score, card, NULL);
 
     queryStart = chainGetLength(queryFind) - queryStart - 1;
@@ -1097,18 +1191,18 @@ static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data_,
         
         if (cardsLen == 1) {
         
-            nwFindScoreSpecific(&queryStart, &targetStart,  upQueryFind, 
+            nwFindScoreSpecific(&queryStart, &targetStart, upQueryFind, gap,
                 upTargetFind, scorer, middleScoreUp, cards[0], NULL);
                 
-            nwFindScoreSpecific(&queryEnd, &targetEnd,  downQueryFind, 
+            nwFindScoreSpecific(&queryEnd, &targetEnd, downQueryFind, gap,
                 downTargetFind, scorer, middleScoreDown, cards[0], NULL);
         
         } else {
         
-            nwFindScoreSpecific(&queryStart, &targetStart, upQueryFind, 
+            nwFindScoreSpecific(&queryStart, &targetStart, upQueryFind, gap,
                 upTargetFind, scorer, middleScoreUp, cards[1], &thread);
                 
-            nwFindScoreSpecific(&queryEnd, &targetEnd,  downQueryFind, 
+            nwFindScoreSpecific(&queryEnd, &targetEnd, downQueryFind, gap,
                 downTargetFind, scorer, middleScoreDown, cards[0], NULL);
                 
             threadJoin(thread);
@@ -1179,7 +1273,7 @@ static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data_,
         Chain* queryFind = chainCreateView(query, 0, queryEnd, 1);
         Chain* targetFind = chainCreateView(target, 0, targetEnd, 1);
         
-        nwFindScoreSpecific(&queryStart, &targetStart, queryFind, targetFind, 
+        nwFindScoreSpecific(&queryStart, &targetStart, queryFind, 0, targetFind, 
             scorer, score, cards[0], NULL);
             
         queryStart = chainGetLength(queryFind) - queryStart - 1;
@@ -1205,7 +1299,7 @@ static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data_,
         Chain* queryFind = chainCreateView(query, queryStart, rows - 1, 0);
         Chain* targetFind = chainCreateView(target, targetStart, cols - 1, 0);
         
-        nwFindScoreSpecific(&queryEnd, &targetEnd, queryFind, targetFind, 
+        nwFindScoreSpecific(&queryEnd, &targetEnd, queryFind, 0, targetFind, 
             scorer, score, cards[0], NULL);
             
         queryEnd = queryStart + queryEnd;
