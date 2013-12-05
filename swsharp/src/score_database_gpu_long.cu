@@ -307,7 +307,7 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
         codesLen += chainGetLength(database[order[i]]);
     }
 
-    LOG("Long database cells: %d", codesLen);
+    LOG("Long database cells: %ld", codesLen);
 
     //**************************************************************************
 
