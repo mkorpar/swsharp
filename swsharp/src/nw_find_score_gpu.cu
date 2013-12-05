@@ -64,13 +64,17 @@ typedef struct Context {
     int* targetStart;
     int score; 
     Chain* query;
+    int queryFrontGap;
     Chain* target;
     Scorer* scorer;
     int card;
 } Context;
 
+static __constant__ int queryFrontGap_;
+
 static __constant__ int gapOpen_;
 static __constant__ int gapExtend_;
+static __constant__ int gapDiff_;
 
 static __constant__ int rows_;
 static __constant__ int cols_;
@@ -97,7 +101,8 @@ static __device__ int2 res_;
 // PUBLIC
 
 extern void nwFindScoreGpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
+    int queryFrontGap, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread);
 
 //******************************************************************************
 
@@ -107,6 +112,7 @@ extern void nwFindScoreGpu(int* queryStart, int* targetStart, Chain* query,
 // With visual c++ compiler and prototypes declared cuda global memory variables
 // do not work. No questions asked.
 #ifndef _WIN32
+__device__ static int gap(int idx);
 
 template<class Sub>
 __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub);
@@ -130,7 +136,8 @@ static void* kernel(void* params);
 // PUBLIC
 
 extern void nwFindScoreGpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread) {
+    int queryFrontGap, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread) {
     
     Context* param = (Context*) malloc(sizeof(Context));
 
@@ -138,6 +145,7 @@ extern void nwFindScoreGpu(int* queryStart, int* targetStart, Chain* query,
     param->targetStart = targetStart;
     param->score = score;
     param->query = query;
+    param->queryFrontGap = queryFrontGap;
     param->target = target;
     param->scorer = scorer;
     param->card = card;
@@ -183,6 +191,10 @@ public:
 //------------------------------------------------------------------------------
 // GPU KERNELS
 
+__device__ static int gap(int idx) {
+    return -gapOpen_ - gapExtend_ + queryFrontGap_ * gapDiff_;
+}
+
 template<class Sub>
 __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub) { 
     
@@ -225,8 +237,8 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub
         VEC4_ASSIGN(atom.lScr, vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)]);
         VEC4_ASSIGN(atom.lAff, vBus.aff[(row >> 2) % (gridDim.x * blockDim.x)]);
     } else {
-        atom.mch = SCORE_MIN * (row != 0);
-        atom.lScr = SCORE4_MIN;
+        atom.mch = gap(row - 1) * (row != 0);
+        atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));
         atom.lAff = SCORE4_MIN;
     }
 
@@ -307,8 +319,8 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus, Sub sub
             col = 0;
             row = row + gridDim.x * blockDim.x * 4;
 
-            atom.mch = SCORE_MIN * (row != 0);
-            atom.lScr = SCORE4_MIN;
+            atom.mch = gap(row - 1) * (row != 0);
+            atom.lScr = make_int4(gap(row), gap(row + 1), gap(row + 2), gap(row + 3));
             atom.lAff = SCORE4_MIN;
 
             rowCodes = tex1Dfetch(rowTexture, row >> 2); 
@@ -587,6 +599,7 @@ static void* kernel(void* params) {
     int* targetStart = context->targetStart;
     int score = context->score;
     Chain* query = context->query;
+    int queryFrontGap = context->queryFrontGap;
     Chain* target = context->target;
     Scorer* scorer = context->scorer;
     int card = context->card;
@@ -602,6 +615,7 @@ static void* kernel(void* params) {
     int cols = chainGetLength(target);
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
+    int gapDiff = gapOpen - gapExtend;
     int scorerLen = scorerGetMaxCode(scorer);
     int subLen = scorerLen + 1;
     int scalar = scorerIsScalar(scorer);
@@ -730,6 +744,8 @@ static void* kernel(void* params) {
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(mismatch_, &(subCpu[1]), sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapOpen_, &gapOpen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapExtend_, &gapExtend, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapDiff_, &gapDiff, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMemcpyToSymbol(queryFrontGap_, &queryFrontGap, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(scorerLen_, &scorerLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(subLen_, &subLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(rows_, &rowsGpu, sizeof(int)));

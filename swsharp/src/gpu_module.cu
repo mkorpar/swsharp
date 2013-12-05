@@ -40,7 +40,8 @@ extern void hwEndDataGpu(int* queryEnd, int* targetEnd, int* outScore,
 }
 
 extern void nwFindScoreGpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread) {
+    int queryFrontGap, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread) {
     ERROR("%s", errorMessage);
 }
 

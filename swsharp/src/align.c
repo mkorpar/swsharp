@@ -765,8 +765,8 @@ static void nwFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
             threadCreate(thread, nwFindScoreSpecificThread, (void*) context);
         }
     } else {
-        nwFindScoreGpu(queryStart, targetStart, query, target, scorer, score, 
-            card, thread);
+        nwFindScoreGpu(queryStart, targetStart, query, queryFrontGap, target, 
+            scorer, score, card, thread);
     }
     
     ASSERT(*queryStart != -1, "Score not found %d (%s) (%s)", score,

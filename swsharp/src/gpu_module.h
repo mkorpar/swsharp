@@ -72,6 +72,7 @@ score, (-1, -1) otherwise.
 @param queryStart output, if found query index of found cell, -1 otherwise
 @param targetStart output, if found target index of found cell, -1 otherwise
 @param query query chain
+@param queryFrontGap indicates that query starts with a gap
 @param target target chain
 @param scorer scorer object used for alignment
 @param score input alignment score
@@ -80,7 +81,8 @@ score, (-1, -1) otherwise.
     executed on the current thread
 */                 
 extern void nwFindScoreGpu(int* queryStart, int* targetStart, Chain* query, 
-    Chain* target, Scorer* scorer, int score, int card, Thread* thread);
+    int queryFrontGap, Chain* target, Scorer* scorer, int score, int card, 
+    Thread* thread);
 
 /*!
 @brief GPU implementation of Needleman-Wunsch scoring function.
