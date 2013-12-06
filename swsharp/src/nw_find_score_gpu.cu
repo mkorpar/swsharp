@@ -192,7 +192,7 @@ public:
 // GPU KERNELS
 
 __device__ static int gap(int idx) {
-    return -gapOpen_ - gapExtend_ + queryFrontGap_ * gapDiff_;
+    return -gapOpen_ - gapExtend_ * idx + queryFrontGap_ * gapDiff_;
 }
 
 template<class Sub>
