@@ -336,7 +336,8 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
     col = cols - 1 - MAX(0, row - offL);
     
     if (score != NO_SCORE) {
-        ASSERT(hBus[col].scr == score, "invalid nw block align");
+        ASSERT(hBus[col].scr == score, "invalid nw block align %s %s",
+            chainGetName(query), chainGetName(target));
     }
     
     // save the score if needed
