@@ -525,6 +525,7 @@ static void* scoreDatabaseThread(void* param) {
     int cardsLen = context->cardsLen;
 
     if (longDatabase == NULL) {
+        free(param);
         return NULL;
     }
 

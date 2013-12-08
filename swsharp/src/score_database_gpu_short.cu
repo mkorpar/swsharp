@@ -583,6 +583,7 @@ static void* scoreDatabaseThread(void* param) {
     int cardsLen = context->cardsLen;
 
     if (shortDatabase == NULL) {
+        free(param);
         return NULL;
     }
 

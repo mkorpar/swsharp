@@ -348,25 +348,29 @@ static void* databaseSearchThread(void* param) {
     //**************************************************************************
     // DO THE ALIGN
      
-    double memory = (double) databaseLen * queriesLen * sizeof(int) + // scores
-                    (double) MAX(0, maxAlignments) * queriesLen * 1024; // aligns
-    memory = (memory * 1.1) / 1024.0 / 1024.0; // 10% offset and to MB
+    double memory = (double) databaseLen * queriesLen * sizeof(int); // scores
+    memory = (memory * 1.15) / 1024.0 / 1024.0; // 15% offset and to MB
     
     // chop in pieces
     int steps = MIN(queriesLen, (int) ceil(memory / (1 * 1024.0)));
-    int queriesStep = queriesLen / steps;
-    
-    LOG("need %.2lfMB total, solving in %d steps", memory, steps);
-    
+    int queriesChunk = queriesLen / steps;
+    int queriesAdd = queriesLen % steps;
+    int offset = 0;
+
+    printf("need %.2lfMB total, solving in %d steps/%d", memory, steps, queriesLen);
+
     for (i = 0; i < steps; ++i) {
     
-        int offset = i * queriesStep;
-        int length = i == steps - 1 ? queriesLen - offset : queriesStep;
-        
+        int length = queriesChunk + (i < queriesAdd);
+
+        printf("Solving %d-%d\n", offset, offset + length);
+
         databaseSearchStep(dbAlignments + offset, dbAlignmentsLen + offset, 
             type, queries + offset, offset, length, chainDatabase, scorer, 
             maxAlignments, valueFunction, valueFunctionParam, valueThreshold, 
             indexes, indexesLen, cards, cardsLen);
+
+        offset += length;
     }
 
     //**************************************************************************

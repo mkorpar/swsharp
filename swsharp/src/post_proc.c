@@ -354,7 +354,7 @@ extern void dbAlignmentsMerge(DbAlignment*** dbAlignmentsDst,
         
         int len = dstLen + srcLen;
 
-        size_t dstSize = MAX(2 * maxAlignments, len) * sizeof(DbAlignment*);
+        size_t dstSize = len * sizeof(DbAlignment*);
         dst = (DbAlignment**) realloc(dst, dstSize);
         
         int j;
@@ -364,11 +364,19 @@ extern void dbAlignmentsMerge(DbAlignment*** dbAlignmentsDst,
 
         qsort(dst, len, sizeof(DbAlignment*), dbAlignmentCmp);
         
-        for (j = maxAlignments; j < len; ++j) {
-            dbAlignmentDelete(dst[j]);
+        if (maxAlignments >= 0) {
+
+            for (j = maxAlignments; j < len; ++j) {
+                dbAlignmentDelete(dst[j]);
+            }
+
+            dstLen = MIN(len, maxAlignments);
+
+        } else {
+            dstLen = len;
         }
-        
-        dbAlignmentsDstLens[i] = MIN(len, maxAlignments);
+
+        dbAlignmentsDstLens[i] = dstLen;
         dbAlignmentsDst[i] = dst;
     }
 }
