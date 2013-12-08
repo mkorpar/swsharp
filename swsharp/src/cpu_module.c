@@ -129,7 +129,8 @@ extern void alignScoredPairCpu(Alignment** alignment, int type, Chain* query,
     function(alignment, query, target, scorer, score);
     
     int outScore = alignmentGetScore(*alignment);
-    ASSERT(score == NO_SCORE || score == outScore, "invalid alignment input score");
+    ASSERT(score == NO_SCORE || score == outScore, "invalid alignment input score %s %s",
+            chainGetName(query), chainGetName(target)
 }
 
 extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer) {

@@ -357,7 +357,8 @@ static void* databaseSearchThread(void* param) {
     int queriesAdd = queriesLen % steps;
     int offset = 0;
 
-    printf("need %.2lfMB total, solving in %d steps/%d", memory, steps, queriesLen);
+    printf("need %.2lfMB total, %d queries, solving in %d steps\n", memory, 
+        queriesLen, steps);
 
     for (i = 0; i < steps; ++i) {
     
