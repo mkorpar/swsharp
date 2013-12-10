@@ -11,6 +11,9 @@ extern "C" {
 /**
  * Contains parameters and SIMD instructions specific for certain score type.
  */
+
+#ifdef __SSE4_1__
+
 template<typename T> class Simd {};
 
 template<>
@@ -94,6 +97,8 @@ static int swimdSearchDatabase_(unsigned char query[], int queryLength,
     for (int i = 0; i < dbLength; i++)
         scores[i] = -1;
 
+    __m128i zeroes = SIMD::set1(0);
+
     int nextDbSeqIdx = 0; // index in db
     int currDbSeqsIdxs[SIMD::numSeqs]; // index in db
     unsigned char* currDbSeqsPos[SIMD::numSeqs]; // current element for each current database sequence
@@ -160,8 +165,7 @@ static int swimdSearchDatabase_(unsigned char query[], int queryLength,
             __m128i F = SIMD::max(SIMD::sub(uH, Q), SIMD::sub(uF, R));
 
             // Calculate H
-            __m128i H = SIMD::set1(0);
-    	    H = SIMD::max(H, E);
+    	    __m128i H = SIMD::max(zeroes, E);
             H = SIMD::max(H, F);
             __m128i ulH_P = SIMD::add(ulH, P[query[r]]);
             H = SIMD::max(H, ulH_P); // Possible overflow that is to be detected
@@ -265,28 +269,30 @@ static inline bool loadNextSequence(int &nextDbSeqIdx, int dbLength, int &currDb
     }
 }
 
+#endif
+
 extern int swimdSearchDatabase(unsigned char query[], int queryLength, 
                                unsigned char** db, int dbLength, int dbSeqLengths[],
                                int gapOpen, int gapExt, int* scoreMatrix, int alphabetLength,
                                int scores[]) {
-    #ifndef __SSE4_1__
+#ifndef __SSE4_1__
     return SWIMD_ERR_NO_SIMD_SUPPORT;
-    #endif
-
+#else
     int resultCode;
     resultCode = swimdSearchDatabase_< Simd<char> >(query, queryLength, 
                                                     db, dbLength, dbSeqLengths, 
                                                     gapOpen, gapExt, scoreMatrix, alphabetLength, scores);
     if (resultCode != 0) {
-	    resultCode = swimdSearchDatabase_< Simd<short> >(query, queryLength, 
+        resultCode = swimdSearchDatabase_< Simd<short> >(query, queryLength, 
                                                          db, dbLength, dbSeqLengths,
                                                          gapOpen, gapExt, scoreMatrix, alphabetLength, scores);
-	    if (resultCode != 0) {
-	        resultCode = swimdSearchDatabase_< Simd<int> >(query, queryLength, 
+        if (resultCode != 0) {
+            resultCode = swimdSearchDatabase_< Simd<int> >(query, queryLength, 
                                                            db, dbLength, dbSeqLengths,
                                                            gapOpen, gapExt, scoreMatrix, alphabetLength, scores);
         }
     }
 
     return resultCode;
+#endif
 }
