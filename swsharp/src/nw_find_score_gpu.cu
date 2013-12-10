@@ -706,7 +706,7 @@ static void* kernel(void* params) {
     int2* hBusCpu = (int2*) malloc(hBusSize);
     int2* hBusGpu;
     for (int i = 0; i < colsGpu; ++i) {
-        hBusCpu[i] = make_int2(SCORE_MIN, SCORE_MIN);
+        hBusCpu[i] = make_int2(-gapOpen - gapExtend * i, SCORE_MIN);
     }
     CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
     CUDA_SAFE_CALL(cudaMemcpy(hBusGpu, hBusCpu, hBusSize, TO_GPU));
