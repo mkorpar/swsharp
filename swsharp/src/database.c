@@ -796,7 +796,6 @@ static void* alignsThread(void* param) {
     
     int i = 0;
     for (i = 0; i < contextsLen; ++i) {
-        printf("gpu %d/%d\n", i + 1, contextsLen);
         alignThread(contexts[i]);
     }
     
@@ -808,8 +807,6 @@ static void* alignsPackedThread(void* param) {
     AlignContextsPacked* context = (AlignContextsPacked*) param;
     AlignContext* contexts = context->contexts;
     int contextsLen = context->contextsLen;
-
-    printf("cpu %d\n", contextsLen);
 
     int i = 0;
     for (i = 0; i < contextsLen; ++i) {
