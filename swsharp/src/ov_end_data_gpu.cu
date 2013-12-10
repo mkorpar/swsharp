@@ -192,7 +192,21 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
     int col = cellWidth_ * (gridDim.x - blockIdx.x - 1) - threadIdx.x;
 
     if (row < 0) return;
-    
+
+    int3 res = { SCORE_MIN, 0, 0 }; 
+
+    if (col == 0) {
+        int rowPrev = row - gridDim.x * blockDim.x * 4;
+        if (0 <= rowPrev && rowPrev < rows_) {
+            int4 prev;
+            VEC4_ASSIGN(prev, vBus.scr[(row >> 2) % (gridDim.x * blockDim.x)]);
+            if (prev.x > res.x) { res.x = prev.x; res.y = rowPrev; res.z = cols_ - 1; }
+            if (prev.y > res.x) { res.x = prev.y; res.y = rowPrev + 1; res.z = cols_ - 1; }
+            if (prev.z > res.x) { res.x = prev.z; res.y = rowPrev + 2; res.z = cols_ - 1; }
+            if (prev.w > res.x) { res.x = prev.w; res.y = rowPrev + 3; res.z = cols_ - 1; }
+        }
+    }
+
     row -= (col < 0) * (gridDim.x * blockDim.x * 4);
     col += (col < 0) * cols_;
     
@@ -212,7 +226,6 @@ __device__ static void solveShortDelegated(int d, VBus vBus, int2* hBus,
     hBusAffShr[threadIdx.x] = tex1Dfetch(hBusTexture, col).y;
 
     char4 rowCodes = tex1Dfetch(rowTexture, row >> 2); 
-    int3 res = { SCORE_MIN, 0, 0 }; 
     
     int del;
     
@@ -618,8 +631,11 @@ static void* kernel(void* params) {
     size_t resultsSize = blocks * threads * sizeof(int3);
     int3* resultsCpu = (int3*) malloc(resultsSize);
     int3* resultsGpu;
+    for (int i = 0; i < blocks * threads; ++i) {
+        resultsCpu[i] = make_int3(SCORE_MIN, 0, 0);
+    }
     CUDA_SAFE_CALL(cudaMalloc(&resultsGpu, resultsSize));
-    CUDA_SAFE_CALL(cudaMemset(resultsGpu, 0, resultsSize));
+    CUDA_SAFE_CALL(cudaMemcpy(resultsGpu, resultsCpu, resultsSize, TO_GPU));
     memoryUsedCpu += resultsSize;
     memoryUsedGpu += resultsSize;
     

@@ -215,6 +215,10 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
     int t = MAX(rows, cols) - minMatch;
     int p = (t - abs(rows - cols)) / 2;
     
+    if (score < 0) {
+        p = MAX(rows, cols);
+    }
+
     // perfect match, chains are equal
     if (t == 0) {
     
@@ -1033,12 +1037,6 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
 
             row -= gaps + 1;
             
-        } else {
-            // don't count the stop move, it came from the diagonal
-            row++;
-            col++;
-            pathIdx++;
-            break;
         }
     }
     
@@ -1047,20 +1045,25 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
         row++;
         col++;
     }
+
+    if (row >= rows || col >= cols) {
+        *alignment = alignmentCreate(query, 0, 0, target, 0, 0, outScore, scorer, NULL, 0);
+    } else {
+
+        int pathLen = pathEnd - pathIdx;
         
-    int pathLen = pathEnd - pathIdx;
-    
-    // shift data to begining of the array
-    int shiftIdx;
-    for (shiftIdx = 0; shiftIdx < pathLen; ++shiftIdx) {
-        path[shiftIdx] = path[pathIdx + shiftIdx];
+        // shift data to begining of the array
+        int shiftIdx;
+        for (shiftIdx = 0; shiftIdx < pathLen; ++shiftIdx) {
+            path[shiftIdx] = path[pathIdx + shiftIdx];
+        }
+
+        *alignment = alignmentCreate(query, row, endRow, target, col, endCol, 
+            outScore, scorer, path, pathLen);
     }
-    
+
     free(hBus);
     free(moves);
-    
-    *alignment = alignmentCreate(query, row, endRow, target, col, endCol, 
-        outScore, scorer, path, pathLen);
 }
 
 static int ovScore(Chain* query, Chain* target, Scorer* scorer) {

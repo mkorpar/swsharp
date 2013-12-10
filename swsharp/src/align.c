@@ -633,7 +633,23 @@ static void hwReconstructPairGpu(Alignment** alignment, AlignData* data_,
     // find the start      
     Chain* queryFind = chainCreateView(query, 0, queryEnd, 1);
     Chain* targetFind = chainCreateView(target, 0, targetEnd, 1);
-  
+
+    if (chainGetLength(targetFind) < GPU_MIN_LEN) {
+
+        chainDelete(queryFind);
+        chainDelete(targetFind);
+
+        Chain* queryCpu = chainCreateView(query, 0, queryEnd, 0);
+        Chain* targetCpu = chainCreateView(target, 0, targetEnd, 0);
+
+        alignScoredPairCpu(alignment, HW_ALIGN, queryCpu, targetCpu, scorer, score);
+
+        chainDelete(queryCpu);
+        chainDelete(targetCpu);
+
+        return;
+    }
+
     int* scores;
     nwLinearDataGpu(&scores, NULL, queryFind, 0, targetFind, 0, scorer, -1, -1, 
         card, NULL);
@@ -812,7 +828,8 @@ static int ovScorePairGpu(AlignData** data_, Chain* query, Chain* target,
     int lastRow = queryEnd == chainGetLength(query) - 1;
     int lastCol = targetEnd == chainGetLength(target) - 1;
     
-    ASSERT(outScore == score || score == NO_SCORE, "invalid alignment input score");
+    ASSERT(outScore == score || score == NO_SCORE, "invalid alignment input score %s %s",
+            chainGetName(query), chainGetName(target));
     ASSERT(lastRow || lastCol, "invalid ov alignment");
     
     if (data_ != NULL) {

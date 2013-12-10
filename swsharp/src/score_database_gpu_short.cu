@@ -31,7 +31,6 @@ Contact the author by mkorpar@gmail.com.
 #include "error.h"
 #include "scorer.h"
 #include "thread.h"
-#include "threadpool.h"
 #include "utils.h"
 
 #include "score_database_gpu_short.h"
@@ -583,7 +582,6 @@ static void* scoreDatabaseThread(void* param) {
     int cardsLen = context->cardsLen;
 
     if (shortDatabase == NULL) {
-        free(param);
         return NULL;
     }
 
@@ -737,8 +735,8 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     size_t contextsSize = contextsLen * sizeof(KernelContext);
     KernelContext* contexts = (KernelContext*) malloc(contextsSize);
     
-    size_t tasksSize = contextsLen * sizeof(ThreadPoolTask*);
-    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+    size_t tasksSize = contextsLen * sizeof(Thread);
+    Thread* tasks = (Thread*) malloc(tasksSize);
 
     int databaseLen = shortDatabase->databaseLen;
     
@@ -783,15 +781,14 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
             contexts[k].indexes = indexes + off;
             contexts[k].indexesLen = len;
             contexts[k].card = cCards[j];
-            
-            tasks[k] = threadPoolSubmitToFront(kernelThread, &(contexts[k]));
+
+            threadCreate(&(tasks[k]), kernelThread, &(contexts[k]));
             length++;
         }
     }
     
     for (int i = 0; i < length; ++i) {
-        threadPoolTaskWait(tasks[i]);
-        threadPoolTaskDelete(tasks[i]);
+        threadJoin(tasks[i]);
     }
 
     free(tasks);
@@ -836,8 +833,8 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
     //**************************************************************************
     // SCORE MULTITHREADED
     
-    size_t tasksSize = cardsLen * sizeof(ThreadPoolTask*);
-    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+    size_t tasksSize = cardsLen * sizeof(Thread);
+    Thread* tasks = (Thread*) malloc(tasksSize);
     
     int databaseLen = shortDatabase->databaseLen;
     
@@ -869,12 +866,11 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
     }
     
     for (int i = 0; i < cardsLen; ++i) {
-        tasks[i] = threadPoolSubmitToFront(kernelsThread, &(contexts[i]));
+        threadCreate(&(tasks[i]), kernelsThread, &(contexts[i]));
     }
 
     for (int i = 0; i < cardsLen; ++i) {
-        threadPoolTaskWait(tasks[i]);
-        threadPoolTaskDelete(tasks[i]);
+        threadJoin(tasks[i]);
     }
     free(tasks);
 

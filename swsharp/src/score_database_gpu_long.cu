@@ -31,7 +31,6 @@ Contact the author by mkorpar@gmail.com.
 #include "error.h"
 #include "scorer.h"
 #include "thread.h"
-#include "threadpool.h"
 #include "utils.h"
 
 #include "score_database_gpu_long.h"
@@ -657,8 +656,8 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     size_t contextsSize = contextsLen * sizeof(KernelContext);
     KernelContext* contexts = (KernelContext*) malloc(contextsSize);
     
-    size_t tasksSize = contextsLen * sizeof(ThreadPoolTask*);
-    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+    size_t tasksSize = contextsLen * sizeof(Thread);
+    Thread* tasks = (Thread*) malloc(tasksSize);
 
     int databaseLen = longDatabase->databaseLen;
     
@@ -669,6 +668,8 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     int* idxChunksOff = (int*) malloc(cardsLen * sizeof(int));
     int* idxChunksLens = (int*) malloc(cardsLen * sizeof(int));
     int idxChunksLen = 0;
+
+    int length = 0;
 
     for (int i = 0, k = 0; i < queriesLen; ++i) {
 
@@ -694,14 +695,14 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
             contexts[k].indexes = indexes + idxChunksOff[j];
             contexts[k].indexesLen = idxChunksLens[j];
             contexts[k].card = cCards[j];
-            
-            tasks[k] = threadPoolSubmitToFront(kernelThread, &(contexts[k]));
+
+            threadCreate(&(tasks[k]), kernelThread, &(contexts[k]));
+            length++;
         }
     }
     
-    for (int i = 0; i < contextsLen; ++i) {
-        threadPoolTaskWait(tasks[i]);
-        threadPoolTaskDelete(tasks[i]);
+    for (int i = 0; i < length; ++i) {
+        threadJoin(tasks[i]);
     }
 
     free(tasks);
@@ -746,8 +747,8 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
     //**************************************************************************
     // SCORE MULTITHREADED
     
-    size_t tasksSize = cardsLen * sizeof(ThreadPoolTask*);
-    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksSize);
+    size_t tasksSize = cardsLen * sizeof(Thread);
+    Thread* tasks = (Thread*) malloc(tasksSize);
     
     int databaseLen = longDatabase->databaseLen;
     
@@ -779,12 +780,11 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
     }
     
     for (int i = 0; i < cardsLen; ++i) {
-        tasks[i] = threadPoolSubmitToFront(kernelsThread, &(contexts[i]));
+        threadCreate(&(tasks[i]), kernelsThread, &(contexts[i]));
     }
 
     for (int i = 0; i < cardsLen; ++i) {
-        threadPoolTaskWait(tasks[i]);
-        threadPoolTaskDelete(tasks[i]);
+        threadJoin(tasks[i]);
     }
     free(tasks);
 
