@@ -1200,7 +1200,59 @@ static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data_,
     int pathLen;
     char* path;
     
-    if (score == middleScore) { 
+    if (score == upScore) {
+    
+        queryEnd = upQueryEnd;
+        targetEnd = upTargetEnd;
+        
+        Chain* queryFind = chainCreateView(query, 0, queryEnd, 1);
+        Chain* targetFind = chainCreateView(target, 0, targetEnd, 1);
+        
+        nwFindScoreSpecific(&queryStart, &targetStart, queryFind, 0, targetFind,
+            scorer, score, cards[0], NULL);
+            
+        queryStart = chainGetLength(queryFind) - queryStart - 1;
+        targetStart = chainGetLength(targetFind) - targetStart - 1;
+        
+        chainDelete(queryFind);
+        chainDelete(targetFind);
+        
+        Chain* queryRecn = chainCreateView(query, queryStart, queryEnd, 0);
+        Chain* targetRecn = chainCreateView(target, targetStart, targetEnd, 0);
+    
+        nwReconstruct(&path, &pathLen, NULL, queryRecn, 0, 0, targetRecn, 0, 0,
+            scorer, score, cards, cardsLen, NULL);
+            
+        chainDelete(queryRecn);
+        chainDelete(targetRecn);
+        
+    } else if (score == downScore) {
+    
+        queryStart = chainGetLength(query) - downQueryEnd - 1;
+        targetStart = chainGetLength(target) - downTargetEnd - 1;
+        
+        Chain* queryFind = chainCreateView(query, queryStart, rows - 1, 0);
+        Chain* targetFind = chainCreateView(target, targetStart, cols - 1, 0);
+        
+        nwFindScoreSpecific(&queryEnd, &targetEnd, queryFind, 0, targetFind,
+            scorer, score, cards[0], NULL);
+            
+        queryEnd = queryStart + queryEnd;
+        targetEnd = targetStart + targetEnd;
+        
+        chainDelete(queryFind);
+        chainDelete(targetFind);
+        
+        Chain* queryRecn = chainCreateView(query, queryStart, queryEnd, 0);
+        Chain* targetRecn = chainCreateView(target, targetStart, targetEnd, 0);
+    
+        nwReconstruct(&path, &pathLen, NULL, queryRecn, 0, 0, targetRecn, 0, 0,
+            scorer, score, cards, cardsLen, NULL);
+            
+        chainDelete(queryRecn);
+        chainDelete(targetRecn);
+
+    } else if (score == middleScore) {
     
         Chain* upQueryFind = chainCreateView(query, 0, row, 1);
         Chain* upTargetFind = chainCreateView(target, 0, col, 1);
@@ -1252,19 +1304,19 @@ static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data_,
             nwReconstruct(&upPath, &upPathLen, NULL, upQueryRecn, 0, gap, 
                 upTargetRecn, 0, 0, scorer, middleScoreUp, cards, cardsLen, NULL);
                 
-            nwReconstruct(&downPath, &downPathLen, NULL, downQueryRecn, gap, 0, 
-                downTargetRecn, 0, 0, scorer, middleScoreDown, 
+            nwReconstruct(&downPath, &downPathLen, NULL, downQueryRecn, gap, 0,
+                downTargetRecn, 0, 0, scorer, middleScoreDown,
                 cards, cardsLen, NULL);
         
         } else {
         
             int half = cardsLen / 2;
             
-            nwReconstruct(&upPath, &upPathLen, NULL, upQueryRecn, 0, gap, 
+            nwReconstruct(&upPath, &upPathLen, NULL, upQueryRecn, 0, gap,
                 upTargetRecn, 0, 0, scorer, middleScoreUp, cards, half, &thread);
                 
-            nwReconstruct(&downPath, &downPathLen, NULL, downQueryRecn, gap, 0, 
-                downTargetRecn, 0, 0, scorer, middleScoreDown, cards + half, 
+            nwReconstruct(&downPath, &downPathLen, NULL, downQueryRecn, gap, 0,
+                downTargetRecn, 0, 0, scorer, middleScoreDown, cards + half,
                 cardsLen - half, NULL);
                 
             threadJoin(thread);
@@ -1284,57 +1336,6 @@ static void swReconstructPairGpuDual(Alignment** alignment, AlignData* data_,
         free(upPath);
         free(downPath);
         
-    } else if (score == upScore) {
-    
-        queryEnd = upQueryEnd;
-        targetEnd = upTargetEnd;
-        
-        Chain* queryFind = chainCreateView(query, 0, queryEnd, 1);
-        Chain* targetFind = chainCreateView(target, 0, targetEnd, 1);
-        
-        nwFindScoreSpecific(&queryStart, &targetStart, queryFind, 0, targetFind, 
-            scorer, score, cards[0], NULL);
-            
-        queryStart = chainGetLength(queryFind) - queryStart - 1;
-        targetStart = chainGetLength(targetFind) - targetStart - 1;
-        
-        chainDelete(queryFind);
-        chainDelete(targetFind);
-        
-        Chain* queryRecn = chainCreateView(query, queryStart, queryEnd, 0);
-        Chain* targetRecn = chainCreateView(target, targetStart, targetEnd, 0);
-    
-        nwReconstruct(&path, &pathLen, NULL, queryRecn, 0, 0, targetRecn, 0, 0, 
-            scorer, score, cards, cardsLen, NULL);
-            
-        chainDelete(queryRecn);
-        chainDelete(targetRecn);
-        
-    } else if (score == downScore) {
-    
-        queryStart = chainGetLength(query) - downQueryEnd - 1;
-        targetStart = chainGetLength(target) - downTargetEnd - 1;
-        
-        Chain* queryFind = chainCreateView(query, queryStart, rows - 1, 0);
-        Chain* targetFind = chainCreateView(target, targetStart, cols - 1, 0);
-        
-        nwFindScoreSpecific(&queryEnd, &targetEnd, queryFind, 0, targetFind, 
-            scorer, score, cards[0], NULL);
-            
-        queryEnd = queryStart + queryEnd;
-        targetEnd = targetStart + targetEnd;
-        
-        chainDelete(queryFind);
-        chainDelete(targetFind);
-        
-        Chain* queryRecn = chainCreateView(query, queryStart, queryEnd, 0);
-        Chain* targetRecn = chainCreateView(target, targetStart, targetEnd, 0);
-    
-        nwReconstruct(&path, &pathLen, NULL, queryRecn, 0, 0, targetRecn, 0, 0, 
-            scorer, score, cards, cardsLen, NULL);
-            
-        chainDelete(queryRecn);
-        chainDelete(targetRecn);
     } else {
         ERROR("invalid dual data score");
     }
