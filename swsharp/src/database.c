@@ -365,14 +365,14 @@ static void* databaseSearchThread(void* param) {
     int queriesAdd = queriesLen % steps;
     int offset = 0;
 
-    printf("need %.2lfMB total, %d queries, solving in %d steps\n", memory, 
+    LOG("need %.2lfMB total, %d queries, solving in %d steps", memory, 
         queriesLen, steps);
 
     for (i = 0; i < steps; ++i) {
     
         int length = queriesChunk + (i < queriesAdd);
 
-        printf("Solving %d-%d\n", offset, offset + length);
+        LOG("Solving %d-%d", offset, offset + length);
 
         databaseSearchStep(dbAlignments + offset, dbAlignmentsLen + offset, 
             type, queries + offset, offset, length, chainDatabase, scorer, 
@@ -606,7 +606,7 @@ static void databaseSearchStep(DbAlignment*** dbAlignments,
         }
     }
     
-    printf("Aligning %d cpu, %d gpu\n", aContextsCpuLen, aContextsGpuLen);
+    LOG("Aligning %d cpu, %d gpu", aContextsCpuLen, aContextsGpuLen);
 
     // run cpu tasks
     int aCpuTasksLen;
