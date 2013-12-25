@@ -19,8 +19,8 @@ L_CMD = $(addprefix -L, )
 
 DEP_LIBS =
 
-CC_FLAGS = $(I_CMD) -O3 -Wall
-CP_FLAGS = $(CC_FLAGS) -march=native
+CC_FLAGS = $(I_CMD) -O3 -Wall -march=native
+CP_FLAGS = $(CC_FLAGS)
 CU_FLAGS = $(I_CMD) -O3 -arch sm_13
 LD_FLAGS = $(I_CMD) $(L_CMD) -lpthread -lstdc++
 

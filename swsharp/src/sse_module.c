@@ -33,37 +33,55 @@ Contact the author by mkorpar@gmail.com.
 extern int scoreDatabaseSse(int* scores, int type, Chain* query, 
     Chain** database, int databaseLen, Scorer* scorer) {
 
-    if (type == SW_ALIGN) {
-/*
-        int gapOpen = scorerGetGapOpen(scorer);
-        int gapExtend = scorerGetGapExtend(scorer);
+#ifdef __SSE4_1__
 
-        int* table = (int*) scorerGetTable(scorer);
-        int maxCode = scorerGetMaxCode(scorer);
-
-        unsigned char* queryPtr = (unsigned char*) chainGetCodes(query);
-        int queryLen = chainGetLength(query);
-
-        unsigned char** databasePtrs = 
-            (unsigned char**) malloc(databaseLen * sizeof(unsigned char*));
-
-        int* databaseLens = (int*) malloc(databaseLen * sizeof(int));
-
-        int i;
-        for (i = 0; i < databaseLen; ++i) {
-            databasePtrs[i] = (unsigned char*) chainGetCodes(database[i]);
-            databaseLens[i] = chainGetLength(database[i]);
-        }
-
-        int status = swimdSearchDatabase(queryPtr, queryLen, databasePtrs, 
-            databaseLen, databaseLens, gapOpen, gapExtend, table, maxCode, scores);
-
-        free(databasePtrs);
-        free(databaseLens);
-
-        return status;
-*/
+    int mode;
+    switch (type) {
+    case SW_ALIGN:
+        mode = SWIMD_MODE_SW;
+        break;
+    case HW_ALIGN:
+        mode = SWIMD_MODE_HW;
+        break;
+    case NW_ALIGN:
+        mode = SWIMD_MODE_NW;
+        break;
+    case OV_ALIGN:
+        mode = SWIMD_MODE_OV;
+        break;
+    default:
+        return -1;
     }
 
+    int gapOpen = scorerGetGapOpen(scorer);
+    int gapExtend = scorerGetGapExtend(scorer);
+
+    int* table = (int*) scorerGetTable(scorer);
+    int maxCode = scorerGetMaxCode(scorer);
+
+    unsigned char* queryPtr = (unsigned char*) chainGetCodes(query);
+    int queryLen = chainGetLength(query);
+
+    unsigned char** databasePtrs = 
+        (unsigned char**) malloc(databaseLen * sizeof(unsigned char*));
+
+    int* databaseLens = (int*) malloc(databaseLen * sizeof(int));
+
+    int i;
+    for (i = 0; i < databaseLen; ++i) {
+        databasePtrs[i] = (unsigned char*) chainGetCodes(database[i]);
+        databaseLens[i] = chainGetLength(database[i]);
+    }
+
+    int status = swimdSearchDatabase(queryPtr, queryLen, databasePtrs, 
+        databaseLen, databaseLens, gapOpen, gapExtend, table, maxCode, scores, mode);
+
+    free(databasePtrs);
+    free(databaseLens);
+
+    return status;
+
+#else
     return -1;
+#endif
 }

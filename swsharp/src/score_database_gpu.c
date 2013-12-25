@@ -38,9 +38,14 @@ Contact the author by mkorpar@gmail.com.
 
 #include "gpu_module.h"
 
+#ifdef __SSE4_1__
 #define CPU_THREAD_CHUNK    32
-
 #define MAX_CPU_LEN         20
+#else
+#define CPU_THREAD_CHUNK    500
+#define MAX_CPU_LEN         200
+#endif
+
 #define MAX_SHORT_LEN       2800
 
 typedef struct Context {
