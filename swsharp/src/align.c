@@ -927,7 +927,8 @@ static void ovFindScoreSpecific(int* queryStart, int* targetStart, Chain* query,
             card, thread);
     }
     
-    ASSERT(*queryStart != -1, "Score not found %d", score);
+    ASSERT(*queryStart != -1, "Score not found %d %s %s", score, 
+        chainGetName(query), chainGetName(target));
 }
 
 static void* ovFindScoreSpecificThread(void* param) {
@@ -965,7 +966,9 @@ static int swScorePairGpuSingle(AlignData** data_, Chain* query, Chain* target,
     swEndDataGpu(&queryEnd, &targetEnd, &outScore, NULL, NULL, query, target, 
         scorer, score, card, NULL);
 
-    ASSERT(outScore == score || score == NO_SCORE, "invalid alignment input score");
+    ASSERT(outScore == score || score == NO_SCORE,
+        "invalid alignment input score %d %d | %s %s",
+        outScore, score, chainGetName(query), chainGetName(target));
 
     if (data_ != NULL) {
     
