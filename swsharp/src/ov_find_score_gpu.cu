@@ -654,11 +654,8 @@ static void* kernel(void* params) {
 
     int maxScore = scorerGetMaxScore(scorer);
     int minMatch = maxScore ? score / maxScore : 0;
-    int t = MAX(rows, cols) - minMatch;
-    int p = (t - abs(rows - cols)) / 2;
-
-    int pLeft = (cols > rows ? p : p + rows - cols) + 1 + dRow;
-    int pRight = (cols > rows ? p + cols - rows : p) + 1 + dRow;
+    int pLeft = rows - minMatch;
+    int pRight = cols - minMatch;
     
     int memoryUsedGpu = 0;
     int memoryUsedCpu = 0;

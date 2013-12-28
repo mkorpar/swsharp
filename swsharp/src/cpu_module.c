@@ -1441,8 +1441,8 @@ static int swScore(Chain* query, Chain* target, Scorer* scorer) {
                 hBus[pruneHigh].aff = SCORE_MIN;
             }
         }
-
-        for (col = 0; col < cols; ++col) {
+        
+        for (col = pruneLow; col < pruneHigh; ++col) {
         
             // MATCHING
             int mch = scorerTable[rowCodes[row] * scorerMaxCode + colCodes[col]] + diag;

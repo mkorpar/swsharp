@@ -819,7 +819,7 @@ static void* kernel(void* params) {
                     if (rowsGpu - row > cols - col) break;
                     int d = rowsGpu - row;
                     int scr1 = d * pruneFactor + (i == blocks - 1 ? 0 : bCpu[i + 1]);
-                    int scr2 = (d + threads / 2) * pruneFactor + bCpu[i];
+                    int scr2 = (d + threads * 2) * pruneFactor + bCpu[i];
                     if (scr1 < best && scr2 < best) pruneHigh = i; 
                     else break;
                 }
