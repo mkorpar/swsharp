@@ -98,14 +98,20 @@ extern Chain* createChainComplement(Chain* chain) {
         
         string[length - 1 - i] = chr;
     }
+
+    const char prefix[] = "complement: ";
     
-    char name[1000];
-    sprintf(name, "complement: %s", chainGetName(chain));
-    
+    const char* name = chainGetName(chain);
     int nameLen = strlen(name);
 
-    Chain* complement = chainCreate(name, nameLen, string, length);
-    
+    int newNameLen = nameLen + sizeof(prefix);
+    char* newName = (char*) malloc(newNameLen);
+
+    sprintf(newName, "%s%s", prefix, name);
+
+    Chain* complement = chainCreate(newName, newNameLen - 1, string, length);
+
+    free(newName);
     free(string);
     
     return complement;
@@ -118,7 +124,8 @@ extern void readFastaChain(Chain** chain, const char* path) {
     char* str = (char*) malloc(fileLength(f) * sizeof(char));
     int strLen = 0;
     
-    char* name = (char*) malloc(1024 * sizeof(char));
+    int nameSize = 4096;
+    char* name = (char*) malloc(nameSize * sizeof(char));
     int nameLen = 0;
     
     char buffer[4096];
@@ -139,6 +146,12 @@ extern void readFastaChain(Chain** chain, const char* path) {
                     isName = 0;
                 } else if (!(nameLen == 0 && (c == '>' || isspace(c)))) {
                     if (c != '\r') {
+
+                        if (nameLen == nameSize) {
+                            nameSize *= 2;
+                            name = (char*) realloc(name, nameSize * sizeof(char));
+                        }
+
                         name[nameLen++] = c;
                     }         
                 }
@@ -169,8 +182,9 @@ extern void readFastaChains(Chain*** chains_, int* chainsLen_, const char* path)
     int strSize = 4096;
     char* str = (char*) malloc(strSize * sizeof(char));
     int strLen = 0;
-    
-    char* name = (char*) malloc(1024 * sizeof(char));
+
+    int nameSize = 4096;
+    char* name = (char*) malloc(nameSize * sizeof(char));
     int nameLen = 0;
     
     char buffer[4096];
@@ -211,6 +225,12 @@ extern void readFastaChains(Chain*** chains_, int* chainsLen_, const char* path)
                     isName = 0;
                 } else if (!(nameLen == 0 && (c == '>' || isspace(c)))) {
                     if (c != '\r') {
+
+                        if (nameLen == nameSize) {
+                            nameSize *= 2;
+                            name = (char*) realloc(name, nameSize * sizeof(char));
+                        }
+
                         name[nameLen++] = c;
                     }              
                 }
