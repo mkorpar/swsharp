@@ -40,7 +40,7 @@ Contact the author by mkorpar@gmail.com.
 
 #ifdef __SSE4_1__
 #define CPU_THREAD_CHUNK    500
-#define MAX_CPU_LEN         200
+#define MAX_CPU_LEN         150
 #else
 #define CPU_THREAD_CHUNK    32
 #define MAX_CPU_LEN         20
