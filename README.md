@@ -53,6 +53,8 @@ Simple protein fasta database search can be executed on linux platforms from the
 
     ./bin/swsharpdb -i examples/P18080.fasta -j examples/uniprot_sprot_small.fasta
 
+\*note: First swsharpdb run for every target database will cache the database for future usage and therefore will be slower (file with .swsharp extension will be created). Next runs with the same target database will use the cached database and will be faster.
+
 ### Library
 
 Simple pairwise alignment library usage can be seen in the following simple.c file. This short program aligns two pair of nucleotides in fasta format. The nucleotides paths are read from the command line as the first two arguments. This examples is for the linux platform.
