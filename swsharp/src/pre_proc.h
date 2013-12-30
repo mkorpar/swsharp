@@ -72,6 +72,26 @@ only one chain is in the file.
 */
 extern void readFastaChains(Chain*** chains, int* chainsLen, const char* path);
 
+extern void readFastaChainsPartInit(Chain*** chains, int* chainsLen, 
+    FILE** handle, int* serialized, const char* path);
+
+extern int readFastaChainsPart(Chain*** chains, int* chainsLen,
+    FILE* handle, int serialized, const size_t maxBytes);
+
+extern void statFastaChains(int* chains, long long* cells, const char* path);
+
+/*!
+@brief Fasta database serialization function.
+
+Function creates a file named path.swsharp which represents the serialized 
+version of the chain database which was read from the given path. Since reading 
+of the serialized version of the database is much faster than reading the 
+original one, this function is used for caching the databases for future usage.
+
+@param path original Fasta chain database file path
+*/
+extern void dumpFastaChains(char* path);
+
 /*!
 @brief Scalar scorer creation utility functions.
 

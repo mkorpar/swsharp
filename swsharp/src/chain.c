@@ -103,6 +103,10 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
 
 extern void chainDelete(Chain* chain) {
 
+    if (chain == NULL) {
+        return;
+    }
+
     if (!chain->isView) {
         mutexDelete(&(chain->reverseWrite));
         free(chain->codes);

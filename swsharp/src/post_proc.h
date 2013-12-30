@@ -174,20 +174,6 @@ extern void outputShotgunDatabase(DbAlignment*** dbAlignments,
     int* dbAlignmentsLens, int dbAlignmentsLen, char* path, int type);
     
 /*!
-@brief Database serialization function.
-
-Function creates a file named path.swsharp which represents the serialized 
-version of the chain database which was read from the given path. Since reading 
-of the serialized version of the database is much faster than reading the 
-original one, this function is used for caching the databases for future usage.
-
-@param chains database chains
-@param chainsLen database length
-@param path original chain database file path
-*/
-extern void dumpFastaChains(Chain** chains, int chainsLen, char* path);
-
-/*!
 @brief Chain array delete utility.
 
 Function calls chainDelete() function on every chain and then deletes the array.

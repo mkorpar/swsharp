@@ -172,35 +172,39 @@ int main(int argc, char* argv[]) {
     int queriesLen = 0;
     readFastaChains(&queries, &queriesLen, queryPath);
     
-    Chain** database = NULL; 
-    int databaseLen = 0;
-    readFastaChains(&database, &databaseLen, databasePath);
-    
     if (cache) {
-        dumpFastaChains(database, databaseLen, databasePath);
+        dumpFastaChains(databasePath);
     }
 
     threadPoolInitialize(cardsLen + 8);
 
-    EValueParams* eValueParams = createEValueParams(database, databaseLen, scorer);
+    int chains;
+    long long cells;
+    statFastaChains(&chains, &cells, databasePath);
+
+    EValueParams* eValueParams = createEValueParams(cells, scorer);
 
     DbAlignment*** dbAlignments = NULL;
     int* dbAlignmentsLens = NULL;
 
-    int databaseCur = 0;
+    Chain** database = NULL; 
+    int databaseLen = 0;
     int databaseStart = 0;
-    
-    int databaseIdx;
-    for (databaseIdx = 0; databaseIdx < databaseLen; ++databaseIdx) {
-    
-        databaseCur += chainGetLength(database[databaseIdx]);
 
-        if (databaseCur < 400 * 1024 * 1024 && databaseIdx != databaseLen - 1) {
-            continue;
-        }
-        
+    FILE* handle;
+    int serialized;
+
+    readFastaChainsPartInit(&database, &databaseLen, &handle, &serialized, databasePath);
+
+    int i, j;
+
+    while (1) {
+
+        int status = readFastaChainsPart(&database, &databaseLen, handle,
+            serialized, 400000000);
+
         ChainDatabase* chainDatabase = chainDatabaseCreate(database, 
-            databaseStart, databaseIdx - databaseStart + 1, cards, cardsLen);
+            databaseStart, databaseLen - databaseStart, cards, cardsLen);
 
         DbAlignment*** dbAlignmentsPart = NULL;
         int* dbAlignmentsPartLens = NULL;
@@ -208,30 +212,57 @@ int main(int argc, char* argv[]) {
         shotgunDatabase(&dbAlignmentsPart, &dbAlignmentsPartLens, algorithm, 
             queries, queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
             (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
-        
+
         if (dbAlignments == NULL) {
             dbAlignments = dbAlignmentsPart;
             dbAlignmentsLens = dbAlignmentsPartLens;
-        } else {
+         } else {
             dbAlignmentsMerge(dbAlignments, dbAlignmentsLens, dbAlignmentsPart, 
                 dbAlignmentsPartLens, queriesLen, maxAlignments);
             deleteShotgunDatabase(dbAlignmentsPart, dbAlignmentsPartLens, queriesLen);
         }
 
         chainDatabaseDelete(chainDatabase);
-            
-        databaseStart = databaseIdx + 1;
-        databaseCur = 0;
+
+        if (status == 0) {
+            break;
+        }
+
+        // delete all unused chains
+        char* usedMask = (char*) calloc(databaseLen, sizeof(char));
+
+        for (i = 0; i < queriesLen; ++i) {
+            for (j = 0; j < dbAlignmentsLens[i]; ++j) {
+
+                DbAlignment* dbAlignment = dbAlignments[i][j];
+                int targetIdx = dbAlignmentGetTargetIdx(dbAlignment);
+
+                usedMask[targetIdx] = 1;
+            }
+        }
+
+        for (i = 0; i < databaseLen; ++i) {
+            if (!usedMask[i] && database[i] != NULL) {
+                chainDelete(database[i]);
+                database[i] = NULL;
+            }
+        }
+
+        free(usedMask);
+
+        databaseStart = databaseLen;
     }
-    
+
+    fclose(handle);
+
     outputShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen, out, outFormat);
     deleteShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen);
-    
+
     deleteEValueParams(eValueParams);
-    
+
     deleteFastaChains(queries, queriesLen);
     deleteFastaChains(database, databaseLen);
-    
+
     scorerDelete(scorer);
 
     threadPoolTerminate();

@@ -133,14 +133,8 @@ __global__ static void kernel(double* values, int2* data);
 //******************************************************************************
 // PUBLIC
 
-extern EValueParams* createEValueParams(Chain** database, int databaseLen, 
-    Scorer* scorer) {
+extern EValueParams* createEValueParams(long long length, Scorer* scorer) {
 
-    long long length = 0;
-    for (int i = 0; i < databaseLen; ++i) {
-        length += chainGetLength(database[i]);
-    }
-    
     const char* matrix = scorerGetName(scorer);
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);

@@ -31,8 +31,7 @@ extern "C" {
 
 typedef struct EValueParams EValueParams;
 
-extern EValueParams* createEValueParams(Chain** database, int databaseLen, 
-    Scorer* scorer);
+extern EValueParams* createEValueParams(long long length, Scorer* scorer);
 
 extern void deleteEValueParams(EValueParams* eValueParams);
 
