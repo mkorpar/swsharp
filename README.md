@@ -1,6 +1,6 @@
 # SW# 
 
-SW# (swsharp) is a library for sequence alignment based on CUDA enabled GPUs. It utilizes Hirschbergs and Ukkonens algorithm for memory efficiency and additional speed up. The library is scalable for use with multiple GPUs. Some parts of the library utilize MPI for CUDA enabled clusters.
+SW# (swsharp) is a library for sequence alignment based on CUDA enabled GPUs. It utilizes Hirschbergs and Ukkonens algorithm for memory efficiency and additional speed up. The library is scalable for use with multiple GPUs. Some parts of the library utilize MPI for CUDA enabled clusters. In database searches library utilizes swimd, a SSE4 sequence alignment library.
 
 ## DEPENDENCIES
 
@@ -37,6 +37,7 @@ Currently supported modules are:
 2. swsharpn - Module is used for aligning nucleotide sequnces.
 3. swsharpp - Module is used for aligning protein sequnces.
 4. swsharpnc - Module is used for aligning which searches the best scores on both strands of a nucleotide sequnces.
+5. swsharpdb - Module is used for aligning two protein sequence databases.
 
 ## EXAMPLES
 
@@ -46,11 +47,15 @@ All examples persume the make command from the project root folder was executed.
 
 Simple align of pair of nucleotides in fasta format can be executed on linux platforms from the project root folder with the command:
 
-    ./bin/swsharpn -i input1.fasta -j input2.fasta
+    ./bin/swsharpn -i examples/NC_000898.fasta -j examples/NC_007605.fasta
+
+Simple protein fasta database search can be executed on linux platforms from the project root folder with the command:
+
+    ./bin/swsharpdb -i examples/P18080.fasta -j examples/uniprot_sprot_small.fasta
 
 ### Library
 
-Simple library usage can be seen in the following simple.c file. This short program aligns two pair of nucleotides in fasta format. The nucleotides paths are read from the command line as the first two arguments. This examples is for the linux platform.
+Simple pairwise alignment library usage can be seen in the following simple.c file. This short program aligns two pair of nucleotides in fasta format. The nucleotides paths are read from the command line as the first two arguments. This examples is for the linux platform.
 
 simple.c:
     

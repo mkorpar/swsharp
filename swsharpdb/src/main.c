@@ -38,7 +38,7 @@ static struct option options[] = {
     {"evalue", required_argument, 0, 'E'},
     {"max-aligns", required_argument, 0, 'M'},
     {"algorithm", required_argument, 0, 'A'},
-    {"cache", no_argument, 0, 'C'},
+    {"nocache", no_argument, 0, 'C'},
     {"cpu", no_argument, 0, 'P'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
 
     int algorithm = SW_ALIGN;
     
-    int cache = 0;
+    int cache = 1;
 
     int forceCpu = 0;
 
@@ -136,7 +136,7 @@ int main(int argc, char* argv[]) {
             algorithm = getAlgorithm(optarg);
             break;
         case 'C':
-            cache = 1;
+            cache = 0;
             break;
         case 'P':
             forceCpu = 1;
@@ -371,9 +371,9 @@ static void help() {
     "            bm8      - blast m8 tabular output format\n"
     "            bm9      - blast m9 commented tabular output format\n"
     "            light    - score-name tabbed output\n"
-    "    --cache\n"
+    "    --nocache\n"
     "        serialized database is stored to speed up future runs with the\n"
-    "        same database\n"
+    "        same database, option disables this behaviour\n"
     "    --cpu\n"
     "        only cpu is used\n"
     "    -h, -help\n"
