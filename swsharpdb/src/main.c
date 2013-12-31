@@ -201,7 +201,7 @@ int main(int argc, char* argv[]) {
     while (1) {
 
         int status = readFastaChainsPart(&database, &databaseLen, handle,
-            serialized, 400000000);
+            serialized, 100000000);
 
         ChainDatabase* chainDatabase = chainDatabaseCreate(database, 
             databaseStart, databaseLen - databaseStart, cards, cardsLen);

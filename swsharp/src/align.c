@@ -468,17 +468,24 @@ static void* alignBestThread(void* param) {
         }
     }
     
-    reconstructPairGpu(alignment, data[maxIdx], type, queries[maxIdx], target, 
-        scorer, cards, cardsLen);
-    
+    if (data[maxIdx] == NULL) {
+        alignScoredPairCpu(alignment, type, queries[maxIdx], target,
+            scorer, maxScore);
+    } else {
+        reconstructPairGpu(alignment, data[maxIdx], type, queries[maxIdx], 
+            target, scorer, cards, cardsLen);
+    }
+
     //**************************************************************************
     
     //**************************************************************************
     // CLEAN MEMORY
 
     for (i = 0; i < queriesLen; ++i) {
-        free(data[i]->data);
-        free(data[i]);
+        if (data[i] != NULL) {
+            free(data[i]->data);
+            free(data[i]);
+        }
     }
     
     free(data);
@@ -510,6 +517,7 @@ static void* scorePairThread(void* param) {
     
     if (cols < GPU_MIN_LEN || cells < GPU_MIN_CELLS || cardsLen == 0) {
         *score = scorePairCpu(type, query, target, scorer);
+        if (data != NULL) *data = NULL;
     } else {
         *score = scorePairGpu(data, type, query, target, scorer, NO_SCORE, 
             cards, cardsLen);

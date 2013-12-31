@@ -990,7 +990,14 @@ static void outputDatabaseBlastM8(DbAlignment** dbAlignments,
         fprintf(file, "%d\t", dbAlignmentGetQueryEnd(dbAlignments[i]) + 1);
         fprintf(file, "%d\t", dbAlignmentGetTargetStart(dbAlignments[i]) + 1);
         fprintf(file, "%d\t", dbAlignmentGetTargetEnd(dbAlignments[i]) + 1);
-        fprintf(file, "%.2e\t", dbAlignmentGetValue(dbAlignments[i]));
+
+        double value = dbAlignmentGetValue(dbAlignments[i]);
+        if (value > 10e-3) {
+            fprintf(file, "%.2f\t", dbAlignmentGetValue(dbAlignments[i]));
+        } else {
+            fprintf(file, "%.2e\t", dbAlignmentGetValue(dbAlignments[i]));
+        }
+
         fprintf(file, "%-d ", dbAlignmentGetScore(dbAlignments[i]));
         fprintf(file, "\n");
     }
@@ -1001,7 +1008,7 @@ static void outputDatabaseBlastM9(DbAlignment** dbAlignments,
     
     fprintf(file, "# Fields:\n"
                   "Query id,Subject id,%% identity,alignment length,mismatches,"
-                  "gap openings,q. start,q. end,s. start,s. end,value,score\n");
+                  "gap openings,q. start,q. end,s. start,s. end,e-value,score\n");
               
     outputDatabaseBlastM8(dbAlignments, dbAlignmentsLen, file);
 }
