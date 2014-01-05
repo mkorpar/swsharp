@@ -149,8 +149,6 @@ int main(int argc, char* argv[]) {
         ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
     }
     
-    ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
-    
     Scorer* scorer;
     scorerCreateScalar(&scorer, match, mismatch, gapOpen, gapExtend);
     
