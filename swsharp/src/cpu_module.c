@@ -1294,8 +1294,13 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         }
     }
     
-    if (endRow == 0 || endCol == 0) {
+    if ((endRow == 0 || endCol == 0) && bestScore == 0) {
+
+        free(hBus);
+        free(moves);
+
         *alignment = alignmentCreate(query, 0, 0, target, 0, 0, 0, scorer, NULL, 0);
+
         return;
     }
 
