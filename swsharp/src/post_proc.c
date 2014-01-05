@@ -496,8 +496,13 @@ static void outputPair(Alignment* alignment, FILE* file) {
     aligmentStr(&queryStr, &targetStr, alignment, gapItem);
 
     const char* queryName = chainGetName(query);
+    char* querySpace = strchr(queryName, ' ');
+    const int queryNameLen = MIN(9, querySpace ? querySpace - queryName: 9);
+
     const char* targetName = chainGetName(target);
-    
+    char* targetSpace = strchr(targetName, ' ');
+    const int targetNameLen = MIN(9, targetSpace ? targetSpace - targetName: 9);
+
     int queryStart = alignmentGetQueryStart(alignment);
     int targetStart = alignmentGetTargetStart(alignment);
     int queryEnd = queryStart;
@@ -537,12 +542,12 @@ static void outputPair(Alignment* alignment, FILE* file) {
         if ((i + 1) % 50 == 0 || i == pathLen - 1) {
         
             fprintf(file, 
-                "%-9.9s %9d %-50.50s %9d\n"
+                "%-9.*s %9d %-50.50s %9d\n"
                 "%19s %-50.50s %9s\n"
-                "%-9.9s %9d %-50.50s %9d\n\n", 
-                queryName, queryStart + 1, queryLine, queryEnd + 1,
+                "%-9.*s %9d %-50.50s %9d\n\n", 
+                queryNameLen, queryName, queryStart + 1, queryLine, queryEnd + 1,
                 "", markupLine, "",
-                targetName, targetStart + 1, targetLine, targetEnd + 1
+                targetNameLen, targetName, targetStart + 1, targetLine, targetEnd + 1
             ); 
 
             queryStart = queryEnd + (queryStr[i] != gapItem);
@@ -687,9 +692,27 @@ static void outputStat(Alignment* alignment, FILE* file) {
     fprintf(file, "########################################\n");
     fprintf(file, "#\n");
     fprintf(file, "# Aligned: \n");
-    fprintf(file, "# 1: %.80s\n", chainGetName(query));
-    fprintf(file, "# 2: %.80s\n", chainGetName(target));
-    fprintf(file, "#\n");
+
+    // print query name in parts of 80
+    const char* queryName = chainGetName(query);
+    const int queryLen = strlen(queryName);
+    int queryCur = 75;
+    fprintf(file, "# 1: %.75s\n", queryName);
+    while (queryCur < queryLen) {
+        fprintf(file, "# %.78s\n", queryName + queryCur);
+        queryCur += 78;
+    }
+
+    // print target name in parts of 80
+    const char* targetName = chainGetName(target);
+    const int targetLen = strlen(targetName);
+    int targetCur = 75;
+    fprintf(file, "# 2: %.75s\n", targetName);
+    while (targetCur < targetLen) {
+        fprintf(file, "# %.78s\n", targetName + targetCur);
+        targetCur += 78;
+    }
+
     fprintf(file, "# Scorer: %s\n", scorerGetName(scorer));
     fprintf(file, "# Gap open: %d\n", scorerGetGapOpen(scorer));
     fprintf(file, "# Gap extend: %d\n", scorerGetGapExtend(scorer));

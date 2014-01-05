@@ -1294,6 +1294,11 @@ static void swAlign(Alignment** alignment, Chain* query, Chain* target,
         }
     }
     
+    if (endRow == 0 || endCol == 0) {
+        *alignment = alignmentCreate(query, 0, 0, target, 0, 0, 0, scorer, NULL, 0);
+        return;
+    }
+
     row = endRow;
     col = endCol;
     

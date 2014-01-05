@@ -199,7 +199,6 @@ grater or equal to zero or if the codes are not available -1.
 Encoding is done in the following way:
     - characters 'A'-'Z' are encoded to 0-25
     - characters 'a'-'z' are encoded to 0-25
-    - characters '0'-'9' are encoded to 26-35
     - all other input characters cannot be encoded
     
 @param c input character

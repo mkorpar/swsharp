@@ -75,9 +75,15 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
     
     chain->nameLen = nameLen + 1;
     chain->name = (char*) malloc((nameLen + 1) * sizeof(char));
-    chain->name[nameLen] = 0;
     memcpy(chain->name, name, nameLen * sizeof(char));
-    
+
+    while (isspace(name[nameLen - 1])) {
+        nameLen--;
+    }
+
+    ASSERT(nameLen > 0, "invalid chain name, should be at least non space char");
+    chain->name[nameLen] = 0;
+
     chain->codes = (char*) malloc(stringLen * sizeof(char));
     chain->length = 0;
     
@@ -91,7 +97,9 @@ extern Chain* chainCreate(char* name, int nameLen, char* string, int stringLen) 
             chain->length++;
         }
     }
-    
+
+    ASSERT(chain->length > 0, "chain is empty after encoding, "
+        "see scorerEncode function");
     chain->origin = chain;
     
     chain->reverseCodes = NULL;
