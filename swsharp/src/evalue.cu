@@ -27,6 +27,7 @@ Contact the author by mkorpar@gmail.com.
 #include "chain.h"
 #include "constants.h"
 #include "cuda_utils.h"
+#include "error.h"
 #include "scorer.h"
 
 #include "evalue.h"
@@ -38,6 +39,7 @@ Contact the author by mkorpar@gmail.com.
 struct EValueParams {
     double lambda;
     double K;
+    double logK;
     double H;
     double a;
     double C;
@@ -50,6 +52,7 @@ struct EValueParams {
     double aUn;
     double alphaUn;
     long long length;
+    int isDna;
 };
 
 typedef struct ScorerConstants {
@@ -63,22 +66,25 @@ typedef struct ScorerConstants {
     double C;
     double alpha;
     double sigma;
+    int isDna;
 } ScorerConstants;
 
 // lambda, k, H, a, C, Alpha, Sigma
 static ScorerConstants scorerConstants[] = {
-    { "BLOSUM_62", -1, -1, 0.3176, 0.134, 0.4012, 0.7916, 0.623757, 4.964660, 4.964660 },
-    { "BLOSUM_62", 11, 2, 0.297, 0.082, 0.27, 1.1, 0.641766, 12.673800, 12.757600 },
-    { "BLOSUM_62", 10, 2, 0.291, 0.075, 0.23, 1.3, 0.649362, 16.474000, 16.602600 },
-    { "BLOSUM_62", 9, 2, 0.279, 0.058, 0.19, 1.5, 0.659245, 22.751900, 22.950000 },
-    { "BLOSUM_62", 8, 2, 0.264, 0.045, 0.15, 1.8, 0.672692, 35.483800, 35.821300 },
-    { "BLOSUM_62", 7, 2, 0.239, 0.027, 0.10, 2.5, 0.702056, 61.238300, 61.886000 },
-    { "BLOSUM_62", 6, 2, 0.201, 0.012, 0.061, 3.3, 0.740802, 140.417000, 141.882000 },
-    { "BLOSUM_62", 13, 1, 0.292, 0.071, 0.23, 1.2, 0.647715, 19.506300, 19.893100 },
-    { "BLOSUM_62", 12, 1, 0.283, 0.059, 0.19, 1.5, 0.656391, 27.856200, 28.469900 },
-    { "BLOSUM_62", 11, 1, 0.267, 0.041, 0.14, 1.9, 0.669720, 42.602800, 43.636200 },
-    { "BLOSUM_62", 10, 1, 0.243, 0.024, 0.10, 2.5, 0.693267, 83.178700, 85.065600 },
-    { "BLOSUM_62", 9, 1, 0.206, 0.010, 0.052, 4.0, 0.731887, 210.333000, 214.842000 },
+    { "BLOSUM_62", -1, -1, 0.3176, 0.134, 0.4012, 0.7916, 0.623757, 4.964660, 4.964660, 0},
+    { "BLOSUM_62", 11, 2, 0.297, 0.082, 0.27, 1.1, 0.641766, 12.673800, 12.757600, 0 },
+    { "BLOSUM_62", 10, 2, 0.291, 0.075, 0.23, 1.3, 0.649362, 16.474000, 16.602600, 0 },
+    { "BLOSUM_62", 9, 2, 0.279, 0.058, 0.19, 1.5, 0.659245, 22.751900, 22.950000, 0 },
+    { "BLOSUM_62", 8, 2, 0.264, 0.045, 0.15, 1.8, 0.672692, 35.483800, 35.821300, 0 },
+    { "BLOSUM_62", 7, 2, 0.239, 0.027, 0.10, 2.5, 0.702056, 61.238300, 61.886000, 0 },
+    { "BLOSUM_62", 6, 2, 0.201, 0.012, 0.061, 3.3, 0.740802, 140.417000, 141.882000, 0 },
+    { "BLOSUM_62", 13, 1, 0.292, 0.071, 0.23, 1.2, 0.647715, 19.506300, 19.893100, 0 },
+    { "BLOSUM_62", 12, 1, 0.283, 0.059, 0.19, 1.5, 0.656391, 27.856200, 28.469900, 0 },
+    { "BLOSUM_62", 11, 1, 0.267, 0.041, 0.14, 1.9, 0.669720, 42.602800, 43.636200, 0 },
+    { "BLOSUM_62", 10, 1, 0.243, 0.024, 0.10, 2.5, 0.693267, 83.178700, 85.065600, 0 },
+    { "BLOSUM_62", 9, 1, 0.206, 0.010, 0.052, 4.0, 0.731887, 210.333000, 214.842000, 0 },
+    { "EDNA_FULL", 10, 6, 0.163, 0.068, 0.16, 0, 0, 0, 0, 1 },
+    { "EDNA_FULL", 8, 6, 0.146, 0.039, 0.11, 0, 0, 0, 0, 1 }
 };
 
 #ifdef __CUDACC__
@@ -88,6 +94,7 @@ static __constant__ int queryLen_;
 static __constant__ double paramsLength_;
 static __constant__ double paramsLambda_;
 static __constant__ double paramsK_;
+static __constant__ double paramsLogK_;
 static __constant__ double paramsA_;
 static __constant__ double paramsB_;
 static __constant__ double paramsAlpha_;
@@ -113,9 +120,12 @@ static void eValuesGpu(double* values, int* scores, Chain* query,
     EValueParams* eValueParams);
 #endif // __CUDACC__
 
-static double calculateEValue(int score, int queryLen, int targetLen, 
+static double calculateEValueProt(int score, int queryLen, int targetLen, 
     EValueParams* params);
-    
+
+static double calculateEValueDna(int score, int queryLen, int targetLen, 
+    EValueParams* params);
+
 #ifdef _WIN32
 double erf(double x);
 #endif
@@ -124,7 +134,9 @@ double erf(double x);
 // With visual c++ compiler and prototypes declared cuda global memory variables
 // do not work. No questions asked.
 #ifndef _WIN32
-__global__ static void kernel(double* values, int2* data);
+__global__ static void kernelProt(double* values, int2* data);
+
+__global__ static void kernelDna(double* values, int2* data);
 #endif
 #endif // __CUDACC__
 
@@ -139,27 +151,49 @@ extern EValueParams* createEValueParams(long long length, Scorer* scorer) {
     int gapOpen = scorerGetGapOpen(scorer);
     int gapExtend = scorerGetGapExtend(scorer);
     
-    double alphaUn = scorerConstants[0].alpha;
-    double aUn = scorerConstants[0].a;
-    double G = gapOpen + gapExtend;
-    
     int index = -1;
+    int indexUn = -1;
+
     for (int i = 0; i < (int) SCORER_CONSTANTS_LEN; ++i) {
 
-        ScorerConstants entry = scorerConstants[i];
-        
-        if (entry.gapOpen == gapOpen && entry.gapExtend == gapExtend &&
-            strncmp(entry.matrix, matrix, strlen(entry.matrix)) == 0) {
+        ScorerConstants* entry = &(scorerConstants[i]);
+
+        int sameName = strcmp(entry->matrix, matrix) == 0;
+
+        if (sameName && indexUn == -1) {
+            indexUn = i;
+        }
+
+        if (sameName && entry->gapOpen == gapOpen && entry->gapExtend == gapExtend) {
             index = i;
             break;
         }
     }
-    
-    if (index == -1) {
-        index = 0;
-        printf("WARNING: no e-value params found, using defaults\n");
+
+    // ignore miss of default matrix parameters
+    if (indexUn == -1 && index != -1) {
+        indexUn = index;
     }
-    
+
+    if (index == -1 || indexUn == -1) {
+
+        if (indexUn == -1) {
+            index = 0;
+            indexUn = 0;
+        } else {
+            index = indexUn;
+        }
+
+        ScorerConstants* entry = &(scorerConstants[indexUn]);
+
+        WARNING(1, "no e-value params found, using %s %d %d", entry->matrix,
+            entry->gapOpen, entry->gapExtend);
+    }
+
+    double alphaUn = scorerConstants[indexUn].alpha;
+    double aUn = scorerConstants[indexUn].a;
+    double G = gapOpen + gapExtend;
+
     EValueParams* params = (EValueParams*) malloc(sizeof(struct EValueParams));
     
     params->G = G;
@@ -167,6 +201,7 @@ extern EValueParams* createEValueParams(long long length, Scorer* scorer) {
     params->alphaUn = alphaUn;
     params->lambda = scorerConstants[index].lambda;
     params->K = scorerConstants[index].K;
+    params->logK = log(params->K);
     params->H = scorerConstants[index].H;
     params->a = scorerConstants[index].a;
     params->C = scorerConstants[index].C;
@@ -176,7 +211,11 @@ extern EValueParams* createEValueParams(long long length, Scorer* scorer) {
     params->beta = 2.0 * G * (params->alphaUn - params->alpha);
     params->tau = 2.0 * G * (params->alphaUn - params->sigma);
     params->length = length;
-    
+    params->isDna = scorerConstants[index].isDna;
+
+    printf("Using: lambda = %.3lf, K = %.3lf, H = %.3lf\n",
+        params->lambda, params->K, params->H);
+
     return params;
 }
 
@@ -209,6 +248,14 @@ extern void eValues(double* values, int* scores, Chain* query,
 static void eValuesCpu(double* values, int* scores, Chain* query, 
     Chain** database, int databaseLen, EValueParams* eValueParams) {
 
+    double (*function) (int, int, int, EValueParams*);
+
+    if (eValueParams->isDna) {
+        function = calculateEValueDna;
+    } else {
+        function = calculateEValueProt;
+    }
+
     int queryLen = chainGetLength(query);
 
     for (int i = 0; i < databaseLen; ++i) {
@@ -221,7 +268,7 @@ static void eValuesCpu(double* values, int* scores, Chain* query,
             continue;
         }
         
-        values[i] = calculateEValue(score, queryLen, targetLen, eValueParams);
+        values[i] = function(score, queryLen, targetLen, eValueParams);
     }
 }
 
@@ -254,18 +301,29 @@ static void eValuesGpu(double* values, int* scores, Chain* query,
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(length_, &databaseLen, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(queryLen_, &queryLen, sizeof(int)));
 
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsLength_, &length, sizeof(double)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsLambda_, &(params->lambda), sizeof(double)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsK_, &(params->K), sizeof(double)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsA_, &(params->a), sizeof(double)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsB_, &(params->b), sizeof(double)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsAlpha_, &(params->alpha), sizeof(double)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsBeta_, &(params->beta), sizeof(double)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsSigma_, &(params->sigma), sizeof(double)));
-    CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsTau_, &(params->tau), sizeof(double)));
+    if (params->isDna) {
 
-    // solve
-    kernel<<<120, 128>>>(valuesGpu, dataGpu);
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsLength_, &length, sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsLambda_, &(params->lambda), sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsLogK_, &(params->logK), sizeof(double)));
+
+        kernelDna<<<120, 128>>>(valuesGpu, dataGpu);
+
+    } else {
+
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsLength_, &length, sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsLambda_, &(params->lambda), sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsK_, &(params->K), sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsA_, &(params->a), sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsB_, &(params->b), sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsAlpha_, &(params->alpha), sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsBeta_, &(params->beta), sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsSigma_, &(params->sigma), sizeof(double)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(paramsTau_, &(params->tau), sizeof(double)));
+
+        // solve
+        kernelProt<<<120, 128>>>(valuesGpu, dataGpu);
+    }
 
     // save results
     CUDA_SAFE_CALL(cudaMemcpy(values, valuesGpu, valuesSize, FROM_GPU));
@@ -282,11 +340,29 @@ static void eValuesGpu(double* values, int* scores, Chain* query,
 // GPU MODULES
 
 #ifdef __CUDACC__
-__global__ static void kernel(double* values, int2* data) {
+__global__ static void kernelProt(double* values, int2* data) {
 
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
     int m_ = queryLen_;
+
+    double lambda_    = paramsLambda_;
+    double k_         = paramsK_;
+    double ai_hat_    = paramsA_;
+    double bi_hat_    = paramsB_;
+    double alphai_hat_= paramsAlpha_;
+    double betai_hat_ = paramsBeta_;
+    double sigma_hat_ = paramsSigma_;
+    double tau_hat_   = paramsTau_;
+
+    // here we consider symmetric matrix only
+    double aj_hat_    = ai_hat_;
+    double bj_hat_    = bi_hat_;
+    double alphaj_hat_= alphai_hat_;
+    double betaj_hat_ = betai_hat_;
+
+    // this is 1/sqrt(2.0*PI)
+    double const_val = 0.39894228040143267793994605993438;
 
     while (idx < length_) {
 
@@ -299,23 +375,6 @@ __global__ static void kernel(double* values, int2* data) {
 
             double db_scale_factor = (double) paramsLength_ / (double) n_;
 
-            double lambda_    = paramsLambda_;
-            double k_         = paramsK_;
-            double ai_hat_    = paramsA_;
-            double bi_hat_    = paramsB_;
-            double alphai_hat_= paramsAlpha_;
-            double betai_hat_ = paramsBeta_;
-            double sigma_hat_ = paramsSigma_;
-            double tau_hat_   = paramsTau_;
-
-            // here we consider symmetric matrix only
-            double aj_hat_    = ai_hat_;
-            double bj_hat_    = bi_hat_;
-            double alphaj_hat_= alphai_hat_;
-            double betaj_hat_ = betai_hat_;
-
-            // this is 1/sqrt(2.0*PI)
-            double const_val = 0.39894228040143267793994605993438;
             double m_li_y, vi_y, sqrt_vi_y, m_F, P_m_F;
             double n_lj_y, vj_y, sqrt_vj_y, n_F, P_n_F;
             double c_y, p1, p2;
@@ -344,6 +403,29 @@ __global__ static void kernel(double* values, int2* data) {
         idx += gridDim.x * blockDim.x;
     }
 }
+
+__global__ static void kernelDna(double* values, int2* data) {
+
+    int idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+    double lambda = paramsLambda_;
+    double logK = paramsLogK_;
+
+    while (idx < length_) {
+
+        int score = data[idx].x;
+        int targetLen = data[idx].y;
+
+        if (score == NO_SCORE) {
+            values[idx] = INFINITY;
+        } else {
+            values[idx] = queryLen_ * targetLen * exp(-lambda * score + logK);
+        }
+
+        idx += gridDim.x * blockDim.x;
+    }
+
+}
 #endif // __CUDACC__
 
 //------------------------------------------------------------------------------
@@ -351,7 +433,7 @@ __global__ static void kernel(double* values, int2* data) {
 //------------------------------------------------------------------------------
 // CPU MODULES
 
-static double calculateEValue(int score, int queryLen, int targetLen, 
+static double calculateEValueProt(int score, int queryLen, int targetLen, 
     EValueParams* params) {
     
     // code taken from blast
@@ -404,6 +486,15 @@ static double calculateEValue(int score, int queryLen, int targetLen,
     area = p1 * p2 + c_y * P_m_F * P_n_F;
 
     return area * k_ * exp(-lambda_ * y_) * db_scale_factor;
+}
+
+static double calculateEValueDna(int score, int queryLen, int targetLen, 
+    EValueParams* params) {
+
+    double lambda = params->lambda;
+    double logK = params->logK;
+
+    return (double) queryLen * targetLen * exp(-lambda * score + logK);
 }
 
 #ifdef _WIN32
