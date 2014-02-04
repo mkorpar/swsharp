@@ -213,7 +213,7 @@ extern void nwReconstructCpu(char** path, int* pathLen, int* outScore,
     int maxScore = scorerGetMaxScore(scorer);
     int minMatch = maxScore ? score / maxScore : 0;
     int t = MAX(rows, cols) - minMatch;
-    int p = (t - abs(rows - cols)) / 2;
+    int p = (t - abs(rows - cols)) / 2 + 1;
     
     if (score < 0) {
         p = MAX(rows, cols);
