@@ -1046,7 +1046,7 @@ static void ovAlign(Alignment** alignment, Chain* query, Chain* target,
         col++;
     }
 
-    if (row >= rows || col >= cols) {
+    if (pathEnd - pathIdx <= 0) {
         *alignment = alignmentCreate(query, 0, 0, target, 0, 0, outScore, scorer, NULL, 0);
     } else {
 
