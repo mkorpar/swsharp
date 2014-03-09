@@ -1015,7 +1015,7 @@ static void outputDatabaseBlastM8(DbAlignment** dbAlignments,
         fprintf(file, "%d\t", dbAlignmentGetTargetEnd(dbAlignments[i]) + 1);
 
         double value = dbAlignmentGetValue(dbAlignments[i]);
-        if (value > 10e-3) {
+        if (value > 10e-3 && value < 100) {
             fprintf(file, "%.2f\t", dbAlignmentGetValue(dbAlignments[i]));
         } else {
             fprintf(file, "%.2e\t", dbAlignmentGetValue(dbAlignments[i]));
