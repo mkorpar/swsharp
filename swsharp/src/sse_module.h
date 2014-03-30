@@ -22,12 +22,22 @@ Contact the author by mkorpar@gmail.com.
 #ifndef __SSE_MODULE_H__
 #define __SSE_MODULE_H__
 
+#include "alignment.h"
 #include "chain.h"
 #include "scorer.h"
 
 #ifdef __cplusplus 
 extern "C" {
 #endif
+
+extern int alignPairSse(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer);
+
+extern int alignScoredPairSse(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int score);
+
+extern int scorePairSse(int* score, int type, Chain* query, Chain* target,
+    Scorer* scorer);
 
 extern int scoreDatabaseSse(int* scores, int type, Chain* query, 
     Chain** database, int databaseLen, Scorer* scorer);

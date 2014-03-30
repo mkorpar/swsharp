@@ -108,7 +108,11 @@ extern void alignScoredPairCpu(Alignment** alignment, int type, Chain* query,
     Chain* target, Scorer* scorer, int score) {
     
     void (*function) (Alignment**, Chain*, Chain*, Scorer*, int);
-    
+
+    if (alignScoredPairSse(alignment, type, query, target, scorer, score) == 0) {
+        return;
+    }
+
     switch (type) {
     case HW_ALIGN: 
         function = hwAlign;
@@ -141,6 +145,11 @@ extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer) {
         if (chainGetLength(query) < chainGetLength(target)) {
             SWAP(query, target);
         }
+    }
+
+    int score;
+    if (scorePairSse(&score, type, query, target, scorer) == 0) {
+        return score;
     }
 
     switch (type) {

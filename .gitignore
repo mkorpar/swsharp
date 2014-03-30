@@ -15,5 +15,6 @@ swsharpwin/*/*.c
 swsharpwin/*/*.cpp
 swsharpwin/*/*.h
 swsharpwin/*/*/*.h
+swsharpwin/*/*/*.c
 swsharpwin/*/*/*.cpp
 

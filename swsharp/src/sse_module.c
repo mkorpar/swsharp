@@ -27,11 +27,269 @@ Contact the author by mkorpar@gmail.com.
 #include "scorer.h"
 
 #include "swimd/Swimd.h"
+#include "ssw/ssw.h"
 
 #include "sse_module.h"
 
+//******************************************************************************
+// PUBLIC
+
+//******************************************************************************
+
+//******************************************************************************
+// PRIVATE
+
+static int sswWrapper(s_align** a, int type, Chain* query, Chain* target, 
+    Scorer* scorer, int score, int flag);
+
+static int sswDatabaseWrapper(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer);
+
+static int swimdWrapper(int* scores, int type, Chain* query, Chain** database, 
+    int databaseLen, Scorer* scorer);
+
+//******************************************************************************
+
+//******************************************************************************
+// PUBLIC
+
+extern int alignPairSse(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer) {
+    return alignScoredPairSse(alignment, type, query, target, scorer, NO_SCORE);
+}
+
+extern int alignScoredPairSse(Alignment** alignment, int type, Chain* query, 
+    Chain* target, Scorer* scorer, int score) {
+
+    int i, j;
+
+    s_align* a = NULL;
+
+    if (sswWrapper(&a, type, query, target, scorer, score, 1) != 0) {
+
+        if (a != NULL) {
+            align_destroy(a);
+        }
+
+        return -1;
+    }
+
+    uint32_t* cigar = a->cigar;
+    int32_t cigarLen = a->cigarLen;
+
+    int pathLen = 0;
+    for (i = 0; i < cigarLen; ++i) {
+        pathLen += cigar[i] >> 4;
+    }
+
+    char* path = (char*) malloc(pathLen * sizeof(char));
+    for (i = 0, j = 0; i < cigarLen; ++i) {
+
+        int len = cigar[i] >> 4;
+        int val = cigar[i] & 0xF;
+
+        char move;
+        switch (val) {
+        case 0:
+            move = MOVE_DIAG;
+            break;
+        case 1:
+            move = MOVE_UP;
+            break;
+        default:
+            move = MOVE_LEFT;
+            break;
+        }
+
+        memset(path + j, move, len * sizeof(char));
+        j += len;
+    }
+
+    *alignment = alignmentCreate(query, a->read_begin1, a->read_end1, target, 
+        a->ref_begin1, a->ref_end1, a->score1, scorer, path, pathLen);
+
+    /*
+    printf("%d\n", a->score1);
+    printf("%d %d %d %d\n", a->read_begin1, a->read_end1, a->ref_begin1, a->ref_end1);
+    printf("%d\n", a->cigarLen);
+    printf("%d\n", pathLen);
+    */
+
+    align_destroy(a);
+
+    return 0;
+}
+
+extern int scorePairSse(int* score, int type, Chain* query, Chain* target,
+    Scorer* scorer) {
+
+    if (type != SW_ALIGN) {
+        return -1;
+    }
+
+    s_align* a = NULL;
+
+    if (sswWrapper(&a, type, query, target, scorer, NO_SCORE, 0) != 0) {
+
+        if (a != NULL) {
+            align_destroy(a);
+        }
+
+        return -1;
+    }
+
+    *score = a->score1;
+
+    align_destroy(a);
+
+    return 0;
+}
+
 extern int scoreDatabaseSse(int* scores, int type, Chain* query, 
     Chain** database, int databaseLen, Scorer* scorer) {
+
+    if (swimdWrapper(scores, type, query, database, databaseLen, scorer) == 0) {
+        return 0;
+    }
+
+    if (sswDatabaseWrapper(scores, type, query, database, databaseLen, scorer) == 0) {
+        return 0;
+    }
+
+    return -1;
+}
+
+//******************************************************************************
+
+//******************************************************************************
+// PRIVATE
+
+static int sswWrapper(s_align** a, int type, Chain* query, Chain* target, 
+    Scorer* scorer, int score, int flag) {
+
+    if (type != SW_ALIGN) {
+        return -1;
+    }
+
+    int gapOpen = scorerGetGapOpen(scorer);
+    int gapExtend = scorerGetGapExtend(scorer);
+
+    if (abs(gapOpen) > 127 || abs(gapExtend) > 127) {
+        return -1;
+    }
+
+    const int32_t n = scorerGetMaxCode(scorer);
+    int8_t* mat = (int8_t*) malloc(n * n * sizeof(int8_t));
+
+    const int* table = scorerGetTable(scorer);
+
+    int i;
+    for (i = 0; i < n * n; ++i) {
+
+        int val = table[i];
+
+        // can't use ssw
+        if (abs(val) > 127) {
+            free(mat);
+            return -1;
+        }
+
+        mat[i] = (int8_t) val;
+    }
+
+    const int8_t* read = (const int8_t*) chainGetCodes(query);
+    const int32_t readLen = chainGetLength(query);
+
+    s_profile* prof = ssw_init(read, readLen, mat, n, 2);
+
+    const uint8_t weight_gapO = (const uint8_t) gapOpen;
+    const uint8_t weight_gapE = (const uint8_t) gapExtend;
+
+    const int8_t* ref = (const int8_t*) chainGetCodes(target);
+    const int32_t refLen = chainGetLength(target);
+
+    int8_t score_size;
+    if (score == NO_SCORE) {
+        score_size = 2;
+    } else if (score < 255) {
+        score_size = 0;
+    } else {
+        score_size = 1;
+    }
+
+    *a = ssw_align(prof, ref, refLen, weight_gapO, weight_gapE, flag,
+        0, 0, score_size);
+
+    init_destroy(prof);
+    free(mat);
+
+    return 0;
+}
+
+static int sswDatabaseWrapper(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer) {
+
+    if (type != SW_ALIGN) {
+        return -1;
+    }
+
+    int gapOpen = scorerGetGapOpen(scorer);
+    int gapExtend = scorerGetGapExtend(scorer);
+
+    if (abs(gapOpen) > 127 || abs(gapExtend) > 127) {
+        return -1;
+    }
+
+    const int32_t n = scorerGetMaxCode(scorer);
+    int8_t* mat = (int8_t*) malloc(n * n * sizeof(int8_t));
+
+    const int* table = scorerGetTable(scorer);
+
+    int i;
+    for (i = 0; i < n * n; ++i) {
+
+        int val = table[i];
+
+        // can't use ssw
+        if (abs(val) > 127) {
+            free(mat);
+            return -1;
+        }
+
+        mat[i] = (int8_t) val;
+    }
+
+    const int8_t* read = (const int8_t*) chainGetCodes(query);
+    const int32_t readLen = chainGetLength(query);
+
+    s_profile* prof = ssw_init(read, readLen, mat, n, 2);
+
+    const uint8_t weight_gapO = (const uint8_t) gapOpen;
+    const uint8_t weight_gapE = (const uint8_t) gapExtend;
+
+    for (i = 0; i < databaseLen; ++i) {
+
+        Chain* target = database[i];
+
+        const int8_t* ref = (const int8_t*) chainGetCodes(target);
+        const int32_t refLen = chainGetLength(target);
+
+        s_align* a = ssw_align(prof, ref, refLen, weight_gapO, weight_gapE,
+            0, 0, 0, 2);
+
+        scores[i] = a->score1;
+
+        align_destroy(a);
+    }
+
+    init_destroy(prof);
+    free(mat);
+
+    return 0;
+}
+
+static int swimdWrapper(int* scores, int type, Chain* query, Chain** database, 
+    int databaseLen, Scorer* scorer) {
 
 #ifdef __SSE4_1__
 
@@ -85,3 +343,6 @@ extern int scoreDatabaseSse(int* scores, int type, Chain* query,
     return -1;
 #endif
 }
+
+//******************************************************************************
+

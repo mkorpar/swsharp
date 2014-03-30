@@ -45,7 +45,7 @@ Contact the author by mkorpar@gmail.com.
 #define CPU_PACKED_CHUNK    25
 
 #define GPU_DB_MIN_CELLS    49000000ll
-#define GPU_MIN_CELLS       1000000ll
+#define GPU_MIN_CELLS       40000000ll
 #define GPU_MIN_LEN         256
 
 typedef struct Context {
