@@ -505,7 +505,8 @@ static void* cpuDatabaseScore(void* param) {
         // init results, not all are solved
         for (i = 0; i < queriesLen; ++i) {
             for (j = 0; j < filteredLen_; ++j) {
-                scores_[i * databaseLen + j] = NO_SCORE;
+                int idx = positions_[j];
+                scores_[i * databaseLen + idx] = NO_SCORE;
             }
         }
     }
