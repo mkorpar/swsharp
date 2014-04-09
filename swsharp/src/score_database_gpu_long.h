@@ -37,7 +37,10 @@ typedef struct LongDatabase LongDatabase;
 extern LongDatabase* longDatabaseCreate(Chain** database, int databaseLen, 
     int minLen, int maxLen, int* cards, int cardsLen);
 extern void longDatabaseDelete(LongDatabase* longDatabase);
-    
+
+extern size_t longDatabaseGpuMemoryConsumption(Chain** database, int databaseLen,
+    int minLen, int maxLen);
+
 extern void scoreLongDatabaseGpu(int* scores, int type, Chain* query, 
     LongDatabase* longDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);

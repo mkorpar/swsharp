@@ -229,6 +229,35 @@ extern void longDatabaseDelete(LongDatabase* longDatabase) {
     deleteDatabase(longDatabase);
 }
 
+extern size_t longDatabaseGpuMemoryConsumption(Chain** database, int databaseLen,
+    int minLen, int maxLen) {
+
+    int length = 0;
+    long codesLen = 0;
+
+    for (int i = 0; i < databaseLen; ++i) {
+
+        const int n = chainGetLength(database[i]);
+        
+        if (n >= minLen && n < maxLen) {
+            codesLen += n;
+            length++;
+        }
+    }
+
+    size_t lengthsSize = length * sizeof(int);
+    size_t startsSize = length * sizeof(int);
+    size_t codesSize = codesLen * sizeof(char);
+    size_t indexesSize = length * sizeof(int);
+    size_t scoresSize = length * sizeof(int);
+    size_t hBusSize = codesLen * sizeof(int2);
+
+    size_t memory = codesSize + startsSize + lengthsSize + indexesSize + 
+        scoresSize + hBusSize;
+
+    return memory;
+}
+
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
@@ -410,12 +439,10 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
         gpuDatabases[i].scores = scoresGpu;
         gpuDatabases[i].hBus = hBusGpu;
 
-        #ifdef DEBUG
         size_t memory = codesSize + startsSize + lengthsSize + indexesSize + 
             scoresSize + hBusSize;
             
-        LOG("Long database using %.2lfMBs on card %d", memory / 1024.0 / 1024.0, card);
-        #endif
+        printf("Long database using %.2lfMBs on card %d\n", memory / 1024.0 / 1024.0, card);
     }
 
     //**************************************************************************

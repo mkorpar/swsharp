@@ -190,18 +190,58 @@ int main(int argc, char* argv[]) {
     Chain** database = NULL; 
     int databaseLen = 0;
     int databaseStart = 0;
+    int databaseEnd = 0;
 
     FILE* handle;
     int serialized;
 
     readFastaChainsPartInit(&database, &databaseLen, &handle, &serialized, databasePath);
 
+    size_t cudaMemory = cudaMinimalGlobalMemory(cards, cardsLen);
+    size_t cudaMemoryMax = cudaMemory - 200000000; // ~200MB breathing space
+
     int i, j;
 
     while (1) {
 
-        int status = readFastaChainsPart(&database, &databaseLen, handle,
-            serialized, 100000000);
+        int status = 1;
+
+        while (1) {
+
+            databaseLen = databaseEnd;
+
+            status &= readFastaChainsPart(&database, &databaseLen, handle,
+                serialized, 100000000);
+
+            size_t cudaMemoryMin = chainDatabaseGpuMemoryConsumption(
+                database + databaseStart, databaseLen - databaseStart);
+
+            // evalue
+            cudaMemoryMin += 16 * databaseLen - databaseStart;
+
+            printf("checking %d %d | %d\n", databaseStart, databaseLen, status);
+
+            if (cudaMemoryMin > cudaMemoryMax) {
+
+                int holder = databaseLen;
+                databaseLen = databaseEnd;
+                databaseEnd = holder;
+
+                if (databaseLen <= databaseStart) {
+                    ASSERT(0, "cannot read database into CUDA memory");
+                }
+
+                break;
+            } else {
+                databaseEnd = databaseLen;
+            }
+
+            if (status == 0) {
+                break;
+            }
+        }
+
+        printf("solving %d %d\n", databaseStart, databaseLen);
 
         ChainDatabase* chainDatabase = chainDatabaseCreate(database, 
             databaseStart, databaseLen - databaseStart, cards, cardsLen);

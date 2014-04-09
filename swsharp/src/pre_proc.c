@@ -522,6 +522,10 @@ static int readFastaChainsPartSerialized(Chain*** chains, int* chainsLen,
 
     static const int chainsStep = 100000;
 
+    if (feof(handle)) {
+        return 0;
+    }
+
     size_t chainsSize;
 
     if (*chains == NULL) {

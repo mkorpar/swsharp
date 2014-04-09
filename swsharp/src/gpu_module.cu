@@ -76,6 +76,10 @@ extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLe
 extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu) {
 }
 
+extern size_t chainDatabaseGpuMemoryConsumption(Chain** database, int databaseLen) {
+    return 0;
+}
+
 extern void scoreDatabaseGpu(int** scores, int type, Chain* query, 
     ChainDatabaseGpu* chainDatabaseGpu, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread) {

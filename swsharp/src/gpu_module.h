@@ -218,6 +218,16 @@ extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLe
 extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu);
 
 /*!
+@brief ChainDatabaseGpu memory consumption getter
+
+@param database chain array
+@param databaseLen chain array length
+
+@return memory needed for the database to be stored on the gpu
+*/
+extern size_t chainDatabaseGpuMemoryConsumption(Chain** database, int databaseLen);
+
+/*!
 @brief GPU database aligning function.
 
 Function scores the query with every target in the chainDatabaseGpu, in other 

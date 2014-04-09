@@ -182,6 +182,18 @@ extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu) {
     }
 }
 
+extern size_t chainDatabaseGpuMemoryConsumption(Chain** database, int databaseLen) {
+
+    size_t mem1 = shortDatabaseGpuMemoryConsumption(database, databaseLen,
+        MAX_CPU_LEN, MAX_SHORT_LEN);
+    size_t mem2 = longDatabaseGpuMemoryConsumption(database, databaseLen,
+        MAX_SHORT_LEN, INT_MAX);
+
+    printf("short %.2lfMB, long %.2lfMB\n", mem1 / 1024.0 / 1024.0, mem2 / 1024.0 / 1024.0);
+
+    return mem1 + mem2;
+}
+
 extern void scoreDatabaseGpu(int** scores, int type, Chain* query, 
     ChainDatabaseGpu* chainDatabaseGpu, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread) {

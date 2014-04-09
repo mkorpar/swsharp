@@ -212,6 +212,61 @@ extern void shortDatabaseDelete(ShortDatabase* shortDatabase) {
     deleteDatabase(shortDatabase);
 }
 
+extern size_t shortDatabaseGpuMemoryConsumption(Chain** database,
+    int databaseLen, int minLen, int maxLen) {
+
+    int length = 0;
+
+    int sequencesCols = THREADS * BLOCKS;
+    int sequencesRows = 0;
+
+    int maxInCol = 0;
+    int maxHeight = 0;
+
+    for (int i = 0; i < databaseLen; ++i) {
+
+        const int n = chainGetLength(database[i]);
+        
+        if (n >= minLen && n < maxLen) {
+
+            maxHeight = max(maxHeight, n);
+            maxInCol = max(maxInCol, n);
+
+            if (length > 0 && length % sequencesCols == 0) {
+                sequencesRows += (maxInCol >> 2) + ((maxInCol & 3) > 0);
+                maxInCol = 0;
+            }
+
+            length++;
+        }
+    }
+
+    if (length == 0) {
+        return 0;
+    }
+
+    if (length % sequencesCols != 0) {
+        sequencesRows += (maxInCol >> 2) + ((maxInCol & 3) > 0);
+    }
+
+    maxHeight = (maxHeight >> 2) + ((maxHeight & 3) > 0);
+
+    int blocks = length / sequencesCols + (length % sequencesCols > 0);
+    int hBusHeight = maxHeight * 4;
+
+    size_t hBusSize = sequencesCols * hBusHeight * sizeof(int2);
+    size_t offsetsSize = blocks * sizeof(int);
+    size_t lengthsSize = blocks * sequencesCols * sizeof(int);
+    size_t sequencesSize = sequencesRows * sequencesCols * sizeof(char4);
+    size_t scoresSize = length * sizeof(int);
+    size_t indexesSize = length * sizeof(int);
+
+    size_t memory = offsetsSize + 2 * lengthsSize + sequencesSize + 
+        indexesSize + scoresSize + hBusSize;
+
+    return memory;
+}
+
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------
@@ -292,13 +347,13 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
     int blocks = 0;
     for (int i = sequencesCols - 1; i < length; i += sequencesCols) {
         int n = chainGetLength(database[orderPacked[i].x]);
-        sequencesRows += (n + (4 - n % 4) % 4) / 4;
+        sequencesRows += (n >> 2) + ((n & 3) > 0);
         blocks++;
     }
     
     if (length % sequencesCols != 0) {
         int n = chainGetLength(database[orderPacked[length - 1].x]);
-        sequencesRows += (n + (4 - n % 4) % 4) / 4;
+        sequencesRows += (n >> 2) + ((n & 3) > 0);
         blocks++;
     }
     
@@ -340,8 +395,7 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
         chainCopyCodes(chain, sequence);
         memset(sequence + n, 127, 4 * sizeof(char));
 
-        n = n + (4 - n % 4) % 4;
-        int n4 = n / 4;
+        int n4 = (n >> 2) + ((n & 3) > 0);
 
         lengthsPadded[j * sequencesCols + cx] = n4;
         
@@ -414,7 +468,7 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
     GpuDatabase* gpuDatabases = (GpuDatabase*) malloc(gpuDatabasesSize);
 
     for (int i = 0; i < cardsLen; ++i) {
-    
+
         int card = cards[i];
         CUDA_SAFE_CALL(cudaSetDevice(card));
 
@@ -460,12 +514,10 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
         gpuDatabases[i].scores = scoresGpu;
         gpuDatabases[i].hBus = hBusGpu;
         
-        #ifdef DEBUG
         size_t memory = offsetsSize + 2 * lengthsSize + sequencesSize + 
             indexesSize + scoresSize + hBusSize;
-            
-        LOG("Short database using %.2lfMBs on card %d", memory / 1024.0 / 1024.0, card);
-        #endif
+
+        printf("Short database using %.2lfMBs on card %d\n", memory / 1024.0 / 1024.0, card);
     }
     
     //**************************************************************************
