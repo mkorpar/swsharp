@@ -86,8 +86,15 @@ extern void cudaGetCards(int** cards, int* cardsLen);
 */
 extern int cudaCheckCards(int* cards, int cardsLen);
 
-extern void cudaCardBuckets(int*** cardBuckets, int** cardBucketsLens, 
-    int* cards, int cardsLen, int buckets);
+/*!
+@brief Get minimal available CUDA global memory
+
+@param cards CUDA cards index array
+@param cardsLen CUDA cards index array length
+
+@return global memory size of CUDA card with least memory
+*/
+extern size_t cudaMinimalGlobalMemory(int* cards, int cardsLen);
 
 #ifdef __cplusplus 
 }

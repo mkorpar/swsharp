@@ -23,6 +23,7 @@ Contact the author by mkorpar@gmail.com.
 #include <string.h>
 
 #include "error.h"
+#include "utils.h"
 
 #include "cuda_utils.h"
 
@@ -60,29 +61,26 @@ extern int cudaCheckCards(int* cards, int cardsLen) {
 #endif
 }
 
-extern void cudaCardBuckets(int*** cardBuckets, int** cardBucketsLens, 
-    int* cards, int cardsLen, int buckets) {
-    
-    ASSERT(buckets <= cardsLen && buckets >= 1, "invalid bucket data");
-    
-    *cardBuckets = (int**) malloc(buckets * sizeof(int*));
-    *cardBucketsLens = (int*) malloc(buckets * sizeof(int));
-    
-    memset(*cardBucketsLens, 0, buckets * sizeof(int));
-    
-    int i;
-    
-    int cardsLeft = cardsLen;
-    i = 0;
-    while (cardsLeft > 0) {
-        (*cardBucketsLens)[i]++;
-        i = (i + 1) % buckets;
-        cardsLeft--;
+extern size_t cudaMinimalGlobalMemory(int* cards, int cardsLen) {
+
+#ifdef __CUDACC__
+
+    if (cards == NULL || cardsLen == 0) {
+        return 0;
     }
-    
-    int offset = 0;
-    for (i = 0; i < buckets; ++i) {
-       (*cardBuckets)[i] = cards + offset;
-       offset += (*cardBucketsLens)[i];
+
+    size_t minMem = (size_t) -1;
+    for (int i = 0; i < cardsLen; ++i) {
+
+        cudaDeviceProp cdp;
+        cudaGetDeviceProperties(&cdp, i);
+
+        minMem = MIN(minMem, cdp.totalGlobalMem);
     }
+
+    return minMem;
+#else
+    return 0;
+#endif
 }
+

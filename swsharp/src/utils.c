@@ -274,3 +274,30 @@ extern void weightChunkArray(int* dstOff, int* dstLens, int* dstLen, int* src,
     *dstLen = chunks;
 }
 
+extern void chunkArray(int*** dst, int** dstLens, int* src, int srcLen,
+    int chunks) {
+
+    ASSERT(chunks <= srcLen && chunks >= 1, "invalid chunk data");
+    
+    *dst = (int**) malloc(chunks * sizeof(int*));
+    *dstLens = (int*) malloc(chunks * sizeof(int));
+    
+    memset(*dstLens, 0, chunks * sizeof(int));
+    
+    int i;
+    
+    int left = srcLen;
+    i = 0;
+    while (left > 0) {
+        (*dstLens)[i]++;
+        i = (i + 1) % chunks;
+        left--;
+    }
+    
+    int offset = 0;
+    for (i = 0; i < chunks; ++i) {
+       (*dst)[i] = src + offset;
+       offset += (*dstLens)[i];
+    }
+}
+

@@ -414,7 +414,7 @@ static void* alignBestThread(void* param) {
         int buckets = MIN(contextsGpuLen, cardsLen);
         int** cardBuckets;
         int* cardBucketsLens;
-        cudaCardBuckets(&cardBuckets, &cardBucketsLens, cards, cardsLen, buckets);
+        chunkArray(&cardBuckets, &cardBucketsLens, cards, cardsLen, buckets);
     
         i = 0;
         while (i < contextsGpuLen) {
