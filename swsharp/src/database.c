@@ -766,7 +766,8 @@ static void* alignThread(void* param) {
     int s1 = alignmentGetScore(alignment);
     int s2 = score;
 
-    ASSERT(s1 == s2, "Scores don't match %d %d, (%d %d)", s1, s2, queryIdx, targetIdx);
+    ASSERT(s1 == s2, "Scores don't match %d %d, (%s %s)", s1, s2,
+        chainGetName(query), chainGetName(target));
 
     // extract info
     int queryStart = alignmentGetQueryStart(alignment);
