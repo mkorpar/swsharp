@@ -43,7 +43,7 @@ Contact the author by mkorpar@gmail.com.
 #define MAX_CPU_LEN         150
 #else
 #define CPU_THREAD_CHUNK    500
-#define MAX_CPU_LEN         250
+#define MAX_CPU_LEN         100
 #endif
 
 #define MAX_SHORT_LEN       2800
