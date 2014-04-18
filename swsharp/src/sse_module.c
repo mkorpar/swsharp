@@ -25,6 +25,7 @@ Contact the author by mkorpar@gmail.com.
 #include "constants.h"
 #include "error.h"
 #include "scorer.h"
+#include "utils.h"
 
 #include "swimd/Swimd.h"
 #include "ssw/ssw.h"
@@ -167,8 +168,35 @@ extern int scoreDatabaseSse(int* scores, int type, Chain* query,
 static int sswWrapper(s_align** a, int type, Chain* query, Chain* target, 
     Scorer* scorer, int score, int flag) {
 
-    if (type != SW_ALIGN) {
+    const int sswMaxScore = (1 << 15) - 1;
+
+    if (type != SW_ALIGN || score > sswMaxScore) {
         return -1;
+    }
+
+    if (score == NO_SCORE) {
+
+        int queryLen = chainGetLength(query);
+        int targetLen = chainGetLength(target);
+        int maxScore = scorerGetMaxScore(scorer);
+
+        int minLen = MIN(queryLen, targetLen);
+
+        if (minLen * maxScore > sswMaxScore) {
+
+            Chain* chain = queryLen < targetLen ? query : target;
+            const char* codes = chainGetCodes(chain);
+
+            int i;
+            int score = 0;
+            for (i = 0; i < minLen; ++i) {
+                score += scorerScore(scorer, codes[i], codes[i]);
+            } 
+
+            if (score > sswMaxScore) {
+                return -1;
+            }
+        }
     }
 
     int gapOpen = scorerGetGapOpen(scorer);
