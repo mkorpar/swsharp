@@ -216,11 +216,6 @@ extern size_t shortDatabaseGpuMemoryConsumption(Chain** database,
     int databaseLen, int minLen, int maxLen) {
 
     int length = 0;
-
-    int sequencesCols = THREADS * BLOCKS;
-    int sequencesRows = 0;
-
-    int maxInCol = 0;
     int maxHeight = 0;
 
     for (int i = 0; i < databaseLen; ++i) {
@@ -228,16 +223,8 @@ extern size_t shortDatabaseGpuMemoryConsumption(Chain** database,
         const int n = chainGetLength(database[i]);
         
         if (n >= minLen && n < maxLen) {
-
-            maxHeight = max(maxHeight, n);
-            maxInCol = max(maxInCol, n);
-
-            if (length > 0 && length % sequencesCols == 0) {
-                sequencesRows += (maxInCol >> 2) + ((maxInCol & 3) > 0);
-                maxInCol = 0;
-            }
-
             length++;
+            maxHeight = max(maxHeight, n);
         }
     }
 
@@ -245,14 +232,79 @@ extern size_t shortDatabaseGpuMemoryConsumption(Chain** database,
         return 0;
     }
 
-    if (length % sequencesCols != 0) {
-        sequencesRows += (maxInCol >> 2) + ((maxInCol & 3) > 0);
-    }
-
     maxHeight = (maxHeight >> 2) + ((maxHeight & 3) > 0);
+
+    int sequencesCols = THREADS * BLOCKS;
 
     int blocks = length / sequencesCols + (length % sequencesCols > 0);
     int hBusHeight = maxHeight * 4;
+
+    //##########################################################################
+
+    const int bucketDiff = 32;
+    int bucketsLen = maxLen / bucketDiff + (maxLen % bucketDiff > 0);
+
+    int* buckets = (int*) malloc(bucketsLen * sizeof(int));
+    memset(buckets, 0, bucketsLen * sizeof(int));
+
+    for (int i = 0; i < databaseLen; ++i) {
+
+        const int n = chainGetLength(database[i]);
+        
+        if (n >= minLen && n < maxLen) {
+            buckets[n >> 5]++;
+        }
+    }
+
+    int sequencesRows = 0;
+    for (int i = 0, j = 0; i < bucketsLen; ++i) {
+        
+        j += buckets[i];
+
+        int d = j / sequencesCols;
+        int r = j % sequencesCols;
+
+        sequencesRows += d * ((i + 1) * (bucketDiff / 4));
+        j = r;
+
+        if (i == bucketsLen - 1 && j > 0) {
+            sequencesRows += ((i + 1) * (bucketDiff / 4));
+        }
+    }
+
+    free(buckets);
+
+    /*
+    int* lengths = (int*) malloc(length * sizeof(int));
+
+    for (int i = 0, j = 0; i < databaseLen; ++i) {
+
+        const int n = chainGetLength(database[i]);
+        
+        if (n >= minLen && n < maxLen) {
+            lengths[j++] = n;
+        }
+    }
+
+    qsort(lengths, length, sizeof(int), intCmp);
+    
+
+    int sequencesRows = 0;
+
+    for (int i = sequencesCols - 1; i < length; i += sequencesCols) {
+        int n = lengths[i];
+        sequencesRows += (n >> 2) + ((n & 3) > 0);
+    }
+
+    if (length % sequencesCols != 0) {
+        sequencesRows += maxHeight;
+    }
+
+  
+  free(lengths);
+    */
+
+    //##########################################################################
 
     size_t hBusSize = sequencesCols * hBusHeight * sizeof(int2);
     size_t offsetsSize = blocks * sizeof(int);
