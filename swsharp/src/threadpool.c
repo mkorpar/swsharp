@@ -254,10 +254,6 @@ static void* worker(void* param) {
 
     while (1) {
     
-        if (threadPool->terminated) {
-            break;
-        }
-        
         semaphoreWait(&(queue->submit));
         
         if (threadPool->terminated) {
