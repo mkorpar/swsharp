@@ -442,7 +442,7 @@ static LongDatabase* createDatabase(Chain** database, int databaseLen,
         size_t memory = codesSize + startsSize + lengthsSize + indexesSize + 
             scoresSize + hBusSize;
             
-        printf("Long database using %.2lfMBs on card %d\n", memory / 1024.0 / 1024.0, card);
+        LOG("Long database using %.2lfMBs on card %d", memory / 1024.0 / 1024.0, card);
     }
 
     //**************************************************************************

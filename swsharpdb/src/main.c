@@ -219,8 +219,6 @@ int main(int argc, char* argv[]) {
             // evalue
             cudaMemoryMin += 16 * databaseLen - databaseStart;
 
-            printf("checking %d %d | %d\n", databaseStart, databaseLen, status);
-
             if (cudaMemoryMin > cudaMemoryMax) {
 
                 int holder = databaseLen;
@@ -240,8 +238,6 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
-
-        printf("solving %d %d\n", databaseStart, databaseLen);
 
         ChainDatabase* chainDatabase = chainDatabaseCreate(database, 
             databaseStart, databaseLen - databaseStart, cards, cardsLen);

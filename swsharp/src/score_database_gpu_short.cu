@@ -569,7 +569,7 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
         size_t memory = offsetsSize + 2 * lengthsSize + sequencesSize + 
             indexesSize + scoresSize + hBusSize;
 
-        printf("Short database using %.2lfMBs on card %d\n", memory / 1024.0 / 1024.0, card);
+        LOG("Short database using %.2lfMBs on card %d", memory / 1024.0 / 1024.0, card);
     }
     
     //**************************************************************************

@@ -189,8 +189,6 @@ extern size_t chainDatabaseGpuMemoryConsumption(Chain** database, int databaseLe
     size_t mem2 = longDatabaseGpuMemoryConsumption(database, databaseLen,
         MAX_SHORT_LEN, INT_MAX);
 
-    printf("short %.2lfMB, long %.2lfMB\n", mem1 / 1024.0 / 1024.0, mem2 / 1024.0 / 1024.0);
-
     return mem1 + mem2;
 }
 
