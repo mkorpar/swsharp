@@ -783,6 +783,11 @@ static void outputDatabaseLight(DbAlignment** dbAlignments,
     
 static void outputDatabaseBlastM0(DbAlignment** dbAlignments, 
     int dbAlignmentsLen, FILE* file) {
+
+    if (dbAlignmentsLen == 0) {
+        fprintf(file, "No alignments found\n");
+        return;
+    }
     
     int i, j;
     
