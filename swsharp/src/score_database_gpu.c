@@ -143,16 +143,27 @@ static void* cpuDatabaseScoreThread(void* param);
 extern ChainDatabaseGpu* chainDatabaseGpuCreate(Chain** database, int databaseLen,
     int* cards, int cardsLen) {
 
-    if (cardsLen == 0) {
+    if (cardsLen == 0 || databaseLen == 0) {
         return NULL;
     }
 
+    int sumLen = 0;
+    int chainIdx;
+    for (chainIdx = 0; chainIdx < databaseLen; ++chainIdx) {
+        sumLen += chainGetLength(database[chainIdx]);
+    }
+
+    int avgLen = (int) ((float) sumLen / (float) databaseLen);
+    int maxCpuLen = MIN(avgLen / 2, MAX_CPU_LEN);
+
+    LOG("avgLen: %d, maxCpuLen: %d", avgLen, maxCpuLen);
+
     // create databases
     CpuDatabase* cpuDatabase = cpuDatabaseCreate(database, databaseLen, 
-        0, MAX_CPU_LEN);
+        0, maxCpuLen);
 
     ShortDatabase* shortDatabase = shortDatabaseCreate(database, databaseLen, 
-        MAX_CPU_LEN, MAX_SHORT_LEN, cards, cardsLen);
+        maxCpuLen, MAX_SHORT_LEN, cards, cardsLen);
         
     LongDatabase* longDatabase = longDatabaseCreate(database, databaseLen, 
         MAX_SHORT_LEN, INT_MAX, cards, cardsLen);
@@ -184,8 +195,17 @@ extern void chainDatabaseGpuDelete(ChainDatabaseGpu* chainDatabaseGpu) {
 
 extern size_t chainDatabaseGpuMemoryConsumption(Chain** database, int databaseLen) {
 
+    int sumLen = 0;
+    int chainIdx;
+    for (chainIdx = 0; chainIdx < databaseLen; ++chainIdx) {
+        sumLen += chainGetLength(database[chainIdx]);
+    }
+
+    int avgLen = (int) ((float) sumLen / (float) databaseLen);
+    int maxCpuLen = MIN(avgLen / 2, MAX_CPU_LEN);
+
     size_t mem1 = shortDatabaseGpuMemoryConsumption(database, databaseLen,
-        MAX_CPU_LEN, MAX_SHORT_LEN);
+        maxCpuLen, MAX_SHORT_LEN);
     size_t mem2 = longDatabaseGpuMemoryConsumption(database, databaseLen,
         MAX_SHORT_LEN, INT_MAX);
 
