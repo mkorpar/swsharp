@@ -38,8 +38,8 @@ Contact the author by mkorpar@gmail.com.
 #include "score_database_gpu_short.h"
 
 #define MAX_CPU_LEN         500
-#define CPU_WORKERS         8
-#define CPU_WORKER_STEP     3000
+#define CPU_WORKERS         16
+#define CPU_WORKER_STEP     100
 
 #define THREADS   128
 #define BLOCKS    120
@@ -924,6 +924,7 @@ static void scoreDatabaseMulti(int* scores, int type,
             contexts[k].type = type;
             contexts[k].scoringFunction = scoringFunction;
             contexts[k].queryProfile = queryProfile;
+            contexts[k].query = queries[i];
             contexts[k].shortDatabase = shortDatabase;
             contexts[k].scorer = scorer;
             contexts[k].indexes = indexes + off;
@@ -1209,11 +1210,8 @@ static void* kernelThread(void* param) {
         // multithreaded, chech mutexes
         mutexLock(&indexSolvedMutex);
 
-        printf("cpu: %d gpu: %d (%d-%d)\n", lastIndexSolvedCpu, firstIndexSolvedGpu, firstIdx, lastIdx);
-
         // indexes already solved
         if (lastIdx < lastIndexSolvedCpu) {
-            printf("over gpu\n");
             mutexUnlock(&indexSolvedMutex);
             break;
         }
@@ -1232,7 +1230,7 @@ static void* kernelThread(void* param) {
     
     //**************************************************************************
     // SAVE RESULTS
-    
+
     int length = shortDatabase->length;
     
     size_t scoresSize = length * sizeof(int);
@@ -1319,7 +1317,7 @@ static void* kernelThreadCpu(void* param) {
     int workers = CPU_WORKERS;
 
     CpuWorkerContext* contexts = (CpuWorkerContext*) malloc(workers * sizeof(CpuWorkerContext));
-    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(workers * sizeof(ThreadPoolTask*));
+    Thread* tasks = (Thread*) malloc(workers * sizeof(Thread));
 
     for (i = 0; i < workers; ++i) {
 
@@ -1335,12 +1333,11 @@ static void* kernelThreadCpu(void* param) {
         contexts[i].firstIndexSolvedGpu = firstIndexSolvedGpu;
         contexts[i].indexSolvedMutex = indexSolvedMutex;
 
-        tasks[i] = threadPoolSubmit(cpuWorker, &(contexts[i]));
+        threadCreate(&(tasks[i]), cpuWorker, &(contexts[i]));
     }
     
     for (i = 0; i < workers; ++i) {
-        threadPoolTaskWait(tasks[i]);
-        threadPoolTaskDelete(tasks[i]);
+        threadJoin(tasks[i]);
     }
 
     free(tasks);
@@ -1388,23 +1385,30 @@ static void* cpuWorker(void* param) {
     int* firstIndexSolvedGpu = context->firstIndexSolvedGpu;
     Mutex* indexSolvedMutex = context->indexSolvedMutex;
 
-    int i;
+    int i = 0;
+    int length = 0;
+
     for (i = id * CPU_WORKER_STEP; i < databaseLen; i += workers * CPU_WORKER_STEP) {
+
+        int length = min(CPU_WORKER_STEP, databaseLen - i);
 
         mutexLock(indexSolvedMutex);
 
-        if (i > *firstIndexSolvedGpu) {
+        *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, i - 1);
+
+        if (i > *firstIndexSolvedGpu - THREADS * BLOCKS) {
             mutexUnlock(indexSolvedMutex);
             break;
         }
 
-        *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, i + CPU_WORKER_STEP - 1);
-
         mutexUnlock(indexSolvedMutex);
 
-        int length = min(CPU_WORKER_STEP, databaseLen - i);
         scoreDatabaseCpu(scores + i, type, query, database + i, length, scorer);
     }
+
+    mutexLock(indexSolvedMutex);
+    *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, i + length - 1);
+    mutexUnlock(indexSolvedMutex);
 
     return NULL;
 }
