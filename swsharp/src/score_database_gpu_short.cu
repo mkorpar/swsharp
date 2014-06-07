@@ -27,13 +27,19 @@ Contact the author by mkorpar@gmail.com.
 
 #include "chain.h"
 #include "constants.h"
+#include "cpu_module.h"
 #include "cuda_utils.h"
 #include "error.h"
 #include "scorer.h"
 #include "thread.h"
+#include "threadpool.h"
 #include "utils.h"
 
 #include "score_database_gpu_short.h"
+
+#define MAX_CPU_LEN         500
+#define CPU_WORKERS         8
+#define CPU_WORKER_STEP     3000
 
 #define THREADS   128
 #define BLOCKS    120
@@ -95,6 +101,7 @@ typedef void (*ScoringFunction)(int*, int2*, int*, int*, int*, int*, int);
 
 typedef struct KernelContext {
     int* scores;
+    int type;
     ScoringFunction scoringFunction;
     QueryProfile* queryProfile;
     Chain* query;
@@ -110,6 +117,33 @@ typedef struct KernelContexts {
     int contextsLen;
     long long cells;
 } KernelContexts;
+
+typedef struct KernelContextCpu {
+    int* scores;
+    int type;
+    Chain* query;
+    ShortDatabase* shortDatabase;
+    Scorer* scorer;
+    int* indexes;
+    int indexesLen;
+    int* lastIndexSolvedCpu;
+    int* firstIndexSolvedGpu;
+    Mutex* indexSolvedMutex;
+} KernelContextCpu;
+
+typedef struct CpuWorkerContext {
+    int id;
+    int workers;
+    int* scores;
+    int type;
+    Chain* query;
+    Chain** database;
+    int databaseLen;
+    Scorer* scorer;
+    int* lastIndexSolvedCpu;
+    int* firstIndexSolvedGpu;
+    Mutex* indexSolvedMutex;
+} CpuWorkerContext;
 
 static __constant__ int gapOpen_;
 static __constant__ int gapExtend_;
@@ -157,18 +191,24 @@ static void scoreDatabase(int* scores, int type, Chain** queries,
 
 static void* scoreDatabaseThread(void* param);
 
-static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction, 
-    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
-    int* indexes, int indexesLen, int* cards, int cardsLen);
+static void scoreDatabaseMulti(int* scores, int type,
+    ScoringFunction scoringFunction, Chain** queries, int queriesLen, 
+    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
+    int* cards, int cardsLen);
 
-static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction, 
-    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
-    int* indexes, int indexesLen, int* cards, int cardsLen);
+static void scoreDatabaseSingle(int* scores, int type,
+    ScoringFunction scoringFunction, Chain** queries, int queriesLen, 
+    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
+    int* cards, int cardsLen);
 
 // cpu kernels 
 static void* kernelThread(void* param);
 
 static void* kernelsThread(void* param);
+
+static void* kernelThreadCpu(void* param);
+
+static void* cpuWorker(void* param);
 
 // gpu kernels 
 __global__ static void hwSolveShortGpu(int* scores, int2* hBus, int* lengths, 
@@ -771,11 +811,11 @@ static void* scoreDatabaseThread(void* param) {
     // SCORE MULTITHREADED
 
     if (queriesLen < cardsLen) {
-        scoreDatabaseMulti(scores, function, queries, queriesLen, shortDatabase, 
-            scorer, newIndexes, newIndexesLen, cards, cardsLen);
+        scoreDatabaseMulti(scores, type, function, queries, queriesLen, 
+            shortDatabase, scorer, newIndexes, newIndexesLen, cards, cardsLen);
     } else {
-        scoreDatabaseSingle(scores, function, queries, queriesLen, shortDatabase, 
-            scorer, newIndexes, newIndexesLen, cards, cardsLen);
+        scoreDatabaseSingle(scores, type, function, queries, queriesLen, 
+            shortDatabase, scorer, newIndexes, newIndexesLen, cards, cardsLen);
     }
     
     //**************************************************************************
@@ -794,9 +834,10 @@ static void* scoreDatabaseThread(void* param) {
     return NULL;
 }
 
-static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction, 
-    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
-    int* indexes, int indexesLen, int* cards, int cardsLen) {
+static void scoreDatabaseMulti(int* scores, int type, 
+    ScoringFunction scoringFunction, Chain** queries, int queriesLen, 
+    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
+    int* cards, int cardsLen) {
     
     //**************************************************************************
     // CREATE QUERY PROFILES
@@ -880,6 +921,7 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
             }
             
             contexts[k].scores = scores + i * databaseLen;
+            contexts[k].type = type;
             contexts[k].scoringFunction = scoringFunction;
             contexts[k].queryProfile = queryProfile;
             contexts[k].shortDatabase = shortDatabase;
@@ -917,9 +959,10 @@ static void scoreDatabaseMulti(int* scores, ScoringFunction scoringFunction,
     //**************************************************************************
 }
 
-static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction, 
-    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, 
-    int* indexes, int indexesLen, int* cards, int cardsLen) {
+static void scoreDatabaseSingle(int* scores, int type, 
+    ScoringFunction scoringFunction, Chain** queries, int queriesLen, 
+    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
+    int* cards, int cardsLen) {
 
     //**************************************************************************
     // CREATE CONTEXTS
@@ -958,6 +1001,7 @@ static void scoreDatabaseSingle(int* scores, ScoringFunction scoringFunction,
         
         KernelContext context;
         context.scores = scores + i * databaseLen;
+        context.type = type;
         context.scoringFunction = scoringFunction;
         context.queryProfile = NULL;
         context.query = queries[i];
@@ -1032,7 +1076,9 @@ static void* kernelThread(void* param) {
     KernelContext* context = (KernelContext*) param;
     
     int* scores = context->scores;
+    int type = context->type;
     ScoringFunction scoringFunction = context->scoringFunction;
+    Chain* query = context->query;
     QueryProfile* queryProfile = context->queryProfile;
     ShortDatabase* shortDatabase = context->shortDatabase;
     Scorer* scorer = context->scorer;
@@ -1109,10 +1155,37 @@ static void* kernelThread(void* param) {
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(length_, &indexesLen, sizeof(int)));
     
     //**************************************************************************
+
+    //**************************************************************************
+    // PREPARE CPU
+
+    int lastIndexSolvedCpu = -1;
+    int firstIndexSolvedGpu = INT_MAX;
+
+    Mutex indexSolvedMutex;
+    mutexCreate(&indexSolvedMutex);
+    
+    KernelContextCpu* contextCpu = (KernelContextCpu*) malloc(sizeof(KernelContextCpu));
+
+    contextCpu->scores = scores;
+    contextCpu->type = type;
+    contextCpu->query = query;
+    contextCpu->shortDatabase = shortDatabase;
+    contextCpu->scorer = scorer;
+    contextCpu->indexes = indexes;
+    contextCpu->indexesLen = indexesLen;
+    contextCpu->lastIndexSolvedCpu = &lastIndexSolvedCpu;
+    contextCpu->firstIndexSolvedGpu = &firstIndexSolvedGpu;
+    contextCpu->indexSolvedMutex = &indexSolvedMutex;
     
     //**************************************************************************
+
+    //**************************************************************************
     // SOLVE
-    
+
+    Thread thread;
+    threadCreate(&thread, kernelThreadCpu, contextCpu);
+
     int blocks = shortDatabase->blocks;
     
     int* offsetsGpu = gpuDatabase->offsets;
@@ -1121,15 +1194,39 @@ static void* kernelThread(void* param) {
     int* scoresGpu = gpuDatabase->scores;
     int2* hBusGpu = gpuDatabase->hBus;
     
-    for (int i = 0; i < blocks; ++i) {
+    for (int i = blocks - 1; i >= 0; --i) {
 
         if (sequencesCols * i > indexesLen) {
+            continue;
+        }
+
+        // wait for iteration to finish
+        CUDA_SAFE_CALL(cudaDeviceSynchronize());
+
+        int firstIdx = indexes[sequencesCols * i];
+        int lastIdx = indexes[min(sequencesCols * (i + 1) - 1, indexesLen - 1)];
+
+        // multithreaded, chech mutexes
+        mutexLock(&indexSolvedMutex);
+
+        printf("cpu: %d gpu: %d (%d-%d)\n", lastIndexSolvedCpu, firstIndexSolvedGpu, firstIdx, lastIdx);
+
+        // indexes already solved
+        if (lastIdx < lastIndexSolvedCpu) {
+            printf("over gpu\n");
+            mutexUnlock(&indexSolvedMutex);
             break;
         }
+
+        firstIndexSolvedGpu = min(firstIdx, firstIndexSolvedGpu);
+
+        mutexUnlock(&indexSolvedMutex);
 
         scoringFunction<<<BLOCKS, THREADS>>>(scoresGpu, hBusGpu, lengthsGpu, 
             lengthsPaddedGpu, offsetsGpu, indexesGpu, i);
     }
+
+    threadJoin(thread);
     
     //**************************************************************************
     
@@ -1145,7 +1242,7 @@ static void* kernelThread(void* param) {
 
     int* order = shortDatabase->order;
     
-    for (int i = 0; i < indexesLen; ++i) {
+    for (int i = firstIndexSolvedGpu; i < indexesLen; ++i) {
         scores[order[indexes[i]]] = scoresCpu[indexes[i]];
     }
     
@@ -1162,8 +1259,153 @@ static void* kernelThread(void* param) {
         CUDA_SAFE_CALL(cudaFree(indexesGpu));
     }
 
+    mutexDelete(&indexSolvedMutex);
+    free(contextCpu);
+
     //**************************************************************************
     
+    return NULL;
+}
+
+static void* kernelThreadCpu(void* param) {
+
+    int i;
+
+    KernelContextCpu* context = (KernelContextCpu*) param;
+
+    int* scores = context->scores;
+    int type = context->type;
+    Chain* query = context->query;
+    ShortDatabase* shortDatabase = context->shortDatabase;
+    Scorer* scorer = context->scorer;
+    int* indexes = context->indexes;
+    int indexesLen = context->indexesLen;
+    int* lastIndexSolvedCpu = context->lastIndexSolvedCpu;
+    int* firstIndexSolvedGpu = context->firstIndexSolvedGpu;
+    Mutex* indexSolvedMutex = context->indexSolvedMutex;
+
+    int* order = shortDatabase->order;
+
+    TIMER_START("Short CPU solving");
+
+    //**************************************************************************
+    // CREATE DATABASE
+    
+
+    Chain** database = (Chain**) malloc(indexesLen * sizeof(Chain*));
+    int databaseLen = 0;
+
+    for (i = 0; i < indexesLen; ++i) {
+
+        Chain* chain = shortDatabase->database[order[indexes[i]]];
+
+        if (chainGetLength(chain) > MAX_CPU_LEN) {
+            break;
+        }
+
+        database[i] = chain;
+        databaseLen++;
+    }
+
+    LOG("Max CPU chains: %d", databaseLen);
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // SOLVE
+
+    int* scoresCpu = (int*) malloc(databaseLen * sizeof(int));
+
+    int workers = CPU_WORKERS;
+
+    CpuWorkerContext* contexts = (CpuWorkerContext*) malloc(workers * sizeof(CpuWorkerContext));
+    ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(workers * sizeof(ThreadPoolTask*));
+
+    for (i = 0; i < workers; ++i) {
+
+        contexts[i].id = i;
+        contexts[i].workers = workers;
+        contexts[i].scores = scoresCpu;
+        contexts[i].type = type;
+        contexts[i].query = query;
+        contexts[i].database = database;
+        contexts[i].databaseLen = databaseLen;
+        contexts[i].scorer = scorer;
+        contexts[i].lastIndexSolvedCpu = lastIndexSolvedCpu;
+        contexts[i].firstIndexSolvedGpu = firstIndexSolvedGpu;
+        contexts[i].indexSolvedMutex = indexSolvedMutex;
+
+        tasks[i] = threadPoolSubmit(cpuWorker, &(contexts[i]));
+    }
+    
+    for (i = 0; i < workers; ++i) {
+        threadPoolTaskWait(tasks[i]);
+        threadPoolTaskDelete(tasks[i]);
+    }
+
+    free(tasks);
+    free(contexts);
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // SAVE RESULTS
+
+    LOG("CPU solved %d chains", *lastIndexSolvedCpu);
+
+    for (int i = 0; i <= *lastIndexSolvedCpu; ++i) {
+        scores[order[indexes[i]]] = scoresCpu[i];
+    }
+    
+    //**************************************************************************
+
+    //**************************************************************************
+    // CLEAN MEMORY
+
+    free(scoresCpu);
+    free(database);
+
+    //**************************************************************************
+
+    TIMER_STOP;
+
+    return NULL;
+}
+
+static void* cpuWorker(void* param) {
+
+    CpuWorkerContext* context = (CpuWorkerContext*) param;
+
+    int id = context->id;
+    int workers = context->workers;
+    int* scores = context->scores;
+    int type = context->type;
+    Chain* query = context->query;
+    Chain** database = context->database;
+    int databaseLen = context->databaseLen;
+    Scorer* scorer = context->scorer;
+    int* lastIndexSolvedCpu = context->lastIndexSolvedCpu;
+    int* firstIndexSolvedGpu = context->firstIndexSolvedGpu;
+    Mutex* indexSolvedMutex = context->indexSolvedMutex;
+
+    int i;
+    for (i = id * CPU_WORKER_STEP; i < databaseLen; i += workers * CPU_WORKER_STEP) {
+
+        mutexLock(indexSolvedMutex);
+
+        if (i > *firstIndexSolvedGpu) {
+            mutexUnlock(indexSolvedMutex);
+            break;
+        }
+
+        *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, i + CPU_WORKER_STEP - 1);
+
+        mutexUnlock(indexSolvedMutex);
+
+        int length = min(CPU_WORKER_STEP, databaseLen - i);
+        scoreDatabaseCpu(scores + i, type, query, database + i, length, scorer);
+    }
+
     return NULL;
 }
 
