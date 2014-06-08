@@ -37,7 +37,7 @@ Contact the author by mkorpar@gmail.com.
 
 #include "score_database_gpu_short.h"
 
-#define MAX_CPU_LEN         500
+#define MAX_CPU_LEN         2000
 #define CPU_WORKERS         16
 #define CPU_WORKER_STEP     100
 
@@ -1195,6 +1195,8 @@ static void* kernelThread(void* param) {
     int* scoresGpu = gpuDatabase->scores;
     int2* hBusGpu = gpuDatabase->hBus;
     
+    TIMER_START("Short GPU solving: %d", indexesLen);
+
     for (int i = blocks - 1; i >= 0; --i) {
 
         if (sequencesCols * i > indexesLen) {
@@ -1204,14 +1206,14 @@ static void* kernelThread(void* param) {
         // wait for iteration to finish
         CUDA_SAFE_CALL(cudaDeviceSynchronize());
 
-        int firstIdx = indexes[sequencesCols * i];
-        int lastIdx = indexes[min(sequencesCols * (i + 1) - 1, indexesLen - 1)];
+        int firstIdx = sequencesCols * i;
+        int lastIdx = min(sequencesCols * (i + 1) - 1, indexesLen - 1);
 
         // multithreaded, chech mutexes
         mutexLock(&indexSolvedMutex);
 
         // indexes already solved
-        if (lastIdx < lastIndexSolvedCpu) {
+        if (firstIdx < lastIndexSolvedCpu) {
             mutexUnlock(&indexSolvedMutex);
             break;
         }
@@ -1224,8 +1226,12 @@ static void* kernelThread(void* param) {
             lengthsPaddedGpu, offsetsGpu, indexesGpu, i);
     }
 
+    TIMER_STOP;
+
     threadJoin(thread);
     
+    printf("%d %d\n", firstIndexSolvedGpu, lastIndexSolvedCpu);
+
     //**************************************************************************
     
     //**************************************************************************
@@ -1385,16 +1391,16 @@ static void* cpuWorker(void* param) {
     int* firstIndexSolvedGpu = context->firstIndexSolvedGpu;
     Mutex* indexSolvedMutex = context->indexSolvedMutex;
 
-    int i = 0;
-    int length = 0;
+    int last = 0;
 
+    int i;
     for (i = id * CPU_WORKER_STEP; i < databaseLen; i += workers * CPU_WORKER_STEP) {
 
         int length = min(CPU_WORKER_STEP, databaseLen - i);
 
         mutexLock(indexSolvedMutex);
 
-        *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, i - 1);
+        *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, last);
 
         if (i > *firstIndexSolvedGpu - THREADS * BLOCKS) {
             mutexUnlock(indexSolvedMutex);
@@ -1404,10 +1410,11 @@ static void* cpuWorker(void* param) {
         mutexUnlock(indexSolvedMutex);
 
         scoreDatabaseCpu(scores + i, type, query, database + i, length, scorer);
+        last = i + length - 1;
     }
 
     mutexLock(indexSolvedMutex);
-    *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, i + length - 1);
+    *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, last);
     mutexUnlock(indexSolvedMutex);
 
     return NULL;
