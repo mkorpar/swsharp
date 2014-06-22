@@ -27,6 +27,7 @@ Contact the author by mkorpar@gmail.com.
 #ifndef __SW_SHARP_PRE_PROCESH__
 #define __SW_SHARP_PRE_PROCESH__
 
+#include <stdio.h>
 #include "chain.h"
 #include "scorer.h"
 
