@@ -68,6 +68,12 @@ static int readFastaChainsPartNormal(Chain*** chains, int* chainsLen,
 static int readFastaChainsPartSerialized(Chain*** chains, int* chainsLen,
     FILE* handle, const size_t maxBytes);
 
+static int skipFastaChainsPartNormal(Chain*** chains, int* chainsLen,
+    FILE* handle, const size_t skip);
+
+static int skipFastaChainsPartSerialized(Chain*** chains, int* chainsLen,
+    FILE* handle, const size_t skip);
+
 //******************************************************************************
 
 //******************************************************************************
@@ -220,6 +226,20 @@ extern int readFastaChainsPart(Chain*** chains, int* chainsLen,
     }
 
     TIMER_STOP;
+
+    return status;
+}
+
+extern int skipFastaChainsPart(Chain*** chains, int* chainsLen,
+    FILE* handle, int serialized, const size_t skip) {
+
+    int status;
+
+    if (serialized) {
+        status = skipFastaChainsPartSerialized(chains, chainsLen, handle, skip);
+    } else {
+        status = skipFastaChainsPartNormal(chains, chainsLen, handle, skip);
+    }
 
     return status;
 }
@@ -520,13 +540,9 @@ static int readFastaChainsPartNormal(Chain*** chains, int* chainsLen,
 static int readFastaChainsPartSerialized(Chain*** chains, int* chainsLen,
     FILE* handle, const size_t maxBytes) {
 
-    static const int chainsStep = 100000;
-
     if (feof(handle)) {
         return 0;
     }
-
-    size_t chainsSize;
 
     if (*chains == NULL) {
 
@@ -536,13 +552,8 @@ static int readFastaChainsPartSerialized(Chain*** chains, int* chainsLen,
         ASSERT(fread(&length, sizeof(int), 1, handle) == 1, "io error");
         ASSERT(fread(&cells, sizeof(long long), 1, handle) == 1, "io error");
 
-        chainsSize = length;
-        *chains = (Chain**) malloc(chainsSize * sizeof(Chain*));
+        *chains = (Chain**) malloc(length * sizeof(Chain*));
         *chainsLen = 0;
-
-    } else {
-        chainsSize = *chainsLen + chainsStep;
-        *chains = (Chain**) realloc(*chains, chainsSize * sizeof(Chain*));
     }
 
     int bufferSize = 65000;
@@ -574,16 +585,138 @@ static int readFastaChainsPartSerialized(Chain*** chains, int* chainsLen,
         
         ASSERT(fread(buffer, 1, chainSize, handle) == chainSize, "io error");
 
-        if (*chainsLen + 1 == chainsSize) {
-            chainsSize += chainsStep;
-            *chains = (Chain**) realloc(*chains, chainsSize * sizeof(Chain*));
-        }
-
         Chain* chain = chainDeserialize(buffer);
         (*chains)[(*chainsLen)++] = chain;
     }
     
     free(buffer);
+
+    return status;
+}
+
+static int skipFastaChainsPartNormal(Chain*** chains, int* chainsLen,
+    FILE* handle, const size_t skip) {
+
+    size_t chainsSize;
+
+    if (*chains == NULL) {
+        chainsSize = skip;
+        *chains = (Chain**) malloc(chainsSize * sizeof(Chain*));
+        *chainsLen = 0;
+    } else {
+        chainsSize = *chainsLen + skip;
+        *chains = (Chain**) realloc(*chains, chainsSize * sizeof(Chain*));
+    }
+
+    char buffer[1024 * 1024];
+    int isName = 1;
+    int chainsRead = 0;
+
+    size_t bytesRead = 0;
+    long int bytesOver = 0;
+    int status = 0;
+
+    int isEnd = feof(handle);
+
+    while (!isEnd) {
+        
+        if (chainsRead >= skip) {
+            fseek(handle, -bytesOver, SEEK_CUR);
+            status = 1;
+            break;
+        }
+
+        int read = fread(buffer, sizeof(char), 1024 * 1024, handle);
+        isEnd = feof(handle);
+
+        bytesRead += read;
+
+        int i;
+        for (i = 0; i < read; ++i) {
+            
+            char c = buffer[i];
+
+            if (!isName && (c == '>' || (isEnd && i == read - 1))) {
+
+                bytesOver = 0;
+                chainsRead++;
+
+                if (chainsRead >= skip) {
+                    bytesOver += read - i;
+                    break;
+                }
+
+                isName = 1;
+            }
+            
+            if (isName) {
+                if (c == '\n') {
+                    isName = 0;
+                }
+            }
+
+            bytesOver++;
+        }
+    }
+
+    int chainIdx;
+    for (chainIdx = *chainsLen; chainIdx < *chainsLen + chainsRead; ++chainIdx) {
+        (*chains)[chainIdx] = NULL;
+    }
+
+    *chainsLen += chainsRead;
+
+    return status;
+}
+
+static int skipFastaChainsPartSerialized(Chain*** chains, int* chainsLen,
+    FILE* handle, const size_t skip) {
+
+    if (feof(handle)) {
+        return 0;
+    }
+
+    if (*chains == NULL) {
+
+        int length;
+        long long cells;
+
+        ASSERT(fread(&length, sizeof(int), 1, handle) == 1, "io error");
+        ASSERT(fread(&cells, sizeof(long long), 1, handle) == 1, "io error");
+
+        *chains = (Chain**) malloc(length * sizeof(Chain*));
+        *chainsLen = 0;
+    }
+
+    int chainSize;
+
+    size_t read = 0;
+    int status = 0;
+
+    while (!feof(handle)) {
+
+        if (fread(&chainSize, sizeof(int), 1, handle) != 1) {
+            break;
+        }
+
+        read++;
+
+        if (read > skip) {
+            fseek(handle, -sizeof(int), SEEK_CUR);
+            status = 1;
+            read--;
+            break;
+        }
+        
+        ASSERT(fseek(handle, chainSize, SEEK_CUR) == 0, "io error");
+    }
+    
+    int chainIdx;
+    for (chainIdx = *chainsLen; chainIdx < *chainsLen + read; ++chainIdx) {
+        (*chains)[chainIdx] = NULL;
+    }
+
+    *chainsLen += read;
 
     return status;
 }

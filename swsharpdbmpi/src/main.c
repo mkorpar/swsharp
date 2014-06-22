@@ -40,7 +40,7 @@ static struct option options[] = {
     {"evalue", required_argument, 0, 'E'},
     {"max-aligns", required_argument, 0, 'M'},
     {"algorithm", required_argument, 0, 'A'},
-    {"cache", no_argument, 0, 'C'},
+    {"nocache", no_argument, 0, 'C'},
     {"cpu", no_argument, 0, 'P'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
@@ -98,7 +98,7 @@ int main(int argc, char* argv[]) {
 
     int algorithm = SW_ALIGN;
     
-    int cache = 0;
+    int cache = 1;
 
     int forceCpu = 0;
 
@@ -145,7 +145,7 @@ int main(int argc, char* argv[]) {
             algorithm = getAlgorithm(optarg);
             break;
         case 'C':
-            cache = 1;
+            cache = 0;
             break;
         case 'P':
             forceCpu = 1;
@@ -159,7 +159,7 @@ int main(int argc, char* argv[]) {
     
     ASSERT(queryPath != NULL, "missing option -i (query file)");
     ASSERT(databasePath != NULL, "missing option -j (database file)");
-    
+
     if (forceCpu) {
         cards = NULL;
         cardsLen = 0;
@@ -171,9 +171,7 @@ int main(int argc, char* argv[]) {
 
         ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
     }
-    
-    ASSERT(cudaCheckCards(cards, cardsLen), "invalid cuda cards");
-    
+
     ASSERT(maxEValue > 0, "invalid evalue");
     
     Scorer* scorer;
@@ -183,40 +181,98 @@ int main(int argc, char* argv[]) {
     int queriesLen = 0;
     readFastaChains(&queries, &queriesLen, queryPath);
     
-    Chain** database = NULL; 
-    int databaseLen = 0;
-    readFastaChains(&database, &databaseLen, databasePath);
-    
     if (cache) {
-        dumpFastaChains(database, databaseLen, databasePath);
+        dumpFastaChains(databasePath);
     }
 
     threadPoolInitialize(cardsLen + 8);
 
-    EValueParams* eValueParams = createEValueParams(database, databaseLen, scorer);
+    int chains;
+    long long cells;
+    statFastaChains(&chains, &cells, databasePath);
+
+    EValueParams* eValueParams = createEValueParams(cells, scorer);
 
     DbAlignment*** dbAlignments = NULL;
     int* dbAlignmentsLens = NULL;
-    
+
+    Chain** database = NULL; 
+    int databaseLen = 0;
+    int databaseStart = 0;
+    int databaseEnd = 0;
+
+    FILE* handle;
+    int serialized;
+
+    readFastaChainsPartInit(&database, &databaseLen, &handle, &serialized, databasePath);
+
+    size_t cudaMemory = cudaMinimalGlobalMemory(cards, cardsLen);
+    size_t cudaMemoryMax = cudaMemory - 200000000; // ~200MB breathing space
+
     // mpi data
-    int mpiDbStep = databaseLen / mpiNodes;
+    int mpiDbStep = chains / mpiNodes;
     int mpiDbOff = mpiRank * mpiDbStep;
-    int mpiDbLen = mpiRank == mpiNodes - 1 ? databaseLen - mpiDbOff : mpiDbStep;
+    int mpiDbLen = mpiRank == mpiNodes - 1 ? chains - mpiDbOff : mpiDbStep;
 
-    int databaseCur = 0;
-    int databaseStart = mpiDbOff;
-    
-    int databaseIdx;
-    for (databaseIdx = mpiDbOff; databaseIdx < mpiDbOff + mpiDbLen; ++databaseIdx) {
-    
-        databaseCur += chainGetLength(database[databaseIdx]);
+    fprintf(stderr, "rank %d, mpiDbStep: %d, mpiDbOff: %d, mpiDbLen: %d\n", mpiRank, mpiDbStep, mpiDbOff, mpiDbLen);
 
-        if (databaseCur < 400 * 1024 * 1024 && databaseIdx != mpiDbOff + mpiDbLen - 1) {
-            continue;
+    skipFastaChainsPart(&database, &databaseLen, handle, serialized, mpiDbOff);
+
+    databaseStart = databaseLen;
+    databaseEnd = databaseLen;
+
+    int i, j;
+
+    while (1) {
+
+        int status = 1;
+
+        while (1) {
+
+            databaseLen = databaseEnd;
+
+            status &= readFastaChainsPart(&database, &databaseLen, handle,
+                serialized, 100000000);
+
+            if (databaseLen > mpiDbOff + mpiDbLen) {
+
+                for (i = mpiDbOff + mpiDbLen; i < databaseLen; ++i) {
+                    chainDelete(database[i]);
+                    database[i] = NULL;
+                }
+
+                databaseLen = mpiDbOff + mpiDbLen;
+                status = 0;
+            }
+
+            size_t cudaMemoryMin = chainDatabaseGpuMemoryConsumption(
+                database + databaseStart, databaseLen - databaseStart);
+
+            // evalue
+            cudaMemoryMin += 16 * databaseLen - databaseStart;
+
+            if (cudaMemoryMin > cudaMemoryMax) {
+
+                int holder = databaseLen;
+                databaseLen = databaseEnd;
+                databaseEnd = holder;
+
+                if (databaseLen <= databaseStart) {
+                    ASSERT(0, "cannot read database into CUDA memory");
+                }
+
+                break;
+            } else {
+                databaseEnd = databaseLen;
+            }
+
+            if (status == 0) {
+                break;
+            }
         }
-        
+
         ChainDatabase* chainDatabase = chainDatabaseCreate(database, 
-            databaseStart, databaseIdx - databaseStart + 1, cards, cardsLen);
+            databaseStart, databaseLen - databaseStart, cards, cardsLen);
 
         DbAlignment*** dbAlignmentsPart = NULL;
         int* dbAlignmentsPartLens = NULL;
@@ -224,33 +280,121 @@ int main(int argc, char* argv[]) {
         shotgunDatabase(&dbAlignmentsPart, &dbAlignmentsPartLens, algorithm, 
             queries, queriesLen, chainDatabase, scorer, maxAlignments, valueFunction, 
             (void*) eValueParams, maxEValue, NULL, 0, cards, cardsLen, NULL);
-        
+
         if (dbAlignments == NULL) {
             dbAlignments = dbAlignmentsPart;
             dbAlignmentsLens = dbAlignmentsPartLens;
-        } else {
+         } else {
             dbAlignmentsMerge(dbAlignments, dbAlignmentsLens, dbAlignmentsPart, 
                 dbAlignmentsPartLens, queriesLen, maxAlignments);
             deleteShotgunDatabase(dbAlignmentsPart, dbAlignmentsPartLens, queriesLen);
         }
 
         chainDatabaseDelete(chainDatabase);
-            
-        databaseStart = databaseIdx + 1;
-        databaseCur = 0;
+
+        if (status == 0) {
+            break;
+        }
+
+        // delete all unused chains
+        char* usedMask = (char*) calloc(databaseLen, sizeof(char));
+
+        for (i = 0; i < queriesLen; ++i) {
+            for (j = 0; j < dbAlignmentsLens[i]; ++j) {
+
+                DbAlignment* dbAlignment = dbAlignments[i][j];
+                int targetIdx = dbAlignmentGetTargetIdx(dbAlignment);
+
+                usedMask[targetIdx] = 1;
+            }
+        }
+
+        for (i = 0; i < databaseLen; ++i) {
+            if (!usedMask[i] && database[i] != NULL) {
+                chainDelete(database[i]);
+                database[i] = NULL;
+            }
+        }
+
+        free(usedMask);
+
+        databaseStart = databaseLen;
     }
 
+    fclose(handle);
+
     // master node gathers and outputs data
-    int masterNode = 0;
-    if (mpiRank == masterNode) {
+    if (mpiRank == 0) {
 
-        int i;       
-        for (i = 0; i < mpiNodes; ++i) {
+        // create used mask
+        char* usedMask = (char*) calloc(chains, sizeof(char));
 
-            if (i == mpiRank) {
-                continue;
+        // fill local
+        for (i = 0; i < queriesLen; ++i) {
+            for (j = 0; j < dbAlignmentsLens[i]; ++j) {
+                int targetIdx = dbAlignmentGetTargetIdx(dbAlignments[i][j]);
+                usedMask[targetIdx - mpiDbOff] = 1;
             }
-            
+        }
+
+        // gather used masks
+        for (i = 1; i < mpiNodes; ++i) {
+
+            int off = i * mpiDbStep;
+            int len = i == mpiNodes - 1 ? chains - off : mpiDbStep;
+
+            MPI_Status status;
+            MPI_Recv(usedMask + off, len, MPI_CHAR, i, 0, MPI_COMM_WORLD, &status);
+        }
+
+        // expand database
+        database = (Chain**) realloc(database, chains * sizeof(Chain*));
+
+        for (i = databaseLen + 1; i < chains; ++i) {
+            database[i] = NULL;
+        }
+
+        // load all needed chains from other parts
+
+        Chain** copyDatabase = NULL; 
+        int copyDatabaseLen = 0;
+        int copyDatabaseStart = databaseLen;
+
+        readFastaChainsPartInit(&copyDatabase, &copyDatabaseLen, &handle, &serialized, databasePath);
+        skipFastaChainsPart(&copyDatabase, &copyDatabaseLen, handle, serialized, databaseLen);
+
+        int status = 1;
+        while (1) {
+
+            status &= readFastaChainsPart(&copyDatabase, &copyDatabaseLen, handle,
+                serialized, 100000000);
+
+            for (i = copyDatabaseStart; i < copyDatabaseLen; ++i) {
+                if (usedMask[i]) {
+                    // copy to database and remove from copy
+                    database[i] = copyDatabase[i];
+                    copyDatabase[i] = NULL;
+                }
+            }
+
+            if (status == 0) {
+                break;
+            }
+
+            copyDatabaseStart = copyDatabaseLen;
+        }
+
+        // clear copy memory
+        deleteFastaChains(copyDatabase, copyDatabaseLen);
+        fclose(handle);
+
+        // expand database length
+        databaseLen = chains;
+
+        // gather chain data
+
+        for (i = 1; i < mpiNodes; ++i) {
+
             DbAlignment*** dbAlignmentsPart = NULL;
             int* dbAlignmentsPartLens = NULL;
             int dbAlignmentsLen;
@@ -262,19 +406,38 @@ int main(int argc, char* argv[]) {
                 dbAlignmentsPartLens, queriesLen, maxAlignments);
             deleteShotgunDatabase(dbAlignmentsPart, dbAlignmentsPartLens, queriesLen);
         }
-        
+
+        // output
         outputShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen, out, outFormat);
         deleteShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen);
+
     } else {
-        sendMpiData(dbAlignments, dbAlignmentsLens, queriesLen, masterNode);
+
+        // create used mask only for local chains
+        char* usedMask = (char*) calloc(mpiDbOff, sizeof(char));
+
+        for (i = 0; i < queriesLen; ++i) {
+            for (j = 0; j < dbAlignmentsLens[i]; ++j) {
+                int targetIdx = dbAlignmentGetTargetIdx(dbAlignments[i][j]);
+                usedMask[targetIdx - mpiDbOff] = 1;
+            }
+        }
+
+        // send to master
+        MPI_Send(usedMask, mpiDbLen, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+
+        sendMpiData(dbAlignments, dbAlignmentsLens, queriesLen, 0);
         deleteShotgunDatabase(dbAlignments, dbAlignmentsLens, queriesLen);
+
+        // clear
+        free(usedMask);
     }
-        
+
     deleteEValueParams(eValueParams);
     
     deleteFastaChains(queries, queriesLen);
     deleteFastaChains(database, databaseLen);
-    
+
     scorerDelete(scorer);
 
     threadPoolTerminate();
@@ -385,9 +548,9 @@ static void help() {
     "            bm8      - blast m8 tabular output format\n"
     "            bm9      - blast m9 commented tabular output format\n"
     "            light    - score-name tabbed output\n"
-    "    --cache\n"
+    "    --nocache\n"
     "        serialized database is stored to speed up future runs with the\n"
-    "        same database\n"
+    "        same database, option disables this behaviour\n"
     "    --cpu\n"
     "        only cpu is used\n"
     "    -h, -help\n"

@@ -79,6 +79,9 @@ extern void readFastaChainsPartInit(Chain*** chains, int* chainsLen,
 extern int readFastaChainsPart(Chain*** chains, int* chainsLen,
     FILE* handle, int serialized, const size_t maxBytes);
 
+extern int skipFastaChainsPart(Chain*** chains, int* chainsLen,
+    FILE* handle, int serialized, const size_t skip);
+
 extern void statFastaChains(int* chains, long long* cells, const char* path);
 
 /*!
