@@ -71,6 +71,7 @@ typedef struct DbAlignmentData {
     int idx;
     int score;
     double value;
+    const char* name;
 } DbAlignmentData;
 
 typedef struct ExtractContext {
@@ -849,7 +850,8 @@ static void* extractThread(void* param) {
         packed[i].idx = i;
         packed[i].value = values[i];
         packed[i].score = scores[i];
-        
+        packed[i].name = chainGetName(database[i]);
+
         if (packed[i].value <= valueThreshold) {
             thresholded++;
         }
@@ -1044,6 +1046,11 @@ static int dbAlignmentDataCmp(const void* a_, const void* b_) {
     DbAlignmentData* b = (DbAlignmentData*) b_;
     
     if (a->value == b->value) {
+
+        if (a->score == b->score) {
+            return strcmp(a->name, b->name);
+        }
+
         return b->score - a->score;
     }
     

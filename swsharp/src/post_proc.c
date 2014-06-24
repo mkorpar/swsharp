@@ -436,11 +436,18 @@ static int dbAlignmentCmp(const void* a_, const void* b_) {
     
     double aVal = dbAlignmentGetValue(a);
     int aScr = dbAlignmentGetScore(a);
-    
+    char* aName = chainGetName(dbAlignmentGetTarget(a));
+
     double bVal = dbAlignmentGetValue(b);
     int bScr = dbAlignmentGetScore(b);
+    char* bName = chainGetName(dbAlignmentGetTarget(b));
 
     if (aVal == bVal) {
+
+        if (aScr == bScr) {
+            return strcmp(aName, bName);
+        }
+
         return bScr - aScr;
     }
     
