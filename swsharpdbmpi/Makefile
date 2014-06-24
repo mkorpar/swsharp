@@ -22,7 +22,7 @@ DEP_LIBS = ../lib/libswsharp.a
 CC_FLAGS = $(I_CMD) -O3 -Wall
 CP_FLAGS = $(CC_FLAGS)
 CU_FLAGS = $(I_CMD) -O3 -arch sm_13
-LD_FLAGS = $(I_CMD) $(L_CMD) -lswsharp -lcudart -lpthread -lm
+LD_FLAGS = $(I_CMD) $(L_CMD) -lswsharp -lcudart -lstdc++ -lpthread -lm
 
 API = $(addprefix $(SRC_DIR)/, )
 
@@ -42,6 +42,7 @@ debug: CP_FLAGS := $(CP_FLAGS) -DDEBUG -DTIMERS
 debug: CU_FLAGS := $(CU_FLAGS) -DDEBUG -DTIMERS --ptxas-options=-v
 
 cpu: LD = $(CC)
+cpu: LD_FLAGS := $(filter-out -lcudart, $(LD_FLAGS))
 
 all: $(EXC)
 debug: all
