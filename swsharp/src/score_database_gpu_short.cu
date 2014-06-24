@@ -1230,8 +1230,6 @@ static void* kernelThread(void* param) {
 
     threadJoin(thread);
     
-    printf("%d %d\n", firstIndexSolvedGpu, lastIndexSolvedCpu);
-
     //**************************************************************************
     
     //**************************************************************************
@@ -1400,12 +1398,12 @@ static void* cpuWorker(void* param) {
 
         mutexLock(indexSolvedMutex);
 
-        *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, last);
-
-        if (i > *firstIndexSolvedGpu - THREADS * BLOCKS) {
+        if (i > *firstIndexSolvedGpu) {
             mutexUnlock(indexSolvedMutex);
             break;
         }
+
+        *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, last);
 
         mutexUnlock(indexSolvedMutex);
 
