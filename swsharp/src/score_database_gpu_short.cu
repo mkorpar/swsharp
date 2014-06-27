@@ -38,8 +38,8 @@ Contact the author by mkorpar@gmail.com.
 #include "score_database_gpu_short.h"
 
 #define MAX_CPU_LEN         2000
-#define CPU_WORKERS         16
-#define CPU_WORKER_STEP     100
+#define CPU_WORKERS         8
+#define CPU_WORKER_STEP     32
 
 #define THREADS   128
 #define BLOCKS    120
@@ -132,8 +132,6 @@ typedef struct KernelContextCpu {
 } KernelContextCpu;
 
 typedef struct CpuWorkerContext {
-    int id;
-    int workers;
     int* scores;
     int type;
     Chain* query;
@@ -1160,7 +1158,7 @@ static void* kernelThread(void* param) {
     //**************************************************************************
     // PREPARE CPU
 
-    int lastIndexSolvedCpu = -1;
+    int lastIndexSolvedCpu = 0;
     int firstIndexSolvedGpu = INT_MAX;
 
     Mutex indexSolvedMutex;
@@ -1213,7 +1211,7 @@ static void* kernelThread(void* param) {
         mutexLock(&indexSolvedMutex);
 
         // indexes already solved
-        if (firstIdx < lastIndexSolvedCpu) {
+        if (lastIdx < lastIndexSolvedCpu) {
             mutexUnlock(&indexSolvedMutex);
             break;
         }
@@ -1229,7 +1227,7 @@ static void* kernelThread(void* param) {
     TIMER_STOP;
 
     threadJoin(thread);
-    
+
     //**************************************************************************
     
     //**************************************************************************
@@ -1318,15 +1316,13 @@ static void* kernelThreadCpu(void* param) {
 
     int* scoresCpu = (int*) malloc(databaseLen * sizeof(int));
 
-    int workers = CPU_WORKERS;
+    int workers = min(CPU_WORKERS, databaseLen);
 
     CpuWorkerContext* contexts = (CpuWorkerContext*) malloc(workers * sizeof(CpuWorkerContext));
     Thread* tasks = (Thread*) malloc(workers * sizeof(Thread));
 
     for (i = 0; i < workers; ++i) {
 
-        contexts[i].id = i;
-        contexts[i].workers = workers;
         contexts[i].scores = scoresCpu;
         contexts[i].type = type;
         contexts[i].query = query;
@@ -1377,8 +1373,6 @@ static void* cpuWorker(void* param) {
 
     CpuWorkerContext* context = (CpuWorkerContext*) param;
 
-    int id = context->id;
-    int workers = context->workers;
     int* scores = context->scores;
     int type = context->type;
     Chain* query = context->query;
@@ -1389,31 +1383,24 @@ static void* cpuWorker(void* param) {
     int* firstIndexSolvedGpu = context->firstIndexSolvedGpu;
     Mutex* indexSolvedMutex = context->indexSolvedMutex;
 
-    int last = 0;
-
-    int i;
-    for (i = id * CPU_WORKER_STEP; i < databaseLen; i += workers * CPU_WORKER_STEP) {
-
-        int length = min(CPU_WORKER_STEP, databaseLen - i);
+    while (1) {
 
         mutexLock(indexSolvedMutex);
 
-        if (i > *firstIndexSolvedGpu) {
+        int start = max(0, *lastIndexSolvedCpu);
+        int length = min(CPU_WORKER_STEP, databaseLen - start);
+
+        if (start >= databaseLen || start > *firstIndexSolvedGpu - THREADS * BLOCKS) {
             mutexUnlock(indexSolvedMutex);
             break;
         }
 
-        *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, last);
+        *lastIndexSolvedCpu += length;
 
         mutexUnlock(indexSolvedMutex);
 
-        scoreDatabaseCpu(scores + i, type, query, database + i, length, scorer);
-        last = i + length - 1;
+        scoreDatabaseCpu(scores + start, type, query, database + start, length, scorer);
     }
-
-    mutexLock(indexSolvedMutex);
-    *lastIndexSolvedCpu = max(*lastIndexSolvedCpu, last);
-    mutexUnlock(indexSolvedMutex);
 
     return NULL;
 }
