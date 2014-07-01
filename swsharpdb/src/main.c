@@ -199,6 +199,7 @@ int main(int argc, char* argv[]) {
 
     size_t cudaMemory = cudaMinimalGlobalMemory(cards, cardsLen);
     size_t cudaMemoryMax = cudaMemory - 200000000; // ~200MB breathing space
+    size_t cudaMemoryStep = cudaMemoryMax * 0.075;
 
     int i, j;
 
@@ -206,36 +207,47 @@ int main(int argc, char* argv[]) {
 
         int status = 1;
 
-        while (1) {
-
-            databaseLen = databaseEnd;
+        if (cardsLen == 0) {
 
             status &= readFastaChainsPart(&database, &databaseLen, handle,
-                serialized, 100000000);
+                serialized, 1000000000); // ~1GB
 
-            size_t cudaMemoryMin = chainDatabaseGpuMemoryConsumption(
-                database + databaseStart, databaseLen - databaseStart);
+        } else {
 
-            // evalue
-            cudaMemoryMin += 16 * databaseLen - databaseStart;
+            while (1) {
 
-            if (cudaMemoryMin > cudaMemoryMax) {
-
-                int holder = databaseLen;
                 databaseLen = databaseEnd;
-                databaseEnd = holder;
 
-                if (databaseLen <= databaseStart) {
-                    ASSERT(0, "cannot read database into CUDA memory");
+                status &= readFastaChainsPart(&database, &databaseLen, handle,
+                    serialized, cudaMemoryStep);
+
+                size_t cudaMemoryMin = chainDatabaseGpuMemoryConsumption(
+                    database + databaseStart, databaseLen - databaseStart);
+
+                // evalue
+                cudaMemoryMin += 16 * (databaseLen - databaseStart);
+
+                if (cudaMemoryMin > cudaMemoryMax || 
+                    (status == 1 && databaseEnd > databaseStart && cudaMemoryMin > 500000000)) {
+
+                    int holder = databaseLen;
+                    databaseLen = databaseEnd;
+                    databaseEnd = holder;
+
+                    if (databaseLen <= databaseStart) {
+                        ASSERT(0, "cannot read database into CUDA memory");
+                    }
+
+                    status = 1;
+
+                    break;
+                } else {
+                    databaseEnd = databaseLen;
                 }
 
-                break;
-            } else {
-                databaseEnd = databaseLen;
-            }
-
-            if (status == 0) {
-                break;
+                if (status == 0) {
+                    break;
+                }
             }
         }
 
