@@ -42,6 +42,7 @@ static struct option options[] = {
     {"algorithm", required_argument, 0, 'A'},
     {"nocache", no_argument, 0, 'C'},
     {"cpu", no_argument, 0, 'P'},
+    {"threads", required_argument, 0, 'T'},
     {"help", no_argument, 0, 'h'},
     {0, 0, 0, 0}
 };
@@ -102,9 +103,11 @@ int main(int argc, char* argv[]) {
 
     int forceCpu = 0;
 
+    int threads = 8;
+
     while (1) {
 
-        char argument = getopt_long(argc, argv, "i:j:g:e:h", options, NULL);
+        char argument = getopt_long(argc, argv, "i:j:g:e:hT:", options, NULL);
 
         if (argument == -1) {
             break;
@@ -174,6 +177,9 @@ int main(int argc, char* argv[]) {
 
     ASSERT(maxEValue > 0, "invalid evalue");
     
+    ASSERT(threads > 0, "invalid thread number");
+    threadPoolInitialize(threads);
+
     Scorer* scorer;
     scorerCreateMatrix(&scorer, matrix, gapOpen, gapExtend);
     
@@ -184,8 +190,6 @@ int main(int argc, char* argv[]) {
     if (cache) {
         dumpFastaChains(databasePath);
     }
-
-    threadPoolInitialize(cardsLen + 8);
 
     int chains;
     long long cells;
@@ -565,6 +569,9 @@ static void help() {
     "        same database, option disables this behaviour\n"
     "    --cpu\n"
     "        only cpu is used\n"
+    "    -T --threads <int>\n"
+    "        default: 8\n"
+    "        number of threads used in thread pool\n"
     "    -h, -help\n"
     "        prints out the help\n");
 }
