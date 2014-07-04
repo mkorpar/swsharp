@@ -58,6 +58,24 @@ typedef struct GpuDatabase {
     int2* hBus;
 } GpuDatabase;
 
+typedef struct GpuDatabaseContext {
+    int card;
+    int length;
+    int blocks;
+    int* offsets;
+    size_t offsetsSize;
+    int* lengths;
+    int* lengthsPadded;
+    size_t lengthsSize;
+    char4* sequences;
+    int sequencesCols;
+    int sequencesRows;
+    size_t sequencesSize;
+    int* indexes;
+    size_t indexesSize;
+    GpuDatabase* gpuDatabase;
+} GpuDatabaseContext;
+
 struct ShortDatabase {
     Chain** database;
     int databaseLen;
@@ -178,6 +196,9 @@ extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries,
 // constructor
 static ShortDatabase* createDatabase(Chain** database, int databaseLen, 
     int minLen, int maxLen, int* cards, int cardsLen);
+
+// gpu constructor thread
+static void* createDatabaseGpu(void* param);
 
 // destructor
 static void deleteDatabase(ShortDatabase* database);
@@ -557,61 +578,45 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
     size_t gpuDatabasesSize = cardsLen * sizeof(GpuDatabase);
     GpuDatabase* gpuDatabases = (GpuDatabase*) malloc(gpuDatabasesSize);
 
+    GpuDatabaseContext* contexts = 
+        (GpuDatabaseContext*) malloc(cardsLen * sizeof(GpuDatabaseContext));
+
+    Thread* threads = (Thread*) malloc(cardsLen * sizeof(Thread));
+
     for (int i = 0; i < cardsLen; ++i) {
 
-        int card = cards[i];
-        CUDA_SAFE_CALL(cudaSetDevice(card));
+        GpuDatabaseContext* context = &(contexts[i]);
 
-        int* offsetsGpu;
-        CUDA_SAFE_CALL(cudaMalloc(&offsetsGpu, offsetsSize));
-        CUDA_SAFE_CALL(cudaMemcpy(offsetsGpu, offsets, offsetsSize, TO_GPU));
-        
-        int* lengthsGpu;
-        CUDA_SAFE_CALL(cudaMalloc(&lengthsGpu, lengthsSize));
-        CUDA_SAFE_CALL(cudaMemcpy(lengthsGpu, lengths, lengthsSize, TO_GPU));
-
-        int* lengthsPaddedGpu;
-        CUDA_SAFE_CALL(cudaMalloc(&lengthsPaddedGpu, lengthsSize));
-        CUDA_SAFE_CALL(cudaMemcpy(lengthsPaddedGpu, lengthsPadded, lengthsSize, TO_GPU));
-        
-        cudaArray* sequencesGpu;
-        cudaChannelFormatDesc channel = seqsTexture.channelDesc;
-        CUDA_SAFE_CALL(cudaMallocArray(&sequencesGpu, &channel, sequencesCols, sequencesRows)); 
-        CUDA_SAFE_CALL(cudaMemcpyToArray(sequencesGpu, 0, 0, sequences, sequencesSize, TO_GPU));
-        CUDA_SAFE_CALL(cudaBindTextureToArray(seqsTexture, sequencesGpu));
-
-        int* indexesGpu;
-        CUDA_SAFE_CALL(cudaMalloc(&indexesGpu, indexesSize));
-        CUDA_SAFE_CALL(cudaMemcpy(indexesGpu, indexes, indexesSize, TO_GPU));
-        
-        // additional structures
-
-        size_t scoresSize = length * sizeof(int);
-        int* scoresGpu;
-        CUDA_SAFE_CALL(cudaMalloc(&scoresGpu, scoresSize));
-
-        int2* hBusGpu;
-        int hBusHeight = (sequencesRows - offsets[blocks - 1]) * 4;
-        size_t hBusSize = sequencesCols * hBusHeight * sizeof(int2);
-        CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
-
-        gpuDatabases[i].card = card;
-        gpuDatabases[i].offsets = offsetsGpu;
-        gpuDatabases[i].lengths = lengthsGpu;
-        gpuDatabases[i].lengthsPadded = lengthsPaddedGpu;
-        gpuDatabases[i].sequences = sequencesGpu;
-        gpuDatabases[i].indexes = indexesGpu;
-        gpuDatabases[i].scores = scoresGpu;
-        gpuDatabases[i].hBus = hBusGpu;
-        
-#ifdef DEBUG
-        size_t memory = offsetsSize + 2 * lengthsSize + sequencesSize + 
-            indexesSize + scoresSize + hBusSize;
-
-        LOG("Short database using %.2lfMBs on card %d", memory / 1024.0 / 1024.0, card);
-#endif
+        context->card = cards[i];
+        context->length = length;
+        context->blocks = blocks;
+        context->offsets = offsets;
+        context->offsetsSize = offsetsSize;
+        context->lengths = lengths;
+        context->lengthsPadded = lengthsPadded;
+        context->lengthsSize = lengthsSize;
+        context->sequences = sequences;
+        context->sequencesCols = sequencesCols;
+        context->sequencesRows = sequencesRows;
+        context->sequencesSize = sequencesSize;
+        context->indexes = indexes;
+        context->indexesSize = indexesSize;
+        context->gpuDatabase = gpuDatabases + i;
     }
-    
+
+    for (int i = 1; i < cardsLen; ++i) {
+        threadCreate(&(threads[i]), createDatabaseGpu, (void*) &(contexts[i]));
+    }
+
+    createDatabaseGpu((void*) &(contexts[0]));
+
+    for (int i = 1; i < cardsLen; ++i) {
+        threadJoin(threads[i]);
+    }
+
+    free(contexts);
+    free(threads);
+
     //**************************************************************************
     
     //**************************************************************************
@@ -641,6 +646,80 @@ static ShortDatabase* createDatabase(Chain** database, int databaseLen,
     shortDatabase->gpuDatabasesLen = cardsLen;
     
     return shortDatabase;
+}
+
+static void* createDatabaseGpu(void* param) {
+
+    GpuDatabaseContext* context = (GpuDatabaseContext*) param;
+
+    int card = context->card;
+    int length = context->length;
+    int blocks = context->blocks;
+    int* offsets = context->offsets;
+    size_t offsetsSize = context->offsetsSize;
+    int* lengths = context->lengths;
+    int* lengthsPadded = context->lengthsPadded;
+    size_t lengthsSize = context->lengthsSize;
+    char4* sequences = context->sequences;
+    int sequencesCols = context->sequencesCols;
+    int sequencesRows = context->sequencesRows;
+    size_t sequencesSize = context->sequencesSize;
+    int* indexes = context->indexes;
+    size_t indexesSize = context->indexesSize;
+    GpuDatabase* gpuDatabase = context->gpuDatabase;
+
+    CUDA_SAFE_CALL(cudaSetDevice(card));
+
+    int* offsetsGpu;
+    CUDA_SAFE_CALL(cudaMalloc(&offsetsGpu, offsetsSize));
+    CUDA_SAFE_CALL(cudaMemcpy(offsetsGpu, offsets, offsetsSize, TO_GPU));
+    
+    int* lengthsGpu;
+    CUDA_SAFE_CALL(cudaMalloc(&lengthsGpu, lengthsSize));
+    CUDA_SAFE_CALL(cudaMemcpy(lengthsGpu, lengths, lengthsSize, TO_GPU));
+
+    int* lengthsPaddedGpu;
+    CUDA_SAFE_CALL(cudaMalloc(&lengthsPaddedGpu, lengthsSize));
+    CUDA_SAFE_CALL(cudaMemcpy(lengthsPaddedGpu, lengthsPadded, lengthsSize, TO_GPU));
+    
+    cudaArray* sequencesGpu;
+    cudaChannelFormatDesc channel = seqsTexture.channelDesc;
+    CUDA_SAFE_CALL(cudaMallocArray(&sequencesGpu, &channel, sequencesCols, sequencesRows)); 
+    CUDA_SAFE_CALL(cudaMemcpyToArray(sequencesGpu, 0, 0, sequences, sequencesSize, TO_GPU));
+    CUDA_SAFE_CALL(cudaBindTextureToArray(seqsTexture, sequencesGpu));
+
+    int* indexesGpu;
+    CUDA_SAFE_CALL(cudaMalloc(&indexesGpu, indexesSize));
+    CUDA_SAFE_CALL(cudaMemcpy(indexesGpu, indexes, indexesSize, TO_GPU));
+    
+    // additional structures
+
+    size_t scoresSize = length * sizeof(int);
+    int* scoresGpu;
+    CUDA_SAFE_CALL(cudaMalloc(&scoresGpu, scoresSize));
+
+    int2* hBusGpu;
+    int hBusHeight = (sequencesRows - offsets[blocks - 1]) * 4;
+    size_t hBusSize = sequencesCols * hBusHeight * sizeof(int2);
+    CUDA_SAFE_CALL(cudaMalloc(&hBusGpu, hBusSize));
+
+    gpuDatabase->card = card;
+    gpuDatabase->offsets = offsetsGpu;
+    gpuDatabase->lengths = lengthsGpu;
+    gpuDatabase->lengthsPadded = lengthsPaddedGpu;
+    gpuDatabase->sequences = sequencesGpu;
+    gpuDatabase->indexes = indexesGpu;
+    gpuDatabase->scores = scoresGpu;
+    gpuDatabase->hBus = hBusGpu;
+    
+#ifdef DEBUG
+    size_t memory = offsetsSize + 2 * lengthsSize + sequencesSize + 
+        indexesSize + scoresSize + hBusSize;
+
+    LOG("Short database using %.2lfMBs on card %d", memory / 1024.0 / 1024.0, card);
+#endif
+
+    return NULL;
 }
 
 static void deleteDatabase(ShortDatabase* database) {
