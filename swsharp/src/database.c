@@ -41,7 +41,7 @@ Contact the author by mkorpar@gmail.com.
 
 #include "database.h"
 
-#define CPU_THREAD_CHUNK    250
+#define CPU_THREAD_CHUNK    1000
 #define CPU_PACKED_CHUNK    25
 
 #define GPU_DB_MIN_CELLS    49000000ll
