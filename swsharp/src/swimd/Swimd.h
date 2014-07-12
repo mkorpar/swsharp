@@ -61,7 +61,7 @@ extern "C" {
 extern int swimdSearchDatabase(unsigned char query[], int queryLength, 
                         unsigned char** db, int dbLength, int dbSeqLengths[],
                         int gapOpen, int gapExt, int* scoreMatrix, int alphabetLength,
-                        int scores[], const int mode);
+                        int scores[], const int mode, const int useOnlyChar);
     
 #ifdef __cplusplus 
 }

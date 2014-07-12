@@ -242,6 +242,7 @@ static void* scoreDatabaseThread(void* param) {
     
     //**************************************************************************
     // SOLVE MULTICARDED
+
     TIMER_START("Database solving GPU");
 
     TIMER_START("Short solve");

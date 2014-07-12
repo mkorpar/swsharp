@@ -388,7 +388,7 @@ static inline bool loadNextSequence(int &nextDbSeqIdx, int dbLength, int &currDb
 extern int searchDatabaseSW(unsigned char query[], int queryLength, 
                             unsigned char** db, int dbLength, int dbSeqLengths[],
                             int gapOpen, int gapExt, int* scoreMatrix, int alphabetLength,
-                            int scores[]) {
+                            int scores[], const int useOnlyChar) {
     int resultCode = 0;
     const int chunkSize = 1024;
     bool* calculated = new bool[chunkSize];
@@ -399,27 +399,36 @@ extern int searchDatabaseSW(unsigned char query[], int queryLength,
         int dbLength_ = startIdx + chunkSize >= dbLength ? dbLength - startIdx : chunkSize;
         for (int i = 0; i < dbLength_; i++)
             calculated[i] = false;
+
         resultCode = searchDatabaseSW_< SimdSW<char> >(query, queryLength, 
                                                        db_, dbLength_, dbSeqLengths_, 
                                                        gapOpen, gapExt, scoreMatrix, alphabetLength, scores_,
                                                        calculated);
-        if (resultCode != 0) {
-            resultCode = searchDatabaseSW_< SimdSW<short> >(query, queryLength,
-                                                            db_, dbLength_, dbSeqLengths_,
-                                                            gapOpen, gapExt, scoreMatrix, alphabetLength, scores_,
-                                                            calculated);
+
+        if (!useOnlyChar) {
             if (resultCode != 0) {
-                resultCode = searchDatabaseSW_< SimdSW<int> >(query, queryLength,
-                                                              db_, dbLength_, dbSeqLengths_,
-                                                              gapOpen, gapExt, scoreMatrix, alphabetLength, scores_,
-                                                              calculated);
-                if (resultCode != 0)
-                    break;
+                resultCode = searchDatabaseSW_< SimdSW<short> >(query, queryLength,
+                                                                db_, dbLength_, dbSeqLengths_,
+                                                                gapOpen, gapExt, scoreMatrix, alphabetLength, scores_,
+                                                                calculated);
+                if (resultCode != 0) {
+                    resultCode = searchDatabaseSW_< SimdSW<int> >(query, queryLength,
+                                                                  db_, dbLength_, dbSeqLengths_,
+                                                                  gapOpen, gapExt, scoreMatrix, alphabetLength, scores_,
+                                                                  calculated);
+                    if (resultCode != 0)
+                        break;
+                }
             }
         }
     }
 
     delete[] calculated;
+
+    if (useOnlyChar) {
+        return 0;
+    }
+
     return resultCode;
 }
 
@@ -779,7 +788,7 @@ template <int MODE>
 static int searchDatabase(unsigned char query[], int queryLength, 
                           unsigned char** db, int dbLength, int dbSeqLengths[],
                           int gapOpen, int gapExt, int* scoreMatrix, int alphabetLength,
-                          int scores[]) {
+                          int scores[], const int useOnlyChar) {
     int resultCode = 0;
     const int chunkSize = 1024;
     bool* calculated = new bool[chunkSize];
@@ -790,23 +799,32 @@ static int searchDatabase(unsigned char query[], int queryLength,
         int dbLength_ = startIdx + chunkSize >= dbLength ? dbLength - startIdx : chunkSize;
         for (int i = 0; i < dbLength_; i++)
             calculated[i] = false;
+
         resultCode = searchDatabase_< Simd<char>, MODE >
             (query, queryLength, db_, dbLength_, dbSeqLengths_, 
              gapOpen, gapExt, scoreMatrix, alphabetLength, scores_, calculated);
-        if (resultCode != 0) {
-            resultCode = searchDatabase_< Simd<short>, MODE >
-                (query, queryLength, db_, dbLength_, dbSeqLengths_,
-                 gapOpen, gapExt, scoreMatrix, alphabetLength, scores_, calculated);
+
+        if (!useOnlyChar) {
             if (resultCode != 0) {
-                resultCode = searchDatabase_< Simd<int>, MODE >
+                resultCode = searchDatabase_< Simd<short>, MODE >
                     (query, queryLength, db_, dbLength_, dbSeqLengths_,
                      gapOpen, gapExt, scoreMatrix, alphabetLength, scores_, calculated);
-                if (resultCode != 0)
-                    break;
+                if (resultCode != 0) {
+                    resultCode = searchDatabase_< Simd<int>, MODE >
+                        (query, queryLength, db_, dbLength_, dbSeqLengths_,
+                         gapOpen, gapExt, scoreMatrix, alphabetLength, scores_, calculated);
+                    if (resultCode != 0)
+                        break;
+                }
             }
         }
     }
     delete[] calculated;
+
+    if (useOnlyChar) {
+        return 0;
+    }
+
     return resultCode;
 }
 
@@ -815,25 +833,25 @@ static int searchDatabase(unsigned char query[], int queryLength,
 extern int swimdSearchDatabase(unsigned char query[], int queryLength, 
                                unsigned char** db, int dbLength, int dbSeqLengths[],
                                int gapOpen, int gapExt, int* scoreMatrix, int alphabetLength,
-                               int scores[], const int mode) {    
+                               int scores[], const int mode, const int useOnlyChar) {    
 #if !defined(__SSE4_1__) && !defined(__AVX2__)
     return SWIMD_ERR_NO_SIMD_SUPPORT;
 #else
     if (mode == SWIMD_MODE_NW) {
         return searchDatabase<SWIMD_MODE_NW>
             (query, queryLength, db, dbLength, dbSeqLengths, 
-             gapOpen, gapExt, scoreMatrix, alphabetLength, scores);
+             gapOpen, gapExt, scoreMatrix, alphabetLength, scores, useOnlyChar);
     } else if (mode == SWIMD_MODE_HW) {
         return searchDatabase<SWIMD_MODE_HW>
             (query, queryLength, db, dbLength, dbSeqLengths, 
-             gapOpen, gapExt, scoreMatrix, alphabetLength, scores);
+             gapOpen, gapExt, scoreMatrix, alphabetLength, scores, useOnlyChar);
     } else if (mode == SWIMD_MODE_OV) {
         return searchDatabase<SWIMD_MODE_OV>
             (query, queryLength, db, dbLength, dbSeqLengths, 
-             gapOpen, gapExt, scoreMatrix, alphabetLength, scores);
+             gapOpen, gapExt, scoreMatrix, alphabetLength, scores, useOnlyChar);
     } else if (mode == SWIMD_MODE_SW) {
         return searchDatabaseSW(query, queryLength, db, dbLength, dbSeqLengths, 
-                                gapOpen, gapExt, scoreMatrix, alphabetLength, scores);
+            gapOpen, gapExt, scoreMatrix, alphabetLength, scores, useOnlyChar);
     }
     return SWIMD_ERR_INVALID_MODE;
 #endif

@@ -47,7 +47,7 @@ static int sswDatabaseWrapper(int* scores, int type, Chain* query,
     Chain** database, int databaseLen, Scorer* scorer);
 
 static int swimdWrapper(int* scores, int type, Chain* query, Chain** database, 
-    int databaseLen, Scorer* scorer);
+    int databaseLen, Scorer* scorer, int solveChar);
 
 //******************************************************************************
 
@@ -149,11 +149,21 @@ extern int scorePairSse(int* score, int type, Chain* query, Chain* target,
 extern int scoreDatabaseSse(int* scores, int type, Chain* query, 
     Chain** database, int databaseLen, Scorer* scorer) {
 
-    if (swimdWrapper(scores, type, query, database, databaseLen, scorer) == 0) {
+    if (swimdWrapper(scores, type, query, database, databaseLen, scorer, 0) == 0) {
         return 0;
     }
 
     if (sswDatabaseWrapper(scores, type, query, database, databaseLen, scorer) == 0) {
+        return 0;
+    }
+
+    return -1;
+}
+
+extern int scoreDatabaseSseChar(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer) {
+
+    if (swimdWrapper(scores, type, query, database, databaseLen, scorer, 1) == 0) {
         return 0;
     }
 
@@ -317,9 +327,9 @@ static int sswDatabaseWrapper(int* scores, int type, Chain* query,
 }
 
 static int swimdWrapper(int* scores, int type, Chain* query, Chain** database, 
-    int databaseLen, Scorer* scorer) {
+    int databaseLen, Scorer* scorer, int solveChar) {
 
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__AVX2__)
 
     int mode;
     switch (type) {
@@ -360,7 +370,8 @@ static int swimdWrapper(int* scores, int type, Chain* query, Chain** database,
     }
 
     int status = swimdSearchDatabase(queryPtr, queryLen, databasePtrs, 
-        databaseLen, databaseLens, gapOpen, gapExtend, table, maxCode, scores, mode);
+        databaseLen, databaseLens, gapOpen, gapExtend, table, maxCode, scores,
+        mode, solveChar);
 
     free(databasePtrs);
     free(databaseLens);
