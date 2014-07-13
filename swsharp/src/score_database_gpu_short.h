@@ -46,7 +46,7 @@ extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query,
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabaseGpuSimd8(int* scores, int type, Chain* query, 
+extern void scoreShortDatabaseGpuChar(int* scores, int type, Chain* query, 
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
@@ -54,7 +54,7 @@ extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries,
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabasesGpuSimd8(int* scores, int type, Chain** queries, 
+extern void scoreShortDatabasesGpuChar(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 

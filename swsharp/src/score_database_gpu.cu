@@ -32,6 +32,7 @@ Contact the author by mkorpar@gmail.com.
 #include "scorer.h"
 #include "score_database_gpu_long.h"
 #include "score_database_gpu_short.h"
+#include "sse_module.h"
 #include "thread.h"
 #include "threadpool.h"
 #include "utils.h"
@@ -66,6 +67,7 @@ typedef struct ContextCpu {
     Scorer* scorer;
     int* indexes;
     int indexesLen;
+    int useSimd;
     Mutex* mutex;
     int lastIndexSolved;
     int cancelled;
@@ -79,6 +81,7 @@ typedef struct ContextWorkerCpu {
     Chain** database;
     int databaseLen;
     Scorer* scorer;
+    int useSimd;
     Mutex* mutex;
     int* lastQuery;
     int* lastTarget;
@@ -303,6 +306,8 @@ static void* scoreDatabaseThread(void* param) {
     Chain** database = chainDatabaseGpu->database;
     int databaseLen = chainDatabaseGpu->databaseLen;
     
+    int useSimd = 1;
+
     //**************************************************************************
     // FILTER INDEXES
     
@@ -327,7 +332,7 @@ static void* scoreDatabaseThread(void* param) {
 
     for (int i = 0; i < queriesLen; ++i) {
         for (int j = 0; j < databaseLen; ++j) {
-            (*scores)[i * databaseLen + j] = NO_SCORE;
+            (*scores)[i * databaseLen + j] = 10000; // NO_SCORE;
         }
     }
 
@@ -349,6 +354,7 @@ static void* scoreDatabaseThread(void* param) {
     contextCpu.scorer = scorer;
     contextCpu.indexes = longIndexesNew;
     contextCpu.indexesLen = longIndexesNewLen;
+    contextCpu.useSimd = useSimd;
     contextCpu.mutex = &mutex;
     contextCpu.lastIndexSolved = 0;
     contextCpu.cancelled = 0;
@@ -365,8 +371,15 @@ static void* scoreDatabaseThread(void* param) {
 
     TIMER_START("Short solve");
     
-    scoreShortDatabasesGpu(*scores, type, queries, queriesLen, 
-        shortDatabase, scorer, indexesNew, indexesNewLen, cards, cardsLen, NULL);
+    if (useSimd) {
+        scoreShortDatabasesGpuChar(*scores, type, queries, queriesLen,
+            shortDatabase, scorer, indexesNew, indexesNewLen,
+            cards, cardsLen, NULL);
+    } else {
+        scoreShortDatabasesGpu(*scores, type, queries, queriesLen, 
+            shortDatabase, scorer, indexesNew, indexesNewLen,
+            cards, cardsLen, NULL);
+    }
 
     TIMER_STOP;
 
@@ -377,7 +390,7 @@ static void* scoreDatabaseThread(void* param) {
 
     mutexUnlock(contextCpu.mutex);
 
-    LOG("Long indexes solved CPU: \n%d\n\n", longInexesSolved);
+    LOG("Long indexes solved CPU: %d", longInexesSolved);
 
     TIMER_START("Long solve");
     
@@ -392,6 +405,48 @@ static void* scoreDatabaseThread(void* param) {
     threadJoin(thread);
 
     TIMER_STOP;
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // SOLVE OVERFLOWS
+
+    if (useSimd) {
+
+        TIMER_START("Solving overflows");
+
+        for (int i = 0; i < queriesLen; ++i) {
+
+            int* overflows = (int*) malloc(databaseLen * sizeof(int));
+            int overflowsLen = 0;
+
+            for (int j = 0; j < databaseLen; ++j) {
+                if ((*scores)[i * databaseLen + j] == 127) {
+                    overflows[overflowsLen++] = j;
+                }
+            }
+
+            ContextCpu contextCpu;
+            contextCpu.scores = *scores;
+            contextCpu.type = type;
+            contextCpu.queries = queries + i; 
+            contextCpu.queriesLen = 1;
+            contextCpu.database = database;
+            contextCpu.databaseLen = databaseLen;
+            contextCpu.scorer = scorer;
+            contextCpu.indexes = overflows;
+            contextCpu.indexesLen = overflowsLen;
+            contextCpu.useSimd = 0;
+            contextCpu.mutex = &mutex;
+            contextCpu.lastIndexSolved = 0;
+
+            scoreCpu(&contextCpu);
+
+            free(overflows);
+        }
+
+        TIMER_STOP;
+    }
 
     //**************************************************************************
 
@@ -429,13 +484,14 @@ static void* scoreCpu(void* param) {
     Scorer* scorer = context->scorer;
     int* indexes = context->indexes;
     int indexesLen = context->indexesLen;
+    int useSimd = context->useSimd;
     Mutex* mutex = context->mutex;
 
     if (indexesLen == 0) {
         return NULL;
     }
 
-    TIMER_START("Long indexes CPU: %d", indexesLen);
+    TIMER_START("Outter solving CPU: %d", indexesLen);
 
     //**************************************************************************
     // CREATE DATABASE
@@ -462,6 +518,7 @@ static void* scoreCpu(void* param) {
     workerContext.database = database;
     workerContext.databaseLen = indexesLen;
     workerContext.scorer = scorer;
+    workerContext.useSimd = useSimd;
     workerContext.mutex = mutex;
     workerContext.lastQuery = &lastQuery;
     workerContext.lastTarget = &(context->lastIndexSolved);
@@ -536,6 +593,7 @@ static void* scoreCpuWorker(void* param) {
     Chain** database_ = context->database;
     int databaseLen = context->databaseLen;
     Scorer* scorer = context->scorer;
+    int useSimd = context->useSimd;
     Mutex* mutex = context->mutex;
     int* lastQuery = context->lastQuery;
     int* lastTarget = context->lastTarget;
@@ -566,7 +624,14 @@ static void* scoreCpuWorker(void* param) {
     Chain* query = queries[queryIdx];
     Chain** database = database_ + start;
 
-    scoreDatabaseCpu(scores, type, query, database, length, scorer);
+    int status = 0;
+    if (useSimd) {
+        status = scoreDatabaseSseChar(scores, type, query, database, length, scorer);
+    }
+
+    if (!useSimd || status != 0) {
+        scoreDatabaseCpu(scores, type, query, database, length, scorer);
+    }
 
     return NULL;
 }

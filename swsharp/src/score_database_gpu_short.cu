@@ -203,7 +203,7 @@ extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query,
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabaseGpuSimd8(int* scores, int type, Chain* query, 
+extern void scoreShortDatabaseGpuChar(int* scores, int type, Chain* query, 
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
@@ -211,7 +211,7 @@ extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries,
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabasesGpuSimd8(int* scores, int type, Chain** queries, 
+extern void scoreShortDatabasesGpuChar(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
@@ -391,7 +391,7 @@ extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query,
         indexesLen, cards, cardsLen, 0, thread);
 }
 
-extern void scoreShortDatabaseGpuSimd8(int* scores, int type, Chain* query, 
+extern void scoreShortDatabaseGpuChar(int* scores, int type, Chain* query, 
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread) {
     scoreDatabase(scores, type, &query, 1, shortDatabase, scorer, indexes, 
@@ -405,7 +405,7 @@ extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries,
         indexes, indexesLen, cards, cardsLen, 0, thread);
 }
 
-extern void scoreShortDatabasesGpuSimd8(int* scores, int type, Chain** queries, 
+extern void scoreShortDatabasesGpuChar(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread) {
     scoreDatabase(scores, type, queries, queriesLen, shortDatabase, scorer,
