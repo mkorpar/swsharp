@@ -332,7 +332,7 @@ static void* scoreDatabaseThread(void* param) {
 
     for (int i = 0; i < queriesLen; ++i) {
         for (int j = 0; j < databaseLen; ++j) {
-            (*scores)[i * databaseLen + j] = 10000; // NO_SCORE;
+            (*scores)[i * databaseLen + j] = NO_SCORE;
         }
     }
 
@@ -415,13 +415,15 @@ static void* scoreDatabaseThread(void* param) {
 
         TIMER_START("Solving overflows");
 
+        int maxScore = scorerGetMaxScore(scorer);
+
         for (int i = 0; i < queriesLen; ++i) {
 
             int* overflows = (int*) malloc(databaseLen * sizeof(int));
             int overflowsLen = 0;
 
             for (int j = 0; j < databaseLen; ++j) {
-                if ((*scores)[i * databaseLen + j] == 127) {
+                if ((*scores)[i * databaseLen + j] >= 127 - maxScore) {
                     overflows[overflowsLen++] = j;
                 }
             }
@@ -439,6 +441,7 @@ static void* scoreDatabaseThread(void* param) {
             contextCpu.useSimd = 0;
             contextCpu.mutex = &mutex;
             contextCpu.lastIndexSolved = 0;
+            contextCpu.cancelled = 0;
 
             scoreCpu(&contextCpu);
 

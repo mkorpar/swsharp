@@ -1579,7 +1579,7 @@ static void* cpuWorker(void* param) {
     int start = max(0, cpuGpuSync->firstCpu - CPU_WORKER_STEP);
     int length = cpuGpuSync->firstCpu - start;
 
-    if (start < 0 || start < cpuGpuSync->lastGpu) {
+    if (start < 0 || start + length < cpuGpuSync->lastGpu) {
         mutexUnlock(&(cpuGpuSync->mutex));
         return NULL;
     }
