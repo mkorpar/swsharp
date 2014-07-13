@@ -38,7 +38,8 @@ Contact the author by mkorpar@gmail.com.
 
 #include "score_database_gpu_short.h"
 
-#define CPU_WORKER_STEP     32
+#define CPU_WORKER_STEP         32
+#define CPU_THREADPOOL_STEP     100
 
 #define THREADS   64
 #define BLOCKS    120
@@ -1170,6 +1171,8 @@ static void* kernelsThread(void* param) {
     gpuContext.card = card;
     gpuContext.gpuSync = NULL;
     gpuContext.cpuGpuSync = &cpuGpuSync;
+    gpuContext.indexes = indexes;
+    gpuContext.indexesLen = indexesLen;
 
     KernelContextCpu cpuContext;
     cpuContext.type = type;
@@ -1177,6 +1180,8 @@ static void* kernelsThread(void* param) {
     cpuContext.scorer = scorer;
     cpuContext.cpuGpuSync = &cpuGpuSync;
     cpuContext.useSimd = simdScoringFunction != NULL;
+    cpuContext.indexes = indexes;
+    cpuContext.indexesLen = indexesLen;
 
     int* overflows = useGpuSimd ? (int*) malloc(indexesLen * sizeof(int)) : NULL;
 
@@ -1210,16 +1215,12 @@ static void* kernelsThread(void* param) {
         // init specifix cpu and run
         cpuContext.scores = scores;
         cpuContext.query = query;
-        cpuContext.indexes = indexes;
-        cpuContext.indexesLen = indexesLen;
 
         threadCreate(&thread, kernelThreadCpu, &cpuContext);
 
         // init specifix gpu and run
         gpuContext.scores = scores;
         gpuContext.queryProfile = createQueryProfile(query, scorer);
-        gpuContext.indexes = indexes;
-        gpuContext.indexesLen = indexesLen;
 
         kernelThread(&gpuContext);
 
@@ -1460,8 +1461,6 @@ static void* kernelThread(void* param) {
 
 static void* kernelThreadCpu(void* param) {
 
-    int i;
-
     KernelContextCpu* context = (KernelContextCpu*) param;
 
     int* scores = context->scores;
@@ -1486,7 +1485,7 @@ static void* kernelThreadCpu(void* param) {
     int databaseLen = indexesLen;
     Chain** database = (Chain**) malloc(indexesLen * sizeof(Chain*));
 
-    for (i = 0; i < indexesLen; ++i) {
+    for (int i = 0; i < indexesLen; ++i) {
         database[i] = shortDatabase->database[order[indexes[i]]];
     }
 
@@ -1509,17 +1508,17 @@ static void* kernelThreadCpu(void* param) {
     workerContext.cpuGpuSync = cpuGpuSync;
     workerContext.useSimd = useSimd;
 
-    int tasksNmr = 100;
+    int tasksNmr = CPU_THREADPOOL_STEP;
     ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksNmr * sizeof(ThreadPoolTask*));
 
     int over = 0;
     while (!over) {
 
-        for (i = 0; i < tasksNmr; ++i) {
+        for (int i = 0; i < tasksNmr; ++i) {
             tasks[i] = threadPoolSubmit(cpuWorker, &workerContext);
         }
         
-        for (i = 0; i < tasksNmr; ++i) {
+        for (int i = 0; i < tasksNmr; ++i) {
             threadPoolTaskWait(tasks[i]);
             threadPoolTaskDelete(tasks[i]);
         }
