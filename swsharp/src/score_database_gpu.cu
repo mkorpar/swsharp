@@ -429,7 +429,7 @@ static void* scoreDatabaseThread(void* param) {
             }
 
             ContextCpu contextCpu;
-            contextCpu.scores = *scores;
+            contextCpu.scores = *scores + i * databaseLen;
             contextCpu.type = type;
             contextCpu.queries = queries + i; 
             contextCpu.queriesLen = 1;

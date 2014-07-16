@@ -1576,10 +1576,10 @@ static void* cpuWorker(void* param) {
 
     cpuGpuSync->firstCpu = min(cpuGpuSync->firstCpu, databaseLen);
 
-    int start = max(0, cpuGpuSync->firstCpu - CPU_WORKER_STEP);
+    int start = max(cpuGpuSync->lastGpu, cpuGpuSync->firstCpu - CPU_WORKER_STEP);
     int length = cpuGpuSync->firstCpu - start;
 
-    if (start < 0 || start + length < cpuGpuSync->lastGpu) {
+    if (start < 0 || length <= 0) {
         mutexUnlock(&(cpuGpuSync->mutex));
         return NULL;
     }
