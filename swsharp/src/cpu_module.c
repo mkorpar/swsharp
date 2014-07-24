@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Contact the author by mkorpar@gmail.com.
 */
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,6 +69,9 @@ extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
 
 extern void scoreDatabaseCpu(int* scores, int type, Chain* query, 
     Chain** database, int databaseLen, Scorer* scorer);
+
+extern void scoreDatabasePartiallyCpu(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer, int maxScore);
 
 //******************************************************************************
 
@@ -184,6 +188,35 @@ extern void scoreDatabaseCpu(int* scores, int type, Chain* query,
     for (databaseIdx = 0; databaseIdx < databaseLen; ++ databaseIdx) {
         Chain* target = database[databaseIdx];
         scores[databaseIdx] = scorePairCpu(type, query, target, scorer);
+    }
+}
+
+
+extern void scoreDatabasePartiallyCpu(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer, int maxScore) {
+
+    if (maxScore < 0 && type == SW_ALIGN) {
+        memset(scores, 0, databaseLen * sizeof(int));
+        return;
+    }
+
+    if (maxScore == INT_MAX) {
+        scoreDatabaseCpu(scores, type, query, database, databaseLen, scorer);
+        return;
+    }
+
+    int status = scoreDatabasePartiallySse(scores, type, query, database, 
+        databaseLen, scorer, maxScore);
+
+    // if sse is available return
+    if (status == 0) {
+        return;
+    }
+
+    int databaseIdx;
+    for (databaseIdx = 0; databaseIdx < databaseLen; ++databaseIdx) {
+        Chain* target = database[databaseIdx];
+        scores[databaseIdx] = MIN(maxScore, scorePairCpu(type, query, target, scorer));
     }
 }
 

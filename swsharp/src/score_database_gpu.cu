@@ -32,7 +32,6 @@ Contact the author by mkorpar@gmail.com.
 #include "scorer.h"
 #include "score_database_gpu_long.h"
 #include "score_database_gpu_short.h"
-#include "sse_module.h"
 #include "thread.h"
 #include "threadpool.h"
 #include "utils.h"
@@ -372,8 +371,8 @@ static void* scoreDatabaseThread(void* param) {
     TIMER_START("Short solve");
     
     if (useSimd) {
-        scoreShortDatabasesGpuChar(*scores, type, queries, queriesLen,
-            shortDatabase, scorer, indexesNew, indexesNewLen,
+        scoreShortDatabasesPartiallyGpu(*scores, type, queries, queriesLen,
+            shortDatabase, scorer, indexesNew, indexesNewLen, 128,
             cards, cardsLen, NULL);
     } else {
         scoreShortDatabasesGpu(*scores, type, queries, queriesLen, 
@@ -423,11 +422,15 @@ static void* scoreDatabaseThread(void* param) {
             int overflowsLen = 0;
 
             for (int j = 0; j < databaseLen; ++j) {
-                if ((*scores)[i * databaseLen + j] >= 127 - maxScore) {
+                if ((*scores)[i * databaseLen + j] >= 128) {
                     overflows[overflowsLen++] = j;
                 }
             }
 
+            scoreShortDatabaseGpu(*scores, type, queries[i], 
+                shortDatabase, scorer, overflows, overflowsLen,
+                cards, cardsLen, NULL);
+/*
             ContextCpu contextCpu;
             contextCpu.scores = *scores + i * databaseLen;
             contextCpu.type = type;
@@ -444,11 +447,25 @@ static void* scoreDatabaseThread(void* param) {
             contextCpu.cancelled = 0;
 
             scoreCpu(&contextCpu);
-
+*/
             free(overflows);
         }
 
         TIMER_STOP;
+    } else {
+#ifdef DEBUG
+
+        int overflows = 0;
+        for (int i = 0; i < queriesLen; ++i) {
+            for (int j = 0; j < databaseLen; ++j) {
+                if ((*scores)[i * databaseLen + j] >= 128) {
+                    overflows++;
+                }
+            }
+        }
+
+        LOG("Scores over 127: %d", overflows);
+#endif
     }
 
     //**************************************************************************
@@ -627,12 +644,9 @@ static void* scoreCpuWorker(void* param) {
     Chain* query = queries[queryIdx];
     Chain** database = database_ + start;
 
-    int status = 0;
     if (useSimd) {
-        status = scoreDatabaseSseChar(scores, type, query, database, length, scorer);
-    }
-
-    if (!useSimd || status != 0) {
+        scoreDatabasePartiallyCpu(scores, type, query, database, length, scorer, 128);
+    } else {
         scoreDatabaseCpu(scores, type, query, database, length, scorer);
     }
 

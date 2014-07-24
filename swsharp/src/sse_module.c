@@ -160,12 +160,14 @@ extern int scoreDatabaseSse(int* scores, int type, Chain* query,
     return -1;
 }
 
-extern int scoreDatabaseSseChar(int* scores, int type, Chain* query, 
-    Chain** database, int databaseLen, Scorer* scorer) {
+extern int scoreDatabasePartiallySse(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer, int maxScore) {
 
     if (swimdWrapper(scores, type, query, database, databaseLen, scorer, 1) == 0) {
         return 0;
     }
+
+    printf("nop\n");
 
     return -1;
 }
@@ -369,9 +371,28 @@ static int swimdWrapper(int* scores, int type, Chain* query, Chain** database,
         databaseLens[i] = chainGetLength(database[i]);
     }
 
-    int status = swimdSearchDatabase(queryPtr, queryLen, databasePtrs, 
-        databaseLen, databaseLens, gapOpen, gapExtend, table, maxCode, scores,
-        mode, solveChar);
+    int status;
+    if (solveChar && type == SW_ALIGN) {
+
+        status = swimdSearchDatabaseCharSW(queryPtr, queryLen, databasePtrs,
+            databaseLen, databaseLens, gapOpen, gapExtend, table, maxCode,
+            scores);
+
+        if (status != SWIMD_ERR_NO_SIMD_SUPPORT) {
+            status = 0;
+        }
+
+        for (i = 0; i < databaseLen; ++i) {
+            if (scores[i] == -1) {
+                scores[i] = 128;
+            }
+        }
+
+    } else {
+        status = swimdSearchDatabase(queryPtr, queryLen, databasePtrs, 
+            databaseLen, databaseLens, gapOpen, gapExtend, table, maxCode,
+            scores, mode, SWIMD_OVERFLOW_BUCKETS);
+    }
 
     free(databasePtrs);
     free(databaseLens);

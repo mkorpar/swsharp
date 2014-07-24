@@ -46,17 +46,18 @@ extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query,
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabaseGpuChar(int* scores, int type, Chain* query, 
-    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
-    int* cards, int cardsLen, Thread* thread);
-
 extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabasesGpuChar(int* scores, int type, Chain** queries, 
-    int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
-    int indexesLen, int* cards, int cardsLen, Thread* thread);
+extern void scoreShortDatabasePartiallyGpu(int* scores, int type, Chain* query, 
+    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
+    int maxScore, int* cards, int cardsLen, Thread* thread);
+
+extern void scoreShortDatabasesPartiallyGpu(int* scores, int type, 
+    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, 
+    Scorer* scorer, int* indexes, int indexesLen, int maxScore, int* cards,
+    int cardsLen, Thread* thread);
 
 #ifdef __cplusplus 
 }

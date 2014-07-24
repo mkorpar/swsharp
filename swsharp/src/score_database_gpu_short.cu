@@ -31,18 +31,24 @@ Contact the author by mkorpar@gmail.com.
 #include "cuda_utils.h"
 #include "error.h"
 #include "scorer.h"
-#include "sse_module.h"
 #include "thread.h"
 #include "threadpool.h"
 #include "utils.h"
 
 #include "score_database_gpu_short.h"
 
+#define GPU_SIMD_AVAILABLE
+
 #define CPU_WORKER_STEP         32
 #define CPU_THREADPOOL_STEP     100
 
-#define THREADS   64
-#define BLOCKS    120
+#ifdef GPU_SIMD_AVAILABLE
+    #define THREADS   64
+    #define BLOCKS    120
+#else
+    #define THREADS   128
+    #define BLOCKS    120
+#endif
 
 #define INT4_ZERO make_int4(0, 0, 0, 0)
 #define INT4_SCORE_MIN make_int4(SCORE_MIN, SCORE_MIN, SCORE_MIN, SCORE_MIN)
@@ -114,7 +120,7 @@ typedef struct Context {
     int indexesLen;
     int* cards;
     int cardsLen;
-    int useSimd;
+    int maxScore;
 } Context;
 
 typedef struct QueryProfile {
@@ -139,6 +145,7 @@ typedef struct KernelContext {
     int* indexes;
     int indexesLen;
     int card;
+    int maxScore;
     GpuSync* gpuSync;
     CpuGpuSync* cpuGpuSync;
 } KernelContext;
@@ -154,6 +161,7 @@ typedef struct KernelContexts {
     Scorer* scorer;
     int* indexes;
     int indexesLen;
+    int maxScore;
     int card;
     GpuSync* gpuSync;
 } KernelContexts;
@@ -166,8 +174,8 @@ typedef struct KernelContextCpu {
     Scorer* scorer;
     int* indexes;
     int indexesLen;
+    int maxScore;
     CpuGpuSync* cpuGpuSync;
-    int useSimd;
 } KernelContextCpu;
 
 typedef struct CpuWorkerContext {
@@ -177,8 +185,8 @@ typedef struct CpuWorkerContext {
     Chain** database;
     int databaseLen;
     Scorer* scorer;
+    int maxScore;
     CpuGpuSync* cpuGpuSync;
-    int useSimd;
 } CpuWorkerContext;
 
 static __constant__ int gapOpen_;
@@ -203,17 +211,18 @@ extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query,
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabaseGpuChar(int* scores, int type, Chain* query, 
-    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
-    int* cards, int cardsLen, Thread* thread);
-
 extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread);
 
-extern void scoreShortDatabasesGpuChar(int* scores, int type, Chain** queries, 
-    int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
-    int indexesLen, int* cards, int cardsLen, Thread* thread);
+extern void scoreShortDatabasePartiallyGpu(int* scores, int type, Chain* query, 
+    ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
+    int maxScore, int* cards, int cardsLen, Thread* thread);
+
+extern void scoreShortDatabasesPartiallyGpu(int* scores, int type, 
+    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, 
+    Scorer* scorer, int* indexes, int indexesLen, int maxScore, int* cards,
+    int cardsLen, Thread* thread);
 
 //******************************************************************************
 
@@ -233,19 +242,21 @@ static void deleteDatabase(ShortDatabase* database);
 // scoring 
 static void scoreDatabase(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
-    int indexesLen, int* cards, int cardsLen, int useSimd, Thread* thread);
+    int indexesLen, int* cards, int cardsLen, int maxScore, Thread* thread);
 
 static void* scoreDatabaseThread(void* param);
 
 static void scoreDatabaseMulti(int* scores, int type,
     ScoringFunction scoringFunction, ScoringFunction simdScoringFunction,
     Chain** queries, int queriesLen, ShortDatabase* shortDatabase, 
-    Scorer* scorer, int* indexes, int indexesLen, int* cards, int cardsLen);
+    Scorer* scorer, int* indexes, int indexesLen, int maxScore, 
+    int* cards, int cardsLen);
 
 static void scoreDatabaseSingle(int* scores, int type,
     ScoringFunction scoringFunction, ScoringFunction simdScoringFunction,
     Chain** queries, int queriesLen, ShortDatabase* shortDatabase, 
-    Scorer* scorer, int* indexes, int indexesLen, int* cards, int cardsLen);
+    Scorer* scorer, int* indexes, int indexesLen, int maxScore, 
+    int* cards, int cardsLen);
 
 // cpu kernels 
 static void* kernelThread(void* param);
@@ -388,28 +399,29 @@ extern void scoreShortDatabaseGpu(int* scores, int type, Chain* query,
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
     int* cards, int cardsLen, Thread* thread) {
     scoreDatabase(scores, type, &query, 1, shortDatabase, scorer, indexes, 
-        indexesLen, cards, cardsLen, 0, thread);
+        indexesLen, cards, cardsLen, INT_MAX, thread);
 }
 
-extern void scoreShortDatabaseGpuChar(int* scores, int type, Chain* query, 
+extern void scoreShortDatabasePartiallyGpu(int* scores, int type, Chain* query, 
     ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, int indexesLen, 
-    int* cards, int cardsLen, Thread* thread) {
+    int maxScore, int* cards, int cardsLen, Thread* thread) {
     scoreDatabase(scores, type, &query, 1, shortDatabase, scorer, indexes, 
-        indexesLen, cards, cardsLen, 1, thread);
+        indexesLen, cards, cardsLen, maxScore, thread);
 }
 
 extern void scoreShortDatabasesGpu(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
     int indexesLen, int* cards, int cardsLen, Thread* thread) {
     scoreDatabase(scores, type, queries, queriesLen, shortDatabase, scorer,
-        indexes, indexesLen, cards, cardsLen, 0, thread);
+        indexes, indexesLen, cards, cardsLen, INT_MAX, thread);
 }
 
-extern void scoreShortDatabasesGpuChar(int* scores, int type, Chain** queries, 
-    int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
-    int indexesLen, int* cards, int cardsLen, Thread* thread) {
+extern void scoreShortDatabasesPartiallyGpu(int* scores, int type, 
+    Chain** queries, int queriesLen, ShortDatabase* shortDatabase, 
+    Scorer* scorer, int* indexes, int indexesLen, int maxScore, int* cards,
+    int cardsLen, Thread* thread) {
     scoreDatabase(scores, type, queries, queriesLen, shortDatabase, scorer,
-        indexes, indexesLen, cards, cardsLen, 1, thread);
+        indexes, indexesLen, cards, cardsLen, maxScore, thread);
 }
 
 //------------------------------------------------------------------------------
@@ -780,7 +792,7 @@ static void deleteDatabase(ShortDatabase* database) {
 
 static void scoreDatabase(int* scores, int type, Chain** queries, 
     int queriesLen, ShortDatabase* shortDatabase, Scorer* scorer, int* indexes, 
-    int indexesLen, int* cards, int cardsLen, int useSimd, Thread* thread) {
+    int indexesLen, int* cards, int cardsLen, int maxScore, Thread* thread) {
     
     ASSERT(cardsLen > 0, "no GPUs available");
     
@@ -796,7 +808,7 @@ static void scoreDatabase(int* scores, int type, Chain** queries,
     param->indexesLen = indexesLen;
     param->cards = cards;
     param->cardsLen = cardsLen;
-    param->useSimd = useSimd;
+    param->maxScore = maxScore;
 
     if (thread == NULL) {
         scoreDatabaseThread(param);
@@ -824,7 +836,7 @@ static void* scoreDatabaseThread(void* param) {
     int indexesLen = context->indexesLen;
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
-    int useSimd = context->useSimd;
+    int maxScore = context->maxScore;
 
     if (shortDatabase == NULL) {
         return NULL;
@@ -891,7 +903,13 @@ static void* scoreDatabaseThread(void* param) {
 
     //**************************************************************************
     // CHOOSE SOLVING FUNCTION
-    
+
+#ifdef GPU_SIMD_AVAILABLE
+    int useSimd = maxScore <= 128;    
+#else 
+    int useSimd = 0;
+#endif
+
     ScoringFunction function;
     ScoringFunction simdFunction;
 
@@ -916,7 +934,9 @@ static void* scoreDatabaseThread(void* param) {
         ERROR("Wrong align type");
     }
 
-    WARNING(useSimd && swSolveShortGpuSimd == NULL, "not using GPU-SIMD solving");
+    if (simdFunction != NULL) {
+        LOG("using GPU-SIMD solving");
+    }
     
     //**************************************************************************
 
@@ -926,11 +946,11 @@ static void* scoreDatabaseThread(void* param) {
     if (queriesLen <= cardsLen) {
         scoreDatabaseMulti(scores, type, function, simdFunction, queries, 
             queriesLen, shortDatabase, scorer, newIndexes, newIndexesLen,
-            cards, cardsLen);
+            maxScore, cards, cardsLen);
     } else {
         scoreDatabaseSingle(scores, type, function, simdFunction, queries, 
             queriesLen, shortDatabase, scorer, newIndexes, newIndexesLen,
-            cards, cardsLen);
+            maxScore, cards, cardsLen);
     }
     
     //**************************************************************************
@@ -952,7 +972,8 @@ static void* scoreDatabaseThread(void* param) {
 static void scoreDatabaseMulti(int* scores, int type,
     ScoringFunction scoringFunction, ScoringFunction simdScoringFunction,
     Chain** queries, int queriesLen, ShortDatabase* shortDatabase, 
-    Scorer* scorer, int* indexes, int indexesLen, int* cards_, int cardsLen) {
+    Scorer* scorer, int* indexes, int indexesLen, int maxScore,
+    int* cards_, int cardsLen) {
     
     int databaseLen = shortDatabase->databaseLen;
 
@@ -1012,8 +1033,8 @@ static void scoreDatabaseMulti(int* scores, int type,
         contextsCpu[i].scorer = scorer;
         contextsCpu[i].indexes = indexes;
         contextsCpu[i].indexesLen = indexesLen;
+        contextsCpu[i].maxScore = maxScore;
         contextsCpu[i].cpuGpuSync = &(cpuGpuSyncs[i]);
-        contextsCpu[i].useSimd = simdScoringFunction != NULL;
 
         threadCreate(&(tasksCpu[i]), kernelThreadCpu, &(contextsCpu[i]));
     }
@@ -1037,6 +1058,7 @@ static void scoreDatabaseMulti(int* scores, int type,
             contextsGpu[k].scorer = scorer;
             contextsGpu[k].indexes = indexes;
             contextsGpu[k].indexesLen = indexesLen;
+            contextsGpu[k].maxScore = maxScore;
             contextsGpu[k].card = cards[i][j];
             contextsGpu[k].gpuSync = &(gpuSyncs[i]);
             contextsGpu[k].cpuGpuSync = &(cpuGpuSyncs[i]);
@@ -1083,7 +1105,8 @@ static void scoreDatabaseMulti(int* scores, int type,
 static void scoreDatabaseSingle(int* scores, int type,
     ScoringFunction scoringFunction, ScoringFunction simdScoringFunction,
     Chain** queries, int queriesLen, ShortDatabase* shortDatabase, 
-    Scorer* scorer, int* indexes, int indexesLen, int* cards, int cardsLen) {
+    Scorer* scorer, int* indexes, int indexesLen, int maxScore,
+    int* cards, int cardsLen) {
 
     //**************************************************************************
     // SCORE MULTITHREADED
@@ -1109,6 +1132,7 @@ static void scoreDatabaseSingle(int* scores, int type,
         contexts[i].scorer = scorer;
         contexts[i].indexes = indexes;
         contexts[i].indexesLen = indexesLen;
+        contexts[i].maxScore = maxScore;
         contexts[i].card = cards[i];
         contexts[i].gpuSync = &gpuSync;
 
@@ -1150,12 +1174,11 @@ static void* kernelsThread(void* param) {
     Scorer* scorer = context->scorer;
     int* indexes = context->indexes;
     int indexesLen = context->indexesLen;
+    int maxScore = context->maxScore;
     int card = context->card;
     GpuSync* gpuSync = context->gpuSync;
 
     int databaseLen = shortDatabase->databaseLen;
-
-    int useGpuSimd = simdScoringFunction != NULL;
 
     //**************************************************************************
     // INIT STRUCTURES
@@ -1173,17 +1196,16 @@ static void* kernelsThread(void* param) {
     gpuContext.cpuGpuSync = &cpuGpuSync;
     gpuContext.indexes = indexes;
     gpuContext.indexesLen = indexesLen;
+    gpuContext.maxScore = maxScore;
 
     KernelContextCpu cpuContext;
     cpuContext.type = type;
     cpuContext.shortDatabase = shortDatabase;
     cpuContext.scorer = scorer;
     cpuContext.cpuGpuSync = &cpuGpuSync;
-    cpuContext.useSimd = simdScoringFunction != NULL;
     cpuContext.indexes = indexes;
     cpuContext.indexesLen = indexesLen;
-
-    int* overflows = useGpuSimd ? (int*) malloc(indexesLen * sizeof(int)) : NULL;
+    cpuContext.maxScore = maxScore;
 
     //**************************************************************************
 
@@ -1237,7 +1259,6 @@ static void* kernelsThread(void* param) {
     // CLEAN MEMORY
 
     mutexDelete(&(cpuGpuSync.mutex));
-    free(overflows);
 
     //**************************************************************************
 
@@ -1256,6 +1277,7 @@ static void* kernelThread(void* param) {
     Scorer* scorer = context->scorer;
     int* indexes = context->indexes;
     int indexesLen = context->indexesLen;
+    int maxScore = context->maxScore;
     int card = context->card;
     GpuSync* gpuSync = context->gpuSync;
     CpuGpuSync* cpuGpuSync = context->cpuGpuSync;
@@ -1436,7 +1458,14 @@ static void* kernelThread(void* param) {
         int lastIdx = min(sequencesCols * (i + blocksStep), indexesLenLocal);
 
         for (int j = firstIdx; j < lastIdx; ++j) {
-            scores[order[indexes[j]]] = scoresCpu[indexes[j]];
+
+            int score =  min(maxScore, scoresCpu[indexes[j]]);
+
+            if (useGpuSimd && score == 127) {
+                score = maxScore;
+            }
+
+            scores[order[indexes[j]]] = score;      
         }
     }
 
@@ -1470,8 +1499,8 @@ static void* kernelThreadCpu(void* param) {
     Scorer* scorer = context->scorer;
     int* indexes = context->indexes;
     int indexesLen = context->indexesLen;
+    int maxScore = context->maxScore;
     CpuGpuSync* cpuGpuSync = context->cpuGpuSync;
-    int useSimd = context->useSimd;
 
     int* order = shortDatabase->order;
 
@@ -1496,7 +1525,7 @@ static void* kernelThreadCpu(void* param) {
     //**************************************************************************
     // SOLVE
 
-    int* scoresCpu = (int*) malloc(databaseLen * sizeof(int));
+    int* scoresCpu = (int*) calloc(databaseLen, sizeof(int));
 
     CpuWorkerContext workerContext;
     workerContext.scores = scoresCpu;
@@ -1505,8 +1534,8 @@ static void* kernelThreadCpu(void* param) {
     workerContext.database = database;
     workerContext.databaseLen = databaseLen;
     workerContext.scorer = scorer;
+    workerContext.maxScore = maxScore;
     workerContext.cpuGpuSync = cpuGpuSync;
-    workerContext.useSimd = useSimd;
 
     int tasksNmr = CPU_THREADPOOL_STEP;
     ThreadPoolTask** tasks = (ThreadPoolTask**) malloc(tasksNmr * sizeof(ThreadPoolTask*));
@@ -1542,7 +1571,7 @@ static void* kernelThreadCpu(void* param) {
     for (int i = cpuGpuSync->firstCpu; i < databaseLen; ++i) {
         scores[order[indexes[i]]] = scoresCpu[i];
     }
-    
+
     //**************************************************************************
 
     //**************************************************************************
@@ -1563,14 +1592,14 @@ static void* cpuWorker(void* param) {
 
     CpuWorkerContext* context = (CpuWorkerContext*) param;
 
-    int* scores = context->scores;
+    int* scores_ = context->scores;
     int type = context->type;
     Chain* query = context->query;
-    Chain** database = context->database;
+    Chain** database_ = context->database;
     int databaseLen = context->databaseLen;
     Scorer* scorer = context->scorer;
+    int maxScore = context->maxScore;
     CpuGpuSync* cpuGpuSync = context->cpuGpuSync;
-    int useSimd = context->useSimd;
 
     mutexLock(&(cpuGpuSync->mutex));
 
@@ -1588,16 +1617,10 @@ static void* cpuWorker(void* param) {
 
     mutexUnlock(&(cpuGpuSync->mutex));
 
-    int status = 0;
-    if (useSimd) {
-        status = scoreDatabaseSseChar(scores + start, type, query,
-            database + start, length, scorer);
-    }
+    int* scores = scores_ + start;
+    Chain** database = database_ + start;
 
-    if (!useSimd || status != 0) {
-        scoreDatabaseCpu(scores + start, type, query, database + start,
-            length, scorer);
-    }
+    scoreDatabasePartiallyCpu(scores, type, query, database, length, scorer, maxScore);
 
     return NULL;
 }
@@ -2163,6 +2186,8 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
 //------------------------------------------------------------------------------
 // GPU SIMD MODULES
 
+#ifdef GPU_SIMD_AVAILABLE
+
 #define NEG 		0x0FF
 #define ONE_CELL_COMP_QUAD(f, oe, ie, h, he, hd, sub, gapoe, gape,maxHH) \
 				asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(f) : "r"(f),"r"(gape), "r"(0));		\
@@ -2366,6 +2391,15 @@ __global__ static void swSolveShortGpuSimd(int* scores, int2* hBus,
     scores[id.z] = (maxHH >> 8) & 0x0ff;
     scores[id.w] = maxHH & 0x0ff;
 }
+
+#else
+
+__global__ static void swSolveShortGpuSimd(int* scores, int2* hBus, 
+    int* lengths, int* lengthsPadded, int* offsets, int* indexes,
+    int indexesLen, int block) {
+}
+
+#endif 
 
 //------------------------------------------------------------------------------
 

@@ -42,8 +42,8 @@ extern int scorePairSse(int* score, int type, Chain* query, Chain* target,
 extern int scoreDatabaseSse(int* scores, int type, Chain* query, 
     Chain** database, int databaseLen, Scorer* scorer);
 
-extern int scoreDatabaseSseChar(int* scores, int type, Chain* query, 
-    Chain** database, int databaseLen, Scorer* scorer);
+extern int scoreDatabasePartiallySse(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer, int maxScore);
 
 #ifdef __cplusplus 
 }

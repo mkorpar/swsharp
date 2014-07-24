@@ -143,6 +143,9 @@ extern int scorePairCpu(int type, Chain* query, Chain* target, Scorer* scorer);
 extern void scoreDatabaseCpu(int* scores, int type, Chain* query, 
     Chain** database, int databaseLen, Scorer* scorer);
 
+extern void scoreDatabasePartiallyCpu(int* scores, int type, Chain* query, 
+    Chain** database, int databaseLen, Scorer* scorer, int maxScore);
+
 #ifdef __cplusplus 
 }
 #endif
