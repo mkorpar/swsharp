@@ -37,18 +37,11 @@ Contact the author by mkorpar@gmail.com.
 
 #include "score_database_gpu_short.h"
 
-#define GPU_SIMD_AVAILABLE
-
-#define CPU_WORKER_STEP         32
+#define CPU_WORKER_STEP         64
 #define CPU_THREADPOOL_STEP     100
 
-#ifdef GPU_SIMD_AVAILABLE
-    #define THREADS   64
-    #define BLOCKS    120
-#else
-    #define THREADS   128
-    #define BLOCKS    120
-#endif
+#define THREADS   64
+#define BLOCKS    120
 
 #define INT4_ZERO make_int4(0, 0, 0, 0)
 #define INT4_SCORE_MIN make_int4(SCORE_MIN, SCORE_MIN, SCORE_MIN, SCORE_MIN)
@@ -902,13 +895,27 @@ static void* scoreDatabaseThread(void* param) {
     //**************************************************************************
 
     //**************************************************************************
-    // CHOOSE SOLVING FUNCTION
+    // CHECK IF SIMD IS AVAILABLE AND USABLE
 
-#ifdef GPU_SIMD_AVAILABLE
-    int useSimd = maxScore <= 128;    
-#else 
-    int useSimd = 0;
-#endif
+    int simdAvailable = 1;
+
+    for (int i = 0; i < cardsLen; ++i) {
+
+        cudaDeviceProp properties;
+        cudaGetDeviceProperties(&properties, cards[i]);
+
+        if (properties.major < 3) {
+            simdAvailable = 0;
+            break;
+        }
+    }
+
+    int useSimd = simdAvailable && maxScore <= 128;    
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // CHOOSE SOLVING FUNCTION
 
     ScoringFunction function;
     ScoringFunction simdFunction;
@@ -2186,8 +2193,6 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
 //------------------------------------------------------------------------------
 // GPU SIMD MODULES
 
-#ifdef GPU_SIMD_AVAILABLE
-
 #define NEG 		0x0FF
 #define ONE_CELL_COMP_QUAD(f, oe, ie, h, he, hd, sub, gapoe, gape,maxHH) \
 				asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(f) : "r"(f),"r"(gape), "r"(0));		\
@@ -2208,6 +2213,8 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
 __global__ static void swSolveShortGpuSimd(int* scores, int2* hBus, 
     int* lengths, int* lengthsPadded, int* offsets, int* indexes,
     int indexesLen, int block) {
+
+#if __CUDA_ARCH__ >= 300
 
     int tid = 4 * (threadIdx.x + blockIdx.x * blockDim.x);
     
@@ -2390,16 +2397,9 @@ __global__ static void swSolveShortGpuSimd(int* scores, int2* hBus,
     scores[id.y] = (maxHH >> 16) & 0x0ff;
     scores[id.z] = (maxHH >> 8) & 0x0ff;
     scores[id.w] = maxHH & 0x0ff;
-}
-
-#else
-
-__global__ static void swSolveShortGpuSimd(int* scores, int2* hBus, 
-    int* lengths, int* lengthsPadded, int* offsets, int* indexes,
-    int indexesLen, int block) {
-}
 
 #endif 
+}
 
 //------------------------------------------------------------------------------
 

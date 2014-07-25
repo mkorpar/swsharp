@@ -21,7 +21,7 @@ DEP_LIBS =
 
 CC_FLAGS = $(I_CMD) -O3 -Wall -march=native
 CP_FLAGS = $(CC_FLAGS)
-CU_FLAGS = $(I_CMD) -O3 -arch sm_35 -Xcompiler -msse4
+CU_FLAGS = $(I_CMD) -O3 -gencode arch=compute_13,code=sm_13 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35
 LD_FLAGS = $(I_CMD) $(L_CMD) -lpthread -lstdc++
 
 API = $(addprefix $(SRC_DIR)/, align.h alignment.h chain.h constants.h \

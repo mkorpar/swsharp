@@ -391,7 +391,7 @@ static int swimdWrapper(int* scores, int type, Chain* query, Chain** database,
     } else {
         status = swimdSearchDatabase(queryPtr, queryLen, databasePtrs, 
             databaseLen, databaseLens, gapOpen, gapExtend, table, maxCode,
-            scores, mode, SWIMD_OVERFLOW_BUCKETS);
+            scores, mode, SWIMD_OVERFLOW_SIMPLE);
     }
 
     free(databasePtrs);

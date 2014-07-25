@@ -17,7 +17,7 @@ INC_DST = $(addprefix $(INS_DIR)/, $(INC_SRC))
 LIB_DST = $(addprefix $(INS_DIR)/, $(LIB_SRC))
 BIN_DST = $(addprefix $(INS_DIR)/, $(BIN_SRC))
 
-all: TARGETS=debug install
+all: TARGETS=install
 debug: TARGETS=debug install
 cpu: TARGETS=cpu install
 win: TARGETS=win

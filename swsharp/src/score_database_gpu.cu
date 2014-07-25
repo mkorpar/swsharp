@@ -38,9 +38,9 @@ Contact the author by mkorpar@gmail.com.
 
 #include "gpu_module.h"
 
-#define MAX_SHORT_LEN       2800
+#define MAX_SHORT_LEN           2800
 
-#define CPU_WORKER_STEP         32
+#define CPU_WORKER_STEP         100
 #define CPU_THREADPOOL_STEP     100
 
 typedef struct Context {
@@ -121,7 +121,11 @@ static void scoreDatabase(int** scores, int type, Chain** queries,
     int queriesLen, ChainDatabaseGpu* chainDatabaseGpu, Scorer* scorer, 
     int* indexes, int indexesLen, int* cards, int cardsLen, Thread* thread);
     
-static void* scoreDatabaseThread(void* param);
+static void* scoreDatabaseThreadWrapper(void* param);
+
+static void scoreDatabaseThread(int* scores, int type, Chain** queries,
+    int queriesLen, ChainDatabaseGpu* chainDatabaseGpu, Scorer* scorer,
+    int* indexes, int indexesLen, int* cards, int cardsLen, int useSimd);
 
 // cpu workers
 static void* scoreCpu(void* param);
@@ -271,9 +275,9 @@ static void scoreDatabase(int** scores, int type, Chain** queries,
     param->cardsLen = cardsLen;
     
     if (thread == NULL) {
-        scoreDatabaseThread(param);
+        scoreDatabaseThreadWrapper(param);
     } else {
-        threadCreate(thread, scoreDatabaseThread, (void*) param);
+        threadCreate(thread, scoreDatabaseThreadWrapper, (void*) param);
     }
 }
 //------------------------------------------------------------------------------
@@ -281,7 +285,7 @@ static void scoreDatabase(int** scores, int type, Chain** queries,
 //------------------------------------------------------------------------------
 // SOLVE
 
-static void* scoreDatabaseThread(void* param) {
+static void* scoreDatabaseThreadWrapper(void* param) {
 
     Context* context = (Context*) param;
     
@@ -296,33 +300,7 @@ static void* scoreDatabaseThread(void* param) {
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
 
-    ShortDatabase* shortDatabase = chainDatabaseGpu->shortDatabase;
-    LongDatabase* longDatabase = chainDatabaseGpu->longDatabase;
-
-    int* longIndexes = chainDatabaseGpu->longIndexes;
-    int longIndexesLen = chainDatabaseGpu->longIndexesLen;
-
-    Chain** database = chainDatabaseGpu->database;
     int databaseLen = chainDatabaseGpu->databaseLen;
-    
-    int useSimd = 1;
-
-    //**************************************************************************
-    // FILTER INDEXES
-    
-    int* indexesNew = NULL;
-    int indexesNewLen;
-    
-    filterIndexesArray(&indexesNew, &indexesNewLen, indexes, indexesLen, 
-        0, databaseLen - 1);
-    
-    int* longIndexesNew;
-    int longIndexesNewLen;
-
-    filterLongIndexesArray(&longIndexesNew, &longIndexesNewLen, longIndexes,
-        longIndexesLen, indexesNew, indexesNewLen, databaseLen - 1);
-
-    //**************************************************************************
 
     //**************************************************************************
     // INIT RESULTS
@@ -336,7 +314,62 @@ static void* scoreDatabaseThread(void* param) {
     }
 
     //**************************************************************************
+
+    //**************************************************************************
+    // FILTER INDEXES
     
+    int* indexesNew = NULL;
+    int indexesNewLen;
+    
+    filterIndexesArray(&indexesNew, &indexesNewLen, indexes, indexesLen, 
+        0, databaseLen - 1);
+    
+    //**************************************************************************
+
+    int useSimd = 1;
+
+    scoreDatabaseThread(*scores, type, queries, queriesLen, chainDatabaseGpu,
+        scorer, indexesNew, indexesNewLen, cards, cardsLen, useSimd);
+
+    //**************************************************************************
+    // CLEAN MEMORY
+    
+    free(indexesNew);
+    free(param);
+    
+    //**************************************************************************
+
+    return NULL;
+}
+
+static void scoreDatabaseThread(int* scores, int type, Chain** queries,
+    int queriesLen, ChainDatabaseGpu* chainDatabaseGpu, Scorer* scorer,
+    int* indexes, int indexesLen, int* cards, int cardsLen, int useSimd) {
+
+    ShortDatabase* shortDatabase = chainDatabaseGpu->shortDatabase;
+    LongDatabase* longDatabase = chainDatabaseGpu->longDatabase;
+
+    int* longIndexes = chainDatabaseGpu->longIndexes;
+    int longIndexesLen = chainDatabaseGpu->longIndexesLen;
+
+    Chain** database = chainDatabaseGpu->database;
+    int databaseLen = chainDatabaseGpu->databaseLen;
+    
+    if (indexes != NULL && indexesLen == 0) {
+        return;
+    }
+
+    //**************************************************************************
+    // FILTER LONG INDEXES
+    
+    int* longIndexesNew;
+    int longIndexesNewLen;
+
+    filterLongIndexesArray(&longIndexesNew, &longIndexesNewLen, longIndexes,
+        longIndexesLen, indexes, indexesLen, databaseLen - 1);
+
+    //**************************************************************************
+
     //**************************************************************************
     // PREPARE CPU
 
@@ -344,7 +377,7 @@ static void* scoreDatabaseThread(void* param) {
     mutexCreate(&mutex);
 
     ContextCpu contextCpu;
-    contextCpu.scores = *scores;
+    contextCpu.scores = scores;
     contextCpu.type = type;
     contextCpu.queries = queries; 
     contextCpu.queriesLen = queriesLen;
@@ -371,13 +404,11 @@ static void* scoreDatabaseThread(void* param) {
     TIMER_START("Short solve");
     
     if (useSimd) {
-        scoreShortDatabasesPartiallyGpu(*scores, type, queries, queriesLen,
-            shortDatabase, scorer, indexesNew, indexesNewLen, 128,
-            cards, cardsLen, NULL);
+        scoreShortDatabasesPartiallyGpu(scores, type, queries, queriesLen,
+            shortDatabase, scorer, indexes, indexesLen, 128, cards, cardsLen, NULL);
     } else {
-        scoreShortDatabasesGpu(*scores, type, queries, queriesLen, 
-            shortDatabase, scorer, indexesNew, indexesNewLen,
-            cards, cardsLen, NULL);
+        scoreShortDatabasesGpu(scores, type, queries, queriesLen, 
+            shortDatabase, scorer, indexes, indexesLen, cards, cardsLen, NULL);
     }
 
     TIMER_STOP;
@@ -394,7 +425,7 @@ static void* scoreDatabaseThread(void* param) {
     TIMER_START("Long solve");
     
     if (longInexesSolved < longIndexesNewLen) {
-        scoreLongDatabasesGpu(*scores, type, queries, queriesLen,
+        scoreLongDatabasesGpu(scores, type, queries, queriesLen,
             longDatabase, scorer, longIndexesNew + longInexesSolved, 
             longIndexesNewLen - longInexesSolved, cards, cardsLen, NULL);
     }
@@ -422,43 +453,27 @@ static void* scoreDatabaseThread(void* param) {
             int overflowsLen = 0;
 
             for (int j = 0; j < databaseLen; ++j) {
-                if ((*scores)[i * databaseLen + j] >= 128) {
+                if (scores[i * databaseLen + j] == 128) {
                     overflows[overflowsLen++] = j;
                 }
             }
 
-            scoreShortDatabaseGpu(*scores, type, queries[i], 
-                shortDatabase, scorer, overflows, overflowsLen,
-                cards, cardsLen, NULL);
-/*
-            ContextCpu contextCpu;
-            contextCpu.scores = *scores + i * databaseLen;
-            contextCpu.type = type;
-            contextCpu.queries = queries + i; 
-            contextCpu.queriesLen = 1;
-            contextCpu.database = database;
-            contextCpu.databaseLen = databaseLen;
-            contextCpu.scorer = scorer;
-            contextCpu.indexes = overflows;
-            contextCpu.indexesLen = overflowsLen;
-            contextCpu.useSimd = 0;
-            contextCpu.mutex = &mutex;
-            contextCpu.lastIndexSolved = 0;
-            contextCpu.cancelled = 0;
+            scoreDatabaseThread(scores + i * databaseLen, type, queries + i, 1, 
+                chainDatabaseGpu, scorer, overflows, overflowsLen, cards, cardsLen, 0);
 
-            scoreCpu(&contextCpu);
-*/
             free(overflows);
         }
 
         TIMER_STOP;
+
     } else {
+
 #ifdef DEBUG
 
         int overflows = 0;
         for (int i = 0; i < queriesLen; ++i) {
             for (int j = 0; j < databaseLen; ++j) {
-                if ((*scores)[i * databaseLen + j] >= 128) {
+                if (scores[i * databaseLen + j] >= 128) {
                     overflows++;
                 }
             }
@@ -479,13 +494,9 @@ static void* scoreDatabaseThread(void* param) {
         free(longIndexesNew);
     }
 
-    free(indexesNew);
-    free(param);
-    
     //**************************************************************************
-    
-    return NULL;
 }
+
 //------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------

@@ -171,7 +171,7 @@ int main(int argc, char* argv[]) {
 
     ASSERT(maxEValue > 0, "invalid evalue");
     
-    ASSERT(threads > 0, "invalid thread number");
+    ASSERT(threads >= 0, "invalid thread number");
     threadPoolInitialize(threads);
 
     Scorer* scorer;
