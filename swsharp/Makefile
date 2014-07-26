@@ -21,8 +21,24 @@ DEP_LIBS =
 
 CC_FLAGS = $(I_CMD) -O3 -Wall -march=native
 CP_FLAGS = $(CC_FLAGS)
-CU_FLAGS = $(I_CMD) -O3 -gencode arch=compute_13,code=sm_13 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35
 LD_FLAGS = $(I_CMD) $(L_CMD) -lpthread -lstdc++
+
+CU_FLAGS = $(I_CMD) -O3 -gencode arch=compute_13,code=\"sm_13,compute_13\"
+
+ifneq ($(shell $(CU) --help 2>&1 | grep sm_20),)
+CU_FLAGS += -gencode arch=compute_20,code=\"sm_20,sm_21,compute_20\"
+else
+endif
+
+ifneq ($(shell $(CU) --help 2>&1 | grep sm_30),)
+CU_FLAGS += -gencode arch=compute_30,code=\"sm_30,sm_35,compute_30\"
+else
+endif
+
+ifneq ($(shell $(CU) --help 2>&1 | grep sm_50),)
+CU_FLAGS += -gencode arch=compute_50,code=\"sm_50,compute_50\"
+else
+endif
 
 API = $(addprefix $(SRC_DIR)/, align.h alignment.h chain.h constants.h \
 	cpu_module.h cuda_utils.h database.h db_alignment.h evalue.h gpu_module.h \
