@@ -7,6 +7,7 @@ extern "C" {
 
 #include "Swimd.h"
 
+#if defined(__SSE4_1__) || defined(__AVX2__)
 
 // I define aliases for SSE intrinsics, so they can be used in code not depending on SSE generation.
 // If available, AVX2 is used because it has two times bigger register, thus everything is two times faster.
@@ -861,6 +862,7 @@ static int searchDatabase(unsigned char query[], int queryLength,
     return resultCode;
 }
 
+#endif
 
 extern int swimdSearchDatabase(
     unsigned char query[], int queryLength, 

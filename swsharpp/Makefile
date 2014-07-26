@@ -22,7 +22,7 @@ DEP_LIBS = ../lib/libswsharp.a
 CC_FLAGS = $(I_CMD) -O3 -Wall
 CP_FLAGS = $(CC_FLAGS)
 CU_FLAGS = $(I_CMD) -O3 -arch sm_13
-LD_FLAGS = $(I_CMD) $(L_CMD) -lswsharp -lpthread -lm -lstdc++
+LD_FLAGS = $(I_CMD) $(L_CMD) -arch sm_13 -lswsharp -lpthread -lm -lstdc++
 
 API = $(addprefix $(SRC_DIR)/, )
 
