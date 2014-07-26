@@ -326,10 +326,33 @@ static void* scoreDatabaseThreadWrapper(void* param) {
     
     //**************************************************************************
 
-    int useSimd = 1;
+    //**************************************************************************
+    // CHECK IF SIMD IS AVAILABLE AND USABLE
+
+    int simdAvailable = 1;
+
+    for (int i = 0; i < cardsLen; ++i) {
+
+        cudaDeviceProp properties;
+        cudaGetDeviceProperties(&properties, cards[i]);
+
+        if (properties.major < 3) {
+            simdAvailable = 0;
+            break;
+        }
+    }
+
+    int useSimd = simdAvailable && type == SW_ALIGN;    
+
+    //**************************************************************************
+
+    //**************************************************************************
+    // SOLVE
 
     scoreDatabaseThread(*scores, type, queries, queriesLen, chainDatabaseGpu,
         scorer, indexesNew, indexesNewLen, cards, cardsLen, useSimd);
+    
+    //**************************************************************************
 
     //**************************************************************************
     // CLEAN MEMORY
