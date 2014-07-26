@@ -167,8 +167,6 @@ extern int scoreDatabasePartiallySse(int* scores, int type, Chain* query,
         return 0;
     }
 
-    printf("nop\n");
-
     return -1;
 }
 
