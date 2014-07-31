@@ -300,6 +300,7 @@ static void* scoreDatabaseThreadWrapper(void* param) {
     int* cards = context->cards;
     int cardsLen = context->cardsLen;
 
+    int gapOpen = scorerGetGapOpen(scorer);
     int databaseLen = chainDatabaseGpu->databaseLen;
 
     //**************************************************************************
@@ -342,7 +343,7 @@ static void* scoreDatabaseThreadWrapper(void* param) {
         }
     }
 
-    int useSimd = simdAvailable && type == SW_ALIGN;    
+    int useSimd = simdAvailable && type == SW_ALIGN && gapOpen > 9;    
 
     //**************************************************************************
 
@@ -382,6 +383,8 @@ static void scoreDatabaseThread(int* scores, int type, Chain** queries,
         return;
     }
 
+    int useGpu = indexes == NULL || indexesLen > 100;
+ 
     //**************************************************************************
     // FILTER LONG INDEXES
     
@@ -407,8 +410,8 @@ static void scoreDatabaseThread(int* scores, int type, Chain** queries,
     contextCpu.database = database;
     contextCpu.databaseLen = databaseLen;
     contextCpu.scorer = scorer;
-    contextCpu.indexes = longIndexesNew;
-    contextCpu.indexesLen = longIndexesNewLen;
+    contextCpu.indexes = useGpu ? longIndexesNew : indexes;
+    contextCpu.indexesLen = useGpu ? longIndexesNewLen : indexesLen;
     contextCpu.useSimd = useSimd;
     contextCpu.mutex = &mutex;
     contextCpu.lastIndexSolved = 0;
@@ -424,36 +427,39 @@ static void scoreDatabaseThread(int* scores, int type, Chain** queries,
     Thread thread;
     threadCreate(&thread, scoreCpu, (void*) &contextCpu);
 
-    TIMER_START("Short solve");
-    
-    if (useSimd) {
-        scoreShortDatabasesPartiallyGpu(scores, type, queries, queriesLen,
-            shortDatabase, scorer, indexes, indexesLen, 128, cards, cardsLen, NULL);
-    } else {
-        scoreShortDatabasesGpu(scores, type, queries, queriesLen, 
-            shortDatabase, scorer, indexes, indexesLen, cards, cardsLen, NULL);
+    if (useGpu) {
+
+        TIMER_START("Short solve");
+        
+        if (useSimd) {
+            scoreShortDatabasesPartiallyGpu(scores, type, queries, queriesLen,
+                shortDatabase, scorer, indexes, indexesLen, 128, cards, cardsLen, NULL);
+        } else {
+            scoreShortDatabasesGpu(scores, type, queries, queriesLen, 
+                shortDatabase, scorer, indexes, indexesLen, cards, cardsLen, NULL);
+        }
+
+        TIMER_STOP;
+
+        mutexLock(contextCpu.mutex);
+
+        int longInexesSolved = contextCpu.lastIndexSolved;
+        contextCpu.cancelled = 1;
+
+        mutexUnlock(contextCpu.mutex);
+
+        LOG("Long indexes solved CPU: %d", longInexesSolved);
+
+        TIMER_START("Long solve");
+        
+        if (longInexesSolved < longIndexesNewLen) {
+            scoreLongDatabasesGpu(scores, type, queries, queriesLen,
+                longDatabase, scorer, longIndexesNew + longInexesSolved, 
+                longIndexesNewLen - longInexesSolved, cards, cardsLen, NULL);
+        }
+
+        TIMER_STOP;
     }
-
-    TIMER_STOP;
-
-    mutexLock(contextCpu.mutex);
-
-    int longInexesSolved = contextCpu.lastIndexSolved;
-    contextCpu.cancelled = 1;
-
-    mutexUnlock(contextCpu.mutex);
-
-    LOG("Long indexes solved CPU: %d", longInexesSolved);
-
-    TIMER_START("Long solve");
-    
-    if (longInexesSolved < longIndexesNewLen) {
-        scoreLongDatabasesGpu(scores, type, queries, queriesLen,
-            longDatabase, scorer, longIndexesNew + longInexesSolved, 
-            longIndexesNewLen - longInexesSolved, cards, cardsLen, NULL);
-    }
-
-    TIMER_STOP;
 
     threadJoin(thread);
 
