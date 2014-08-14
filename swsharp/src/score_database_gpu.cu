@@ -337,7 +337,7 @@ static void* scoreDatabaseThreadWrapper(void* param) {
         cudaDeviceProp properties;
         cudaGetDeviceProperties(&properties, cards[i]);
 
-        if (properties.major < 3) {
+        if (properties.major < 3 || (properties.major == 3 && properties.minor < 5)) {
             simdAvailable = 0;
             break;
         }
