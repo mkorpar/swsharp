@@ -185,6 +185,9 @@ typedef struct CpuWorkerContext {
 static __constant__ int gapOpen_;
 static __constant__ int gapExtend_;
 
+static __constant__ int gapOpenSimd_;
+static __constant__ int gapExtendSimd_;
+
 static __constant__ int rows_;
 static __constant__ int rowsPadded_;
 static __constant__ int width_;
@@ -1289,6 +1292,8 @@ static void* kernelThread(void* param) {
     GpuSync* gpuSync = context->gpuSync;
     CpuGpuSync* cpuGpuSync = context->cpuGpuSync;
 
+    bool useGpuSimd = simdScoringFunction != NULL;
+
     //**************************************************************************
     // FIND DATABASE
     
@@ -1360,12 +1365,19 @@ static void* kernelThread(void* param) {
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(rowsPadded_, &rowsGpu, sizeof(int)));
     CUDA_SAFE_CALL(cudaMemcpyToSymbol(width_, &sequencesCols, sizeof(int)));
     
+    if (useGpuSimd) {
+
+        int gapOpenSimd = (gapOpen << 24) | (gapOpen << 16) | (gapOpen << 8) | gapOpen;
+        int gapExtendSimd = (gapExtend << 24) | (gapExtend << 16) | (gapExtend << 8) | gapExtend;
+
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapOpenSimd_, &gapOpenSimd, sizeof(int)));
+        CUDA_SAFE_CALL(cudaMemcpyToSymbol(gapExtendSimd_, &gapExtendSimd, sizeof(int)));
+    }
+
     //**************************************************************************
 
     //**************************************************************************
     // SOLVE
-
-    bool useGpuSimd = simdScoringFunction != NULL;
 
     TIMER_START("Short GPU solving: %d, simd: %d", indexesLen, useGpuSimd);
 
@@ -2193,24 +2205,22 @@ __global__ static void swSolveShortGpu(int* scores, int2* hBus, int* lengths,
 //------------------------------------------------------------------------------
 // GPU SIMD MODULES
 
-#define NEG 		0x0FF
-#define ONE_CELL_COMP_QUAD(f, oe, ie, h, he, hd, sub, gapoe, gape,maxHH) \
-				asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(f) : "r"(f),"r"(gape), "r"(0));		\
-				asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(oe) : "r"(ie), "r"(gape), "r"(0));	\
-				asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(h) : "r"(h), "r"(gapoe), "r"(0));	\
-				asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(f) : "r"(f), "r"(h), "r"(0));	\
-				asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(h) : "r"(he), "r"(gapoe), "r"(0));	\
-				asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(oe) : "r"(oe), "r"(h), "r"(0));	\
-				asm("vadd4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(h) : "r"(hd), "r"(sub), "r"(0));	\
-				asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(h) : "r"(h), "r"(f), "r"(0));	\
-				asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(h) : "r"(h), "r"(oe), "r"(0));	\
-				asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(h) : "r"(h), "r"(0), "r"(0)); 	\
-				asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(maxHH) : "r"(maxHH), "r"(h), "r"(0)); \
-				asm("mov.s32 %0, %1;" : "=r"(hd) : "r"(he));
+#define CHAR4_TO_INT4(a) make_int4((a).x, (a).y, (a).z, (a).w)
 
-#define KITA(a) make_int4((a).x, (a).y, (a).z, (a).w) 	
+#define SW_SIMD_CORE(score, mch, insScr, insAff, delScr, delAff, rowScr, gapOpen, gapExtend) \
+    asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(insAff) : "r"(insAff), "r"(gapExtend), "r"(0)); \
+    asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(delAff) : "r"(delAff), "r"(gapExtend), "r"(0)); \
+    asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(insScr) : "r"(insScr), "r"(gapOpen)  , "r"(0)); \
+    asm("vmax4.s32.s32.s32     %0, %1, %2, %3;" : "=r"(insAff) : "r"(insAff), "r"(insScr)   , "r"(0)); \
+    asm("vsub4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(insScr) : "r"(delScr), "r"(gapOpen)  , "r"(0)); \
+    asm("vmax4.s32.s32.s32     %0, %1, %2, %3;" : "=r"(delAff) : "r"(delAff), "r"(insScr)   , "r"(0)); \
+    asm("vadd4.s32.s32.s32.sat %0, %1, %2, %3;" : "=r"(insScr) : "r"(mch)   , "r"(rowScr)   , "r"(0)); \
+    asm("vmax4.s32.s32.s32     %0, %1, %2, %3;" : "=r"(insScr) : "r"(insScr), "r"(insAff)   , "r"(0)); \
+    asm("vmax4.s32.s32.s32     %0, %1, %2, %3;" : "=r"(insScr) : "r"(insScr), "r"(delAff)   , "r"(0)); \
+    asm("vmax4.s32.s32.s32     %0, %1, %2, %3;" : "=r"(insScr) : "r"(insScr), "r"(0)        , "r"(0)); \
+    asm("vmax4.s32.s32.s32     %0, %1, %2, %3;" : "=r"(score)  : "r"(score) , "r"(insScr)   , "r"(0))
 
-__global__ static void swSolveShortGpuSimd(int* scores, int2* hBus, 
+__global__ static void swSolveShortGpuSimd(int* scores, int2* hBusGlobal, 
     int* lengths, int* lengthsPadded, int* offsets, int* indexes,
     int indexesLen, int block) {
 
@@ -2250,153 +2260,116 @@ __global__ static void swSolveShortGpuSimd(int* scores, int2* hBus,
         offsets[id.w / width_]
     );
 
-	int4 sa;
-	int2 sb;
-	int4 h, p, f, h0, p0, f0, sub, sub2, sub3, sub4;
-	int2 HD;
-	int maxHH;
-	int e;
+    int score = 0;
 
-    int tmp = gapOpen_;
-	int gapoe = (tmp << 24) | (tmp << 16) | (tmp << 8) | (tmp);
-
-    int tmp1 = gapExtend_;
-	int gape = (tmp1 << 24) | (tmp1 << 16) | (tmp1 << 8) | (tmp1);
-
+    int4 scrUp;
+    int4 affUp;
+    int4 mchUp;
     
-	int4 zero = make_int4(0, 0, 0, 0);
-	int2 zero2 = make_int2(0, 0);
-	int2 global[3000];
-	for (int i = 0; i < cols * 4; i++) {
-		global[i] = zero2;
-	}
+    int4 scrDown;
+    int4 affDown;
+    int4 mchDown;
 
-	maxHH = 0;
+    int4 rowScores;
+
+    int2 wBus;
+    int del;
+
+    int2 hBus[3000];
+    for (int i = 0; i < cols * 4; i++) {
+        hBus[i] = make_int2(0, 0);
+    }
+
     for (int i = 0; i < rowsPadded_; i += 8) {
     
-        h = zero;
-        p = zero;
-        f = zero;
+        scrUp = INT4_ZERO;
+        affUp = INT4_ZERO;
+        mchUp = INT4_ZERO;
         
-        h0 = zero;
-        p0 = zero;
-        f0 = zero;
+        scrDown = INT4_ZERO;
+        affDown = INT4_ZERO;
+        mchDown = INT4_ZERO;
         
-		sb.x = i >> 2;
-		sb.y = sb.x + 1;
-
         for (int j = 0; j < cols; ++j) {
         
-            int packx = tex2D(seqsTexture, colOff.x, j + rowOff.x);
-            int packy = tex2D(seqsTexture, colOff.y, j + rowOff.y);
-            int packz = tex2D(seqsTexture, colOff.z, j + rowOff.z);
-            int packw = tex2D(seqsTexture, colOff.w, j + rowOff.w);
+            int4 columnCodes = make_int4(
+                tex2D(seqsTexture, colOff.x, j + rowOff.x),
+                tex2D(seqsTexture, colOff.y, j + rowOff.y),
+                tex2D(seqsTexture, colOff.z, j + rowOff.z),
+                tex2D(seqsTexture, colOff.w, j + rowOff.w)
+            );
 
-            // printf("b codes %d\n", packx);
-            // printf("b codes %d\n", packy);
-            // printf("b codes %d\n", packz);
-            // printf("b codes %d\n", packw);
+            #pragma unroll
+            for (int k = 0; k < 4; k++) {
 
-			for (int k = 0; k < 4; k++) {
+                wBus = hBus[j * 4 + k];
 
-				//load data
-				HD = global[j * 4 + k];
+                int4 codes = make_int4(
+                    columnCodes.x & 0xFF,
+                    columnCodes.y & 0xFF,
+                    columnCodes.z & 0xFF,
+                    columnCodes.w & 0xFF
+                );
 
-				//get the (j + k)-th residue
+                columnCodes.x >>= 8;
+                columnCodes.y >>= 8;
+                columnCodes.z >>= 8;
+                columnCodes.w >>= 8;
 
-				sa = make_int4(packx & 0x0FF, packy & 0x0FF, packz & 0x0FF, packw & 0x0FF);
-				packx >>= 8;
-				packy >>= 8;
-				packz >>= 8;
-				packw >>= 8;
+                int4 scr1 = CHAR4_TO_INT4(tex2D(qpTexture, codes.x, i >> 2));
+                int4 scr2 = CHAR4_TO_INT4(tex2D(qpTexture, codes.y, i >> 2));
+                int4 scr3 = CHAR4_TO_INT4(tex2D(qpTexture, codes.z, i >> 2));
+                int4 scr4 = CHAR4_TO_INT4(tex2D(qpTexture, codes.w, i >> 2));
 
-				//loading substitution scores
-				sub = KITA(tex2D(qpTexture, sa.x, sb.x));
-				sub2 = KITA(tex2D(qpTexture, sa.y, sb.x));
-				sub3 = KITA(tex2D(qpTexture, sa.z, sb.x));
-				sub4 = KITA(tex2D(qpTexture, sa.w, sb.x));
+                rowScores.x = (scr1.x << 24) | ((scr2.x & 0xFF) << 16) | ((scr3.x & 0xFF) << 8) | (scr4.x & 0xFF);
+                rowScores.y = (scr1.y << 24) | ((scr2.y & 0xFF) << 16) | ((scr3.y & 0xFF) << 8) | (scr4.y & 0xFF);
+                rowScores.z = (scr1.z << 24) | ((scr2.z & 0xFF) << 16) | ((scr3.z & 0xFF) << 8) | (scr4.z & 0xFF);
+                rowScores.w = (scr1.w << 24) | ((scr2.w & 0xFF) << 16) | ((scr3.w & 0xFF) << 8) | (scr4.w & 0xFF);
 
-                /*
-                printf("b codes %d %d %d %d\n", sa.x, sa.y, sa.z, sa.w);
-                printf("b scores0 %d %d %d %d\n", sub.x, sub.y, sub.z, sub.w);
-                printf("b scores0 %d %d %d %d\n", sub2.x, sub2.y, sub2.z, sub2.w);
-                printf("b scores0 %d %d %d %d\n", sub3.x, sub3.y, sub3.z, sub3.w);
-                printf("b scores0 %d %d %d %d\n", sub4.x, sub4.y, sub4.z, sub4.w);
-                */
+                del = wBus.y;
 
-				sub.x = (sub.x << 24) | ((sub2.x & NEG) << 16)
-						| ((sub3.x & NEG) << 8) | sub4.x & NEG; //
-				sub.y = (sub.y << 24) | ((sub2.y & NEG) << 16)
-						| ((sub3.y & NEG) << 8) | sub4.y & NEG; //
-				sub.z = (sub.z << 24) | ((sub2.z & NEG) << 16)
-						| ((sub3.z & NEG) << 8) | sub4.z & NEG; //
-				sub.w = (sub.w << 24) | ((sub2.w & NEG) << 16)
-						| ((sub3.w & NEG) << 8) | sub4.w & NEG; //
+                SW_SIMD_CORE(score, mchUp.x, scrUp.x, affUp.x,  wBus.x, del, rowScores.x, gapOpenSimd_, gapExtendSimd_);
+                SW_SIMD_CORE(score, mchUp.y, scrUp.y, affUp.y, scrUp.x, del, rowScores.y, gapOpenSimd_, gapExtendSimd_);
+                SW_SIMD_CORE(score, mchUp.z, scrUp.z, affUp.z, scrUp.y, del, rowScores.z, gapOpenSimd_, gapExtendSimd_);
+                SW_SIMD_CORE(score, mchUp.w, scrUp.w, affUp.w, scrUp.z, del, rowScores.w, gapOpenSimd_, gapExtendSimd_);
 
-				//compute the cell (0, 0);
-				ONE_CELL_COMP_QUAD(f.x, e, HD.y, h.x, HD.x, p.x, sub.x, gapoe,
-						gape, maxHH)
+                mchUp.x = wBus.x;
+                mchUp.y = scrUp.x;
+                mchUp.z = scrUp.y;
+                mchUp.w = scrUp.z;
 
-				//compute cell (0, 1)
-				ONE_CELL_COMP_QUAD(f.y, e, e, h.y, h.x, p.y, sub.y, gapoe, gape,
-						maxHH)
+                scr1 = CHAR4_TO_INT4(tex2D(qpTexture, codes.x, (i >> 2) + 1));
+                scr2 = CHAR4_TO_INT4(tex2D(qpTexture, codes.y, (i >> 2) + 1));
+                scr3 = CHAR4_TO_INT4(tex2D(qpTexture, codes.z, (i >> 2) + 1));
+                scr4 = CHAR4_TO_INT4(tex2D(qpTexture, codes.w, (i >> 2) + 1));
 
-				//compute cell (0, 2);
-				ONE_CELL_COMP_QUAD(f.w, e, e, h.w, h.y, p.w, sub.z, gapoe, gape,
-						maxHH)
+                rowScores.x = (scr1.x << 24) | ((scr2.x & 0xFF) << 16) | ((scr3.x & 0xFF) << 8) | (scr4.x & 0xFF);
+                rowScores.y = (scr1.y << 24) | ((scr2.y & 0xFF) << 16) | ((scr3.y & 0xFF) << 8) | (scr4.y & 0xFF);
+                rowScores.z = (scr1.z << 24) | ((scr2.z & 0xFF) << 16) | ((scr3.z & 0xFF) << 8) | (scr4.z & 0xFF);
+                rowScores.w = (scr1.w << 24) | ((scr2.w & 0xFF) << 16) | ((scr3.w & 0xFF) << 8) | (scr4.w & 0xFF);
 
-				//compute cell (0, 3)
-				ONE_CELL_COMP_QUAD(f.z, e, e, h.z, h.w, p.z, sub.w, gapoe, gape,
-						maxHH)
+                SW_SIMD_CORE(score, mchDown.x, scrDown.x, affDown.x,   scrUp.w, del, rowScores.x, gapOpenSimd_, gapExtendSimd_);
+                SW_SIMD_CORE(score, mchDown.y, scrDown.y, affDown.y, scrDown.x, del, rowScores.y, gapOpenSimd_, gapExtendSimd_);
+                SW_SIMD_CORE(score, mchDown.z, scrDown.z, affDown.z, scrDown.y, del, rowScores.z, gapOpenSimd_, gapExtendSimd_);
+                SW_SIMD_CORE(score, mchDown.w, scrDown.w, affDown.w, scrDown.z, del, rowScores.w, gapOpenSimd_, gapExtendSimd_);
 
-				//loading substitution score
-				sub = KITA(tex2D(qpTexture, sa.x, sb.y));
-				sub2 = KITA(tex2D(qpTexture, sa.y, sb.y));
-				sub3 = KITA(tex2D(qpTexture, sa.z, sb.y));
-				sub4 = KITA(tex2D(qpTexture, sa.w, sb.y));
+                mchDown.x = scrUp.w;
+                mchDown.y = scrDown.x;
+                mchDown.z = scrDown.y;
+                mchDown.w = scrDown.z;
 
-                /*
-                printf("b scores1 %d %d %d %d\n", sub.x, sub.y, sub.z, sub.w);
-                printf("b scores1 %d %d %d %d\n", sub2.x, sub2.y, sub2.z, sub2.w);
-                printf("b scores1 %d %d %d %d\n", sub3.x, sub3.y, sub3.z, sub3.w);
-                printf("b scores1 %d %d %d %d\n", sub4.x, sub4.y, sub4.z, sub4.w);
-                */
+                wBus.x = scrDown.w;
+                wBus.y = del;
 
-				sub.x = (sub.x << 24) | ((sub2.x & NEG) << 16)
-						| ((sub3.x & NEG) << 8) | sub4.x & NEG; //
-				sub.y = (sub.y << 24) | ((sub2.y & NEG) << 16)
-						| ((sub3.y & NEG) << 8) | sub4.y & NEG; //
-				sub.z = (sub.z << 24) | ((sub2.z & NEG) << 16)
-						| ((sub3.z & NEG) << 8) | sub4.z & NEG; //
-				sub.w = (sub.w << 24) | ((sub2.w & NEG) << 16)
-						| ((sub3.w & NEG) << 8) | sub4.w & NEG; //
-
-				//compute cell(0, 4)
-				ONE_CELL_COMP_QUAD(f0.x, e, e, h0.x, h.z, p0.x, sub.x, gapoe,
-						gape, maxHH)
-
-				//compute cell(0, 5)
-				ONE_CELL_COMP_QUAD(f0.y, e, e, h0.y, h0.x, p0.y, sub.y, gapoe,
-						gape, maxHH)
-
-				//compute cell (0, 6)
-				ONE_CELL_COMP_QUAD(f0.w, e, e, h0.w, h0.y, p0.w, sub.z, gapoe,
-						gape, maxHH)
-
-				//compute cell(0, 7)
-				ONE_CELL_COMP_QUAD(f0.z, e, e, h0.z, h0.w, p0.z, sub.w, gapoe,
-						gape, maxHH)
-
-				//save data cell(0, 7)
-			    global[j * 4 + k] = make_int2(h0.z, e);
-			}
+                hBus[j * 4 + k] = wBus;
+            }
         }
     }
 
-    scores[id.x] = (maxHH >> 24) & 0x0ff;
-    scores[id.y] = (maxHH >> 16) & 0x0ff;
-    scores[id.z] = (maxHH >> 8) & 0x0ff;
-    scores[id.w] = maxHH & 0x0ff;
+    scores[id.x] = (score >> 24) & 0xFF;
+    scores[id.y] = (score >> 16) & 0xFF;
+    scores[id.z] = (score >> 8) & 0xFF;
+    scores[id.w] = score & 0xFF;
 
 #endif 
 }
