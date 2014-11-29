@@ -19,6 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 Contact the author by mkorpar@gmail.com.
 */
 
+#ifdef __CUDACC__
+
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -761,3 +763,4 @@ static int int2CmpY(const void* a_, const void* b_) {
 //------------------------------------------------------------------------------
 //******************************************************************************
 
+#endif // __CUDACC__
