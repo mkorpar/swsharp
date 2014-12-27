@@ -913,7 +913,9 @@ static void* scoreDatabaseThread(void* param) {
         }
     }
 
-    int useSimd = simdAvailable && maxScore <= 128;    
+    // can't use SIMD solving with indexes because SIMD relies on sequnces
+    // memory alignment 
+    int useSimd = simdAvailable && maxScore <= 128 && indexes == NULL;    
 
     //**************************************************************************
 
