@@ -34,13 +34,13 @@ win: $(CORE) $(MODULES)
 
 clean: $(CORE) $(MODULES)
 	@echo [RM] removing
-	@rm $(INC_DIR) $(LIB_DIR) $(EXC_DIR) -rf
+	@rm -rf $(INC_DIR) $(LIB_DIR) $(EXC_DIR)
 
 install: $(CORE) $(MODULES) $(INC_DST) $(LIB_DST) $(BIN_DST)
 
 uninstall:
 	@echo [RM] uninstalling
-	@rm $(INC_DST) $(LIB_DST) $(BIN_DST) -rf
+	@rm -rf $(INC_DST) $(LIB_DST) $(BIN_DST)
 
 $(INS_DIR)/%: %
 	@echo [CP] $@

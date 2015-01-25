@@ -26,8 +26,8 @@ LD_FLAGS = $(I_CMD) $(L_CMD) -lswsharp -lpthread -lm -lstdc++
 
 API = $(addprefix $(SRC_DIR)/, )
 
-SRC = $(shell find $(SRC_DIR) -type f -regex ".*\.\(cu\|c\|cpp\)")
-HDR = $(shell find $(SRC_DIR) -type f -regex ".*\.\(h\)")
+SRC = $(shell find $(SRC_DIR) -type f \( -iname \*.cpp -o -iname \*.c -o -iname \*.cu \))
+HDR = $(shell find $(SRC_DIR) -type f \( -iname \*.h \))
 OBJ = $(subst $(SRC_DIR), $(OBJ_DIR), $(addsuffix .o, $(basename $(SRC))))
 DEP = $(OBJ:.o=.d)
 INC = $(subst $(SRC_DIR), $(INC_DIR), $(API))
@@ -109,10 +109,10 @@ docs:
 	
 clean:
 	@echo [RM] cleaning
-	@rm $(OBJ_DIR) $(EXC) -rf
+	@rm -rf $(OBJ_DIR) $(EXC)
 
 remove:
 	@echo [RM] removing
-	@rm $(INC_DIR) $(LIB) $(BIN) $(EXC) $(WIN) -rf
+	@rm -rf $(INC_DIR) $(LIB) $(BIN) $(EXC) $(WIN)
 
 -include $(DEP)

@@ -20,6 +20,7 @@ Contact the author by mkorpar@gmail.com.
 */
 
 #include <limits.h>
+#include <stdlib.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -27,9 +28,20 @@ Contact the author by mkorpar@gmail.com.
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
+#include <signal.h>
 #endif
 
+#include "error.h"
 #include "thread.h"
+
+#if defined(__APPLE__)
+
+struct AppleSemaphore {
+    sem_t* adr;
+    char* name;
+};
+
+#endif
 
 //******************************************************************************
 // PUBLIC
@@ -87,7 +99,20 @@ extern void mutexUnlock(Mutex* mutex) {
 extern void semaphoreCreate(Semaphore* semaphore, unsigned int value) {
 #ifdef _WIN32
     *semaphore = CreateSemaphore(NULL, value, INT_MAX, NULL);
-#else 
+#elif defined(__APPLE__)
+
+    *semaphore = (struct AppleSemaphore*) malloc(sizeof(struct AppleSemaphore));
+
+    const int nameLen = snprintf(NULL, 0, "%lu", (unsigned long) *semaphore);
+    ASSERT(nameLen > 0, "mac sem err");
+
+    char* name = (char*) malloc((nameLen + 1) * sizeof(char));
+    ASSERT(snprintf(name, nameLen + 1, "%lu", (unsigned long) *semaphore) == nameLen, "mac sem err");
+
+    (*semaphore)->name = name;
+    (*semaphore)->adr = sem_open((*semaphore)->name, O_CREAT, 0644, value);
+
+#else
     sem_init(semaphore, 0, value);
 #endif
 }
@@ -95,7 +120,15 @@ extern void semaphoreCreate(Semaphore* semaphore, unsigned int value) {
 extern void semaphoreDelete(Semaphore* semaphore) {
 #ifdef _WIN32
     CloseHandle(*semaphore);
-#else 
+#elif defined(__APPLE__)
+
+    sem_close((*semaphore)->adr);
+    sem_unlink((*semaphore)->name);
+
+    free((*semaphore)->name);
+    free(*semaphore);
+
+#else
     sem_destroy(semaphore);
 #endif
 }
@@ -103,28 +136,19 @@ extern void semaphoreDelete(Semaphore* semaphore) {
 extern void semaphorePost(Semaphore* semaphore) {
 #ifdef _WIN32
     ReleaseSemaphore(*semaphore, 1, NULL);
-#else 
+#elif defined(__APPLE__)
+    sem_post((*semaphore)->adr);
+#else
     sem_post(semaphore);
-#endif
-}
-
-extern int semaphoreValue(Semaphore* semaphore) {
-#ifdef _WIN32
-    long value;
-    ReleaseSemaphore(*semaphore, 1, &value);
-    WaitForSingleObject(*semaphore, INFINITE);
-    return (int) value;
-#else 
-    int value; 
-    sem_getvalue(semaphore, &value); 
-    return value;
 #endif
 }
 
 extern void semaphoreWait(Semaphore* semaphore) {
 #ifdef _WIN32
     WaitForSingleObject(*semaphore, INFINITE);
-#else 
+#elif defined(__APPLE__)
+    sem_wait((*semaphore)->adr);
+#else
     sem_wait(semaphore);
 #endif
 }

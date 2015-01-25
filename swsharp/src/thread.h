@@ -53,6 +53,24 @@ typedef HANDLE Semaphore;
 @brief Thread type.
 */
 typedef HANDLE Thread;
+
+#elif defined(__APPLE__)
+
+/*!
+@brief Mutex type.
+*/
+typedef pthread_mutex_t Mutex;
+
+/*!
+@brief Semaphore type.
+*/
+typedef struct AppleSemaphore* Semaphore;
+
+/*!
+@brief Thread type.
+*/
+typedef pthread_t Thread;
+
 #else 
 /*!
 @brief Mutex type.
@@ -119,15 +137,6 @@ extern void semaphoreDelete(Semaphore* semaphore);
 @param semaphore semaphore object
 */
 extern void semaphorePost(Semaphore* semaphore);
-
-/*!
-@brief Sempahore value getter.
-
-@param semaphore semaphore object
-
-@return semaphore value
-*/
-extern int semaphoreValue(Semaphore* semaphore);
 
 /*!
 @brief Decreses sempahore value or waits.

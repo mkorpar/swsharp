@@ -44,8 +44,8 @@ API = $(addprefix $(SRC_DIR)/, align.h alignment.h chain.h constants.h \
 	cpu_module.h cuda_utils.h database.h db_alignment.h evalue.h gpu_module.h \
 	post_proc.h pre_proc.h reconstruct.h scorer.h swsharp.h thread.h threadpool.h)
 
-SRC = $(shell find $(SRC_DIR) -type f -regex ".*\.\(cu\|c\|cpp\)")
-HDR = $(shell find $(SRC_DIR) -type f -regex ".*\.\(h\)")
+SRC = $(shell find $(SRC_DIR) -type f \( -iname \*.cpp -o -iname \*.c -o -iname \*.cu \))
+HDR = $(shell find $(SRC_DIR) -type f \( -iname \*.h \))
 OBJ = $(subst $(SRC_DIR), $(OBJ_DIR), $(addsuffix .o, $(basename $(SRC))))
 DEP = $(OBJ:.o=.d)
 INC = $(subst $(SRC_DIR), $(INC_DIR), $(API))
@@ -109,7 +109,7 @@ $(INC_DIR)/%.h: $(SRC_DIR)/%.h
 $(LIB): $(OBJ)
 	@echo [AR] $@
 	@mkdir -p $(dir $@)
-	@ar rcs $(LIB) $(OBJ)
+	@ar rcs $(LIB) $(OBJ) 2> /dev/null
 
 $(BIN): $(EXC)
 	@echo [CP] $@
@@ -127,10 +127,10 @@ docs:
 	
 clean:
 	@echo [RM] cleaning
-	@rm $(OBJ_DIR) $(EXC) -rf
+	@rm -rf $(OBJ_DIR) $(EXC)
 
 remove:
 	@echo [RM] removing
-	@rm $(INC_DIR) $(LIB) $(BIN) $(EXC) $(WIN) -rf
+	@rm -rf $(INC_DIR) $(LIB) $(BIN) $(EXC) $(WIN)
 
 -include $(DEP)
