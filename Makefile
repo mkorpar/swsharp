@@ -45,7 +45,7 @@ uninstall:
 $(INS_DIR)/%: %
 	@echo [CP] $@
 	@mkdir -p $(dir $@)
-	@cp $< $@ -r
+	@cp -r $< $@
 
 $(CORE): 
 	@echo [CORE] $@
