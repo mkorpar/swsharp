@@ -23,7 +23,12 @@ CC_FLAGS = $(I_CMD) -O3 -Wall -march=native
 CP_FLAGS = $(CC_FLAGS)
 LD_FLAGS = $(I_CMD) $(L_CMD) -lpthread -lstdc++
 
-CU_FLAGS = $(I_CMD) -O3 -gencode arch=compute_13,code=\"sm_13,compute_13\"
+CU_FLAGS = $(I_CMD) -O3
+
+ifneq ($(shell $(CU) --help 2>&1 | grep sm_13),)
+CU_FLAGS += -gencode arch=compute_13,code=\"sm_13,compute_13\"
+else
+endif
 
 ifneq ($(shell $(CU) --help 2>&1 | grep sm_20),)
 CU_FLAGS += -gencode arch=compute_20,code=\"sm_20,sm_21,compute_20\"
