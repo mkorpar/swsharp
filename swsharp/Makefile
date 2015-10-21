@@ -25,38 +25,6 @@ LD_FLAGS = $(I_CMD) $(L_CMD) -lpthread -lstdc++
 
 CU_FLAGS = $(I_CMD) -O3
 
-ifneq ($(shell $(CU) --help 2>&1 | grep sm_13),)
-CU_FLAGS += -gencode arch=compute_13,code=\"sm_13,compute_13\"
-endif
-
-ifneq ($(shell $(CU) --help 2>&1 | grep sm_20),)
-CU_FLAGS += -gencode arch=compute_20,code=\"sm_20,sm_21,compute_20\"
-endif
-
-ifneq ($(shell $(CU) --help 2>&1 | grep sm_30),)
-CU_FLAGS += -gencode arch=compute_30,code=\"sm_30,compute_30\"
-endif
-
-ifneq ($(shell $(CU) --help 2>&1 | grep sm_35),)
-CU_FLAGS += -gencode arch=compute_35,code=\"sm_35,compute_35\"
-endif
-
-ifneq ($(shell $(CU) --help 2>&1 | grep sm_37),)
-CU_FLAGS += -gencode arch=compute_37,code=\"sm_37,compute_37\"
-endif
-
-ifneq ($(shell $(CU) --help 2>&1 | grep sm_50),)
-CU_FLAGS += -gencode arch=compute_50,code=\"sm_50,compute_50\"
-endif
-
-ifneq ($(shell $(CU) --help 2>&1 | grep sm_52),)
-CU_FLAGS += -gencode arch=compute_52,code=\"sm_52,compute_52\"
-endif
-
-ifneq ($(shell $(CU) --help 2>&1 | grep sm_53),)
-CU_FLAGS += -gencode arch=compute_53,code=\"sm_53,compute_53\"
-endif
-
 API = $(addprefix $(SRC_DIR)/, align.h alignment.h chain.h constants.h \
 	cpu_module.h cuda_utils.h database.h db_alignment.h evalue.h gpu_module.h \
 	post_proc.h pre_proc.h reconstruct.h scorer.h swsharp.h thread.h threadpool.h)
