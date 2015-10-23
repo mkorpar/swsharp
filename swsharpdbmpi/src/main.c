@@ -419,7 +419,7 @@ int main(int argc, char* argv[]) {
             int* dbAlignmentsPartLens = NULL;
             int dbAlignmentsLen = 0;
 
-            ASSERT(queriesLen == dbAlignmentsLen, "machine queriesLen mismatch");
+            ASSERT(queriesLen == dbAlignmentsLen, "machine queriesLen mismatch %d %d", queriesLen, dbAlignmentsLen);
 
             recieveMpiData(&dbAlignmentsPart, &dbAlignmentsPartLens, &dbAlignmentsLen, 
                 queries, database, scorer, i);
