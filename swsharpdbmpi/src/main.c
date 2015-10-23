@@ -237,6 +237,8 @@ int main(int argc, char* argv[]) {
             status &= readFastaChainsPart(&database, &databaseLen, handle,
                 serialized, 1000000000); // ~1GB
 
+            if (databaseLen > mpiDbOff + mpiDbLen) databaseLen = mpiDbOff + mpiDbLen;
+
         } else {
 
             while (1) {
@@ -286,6 +288,8 @@ int main(int argc, char* argv[]) {
                 }
             }
         }
+
+        fprintf(stderr, "solving: %d-%d\n", databaseStart, databaseLen);
 
         ChainDatabase* chainDatabase = chainDatabaseCreate(database, 
             databaseStart, databaseLen - databaseStart, cards, cardsLen);
@@ -413,7 +417,9 @@ int main(int argc, char* argv[]) {
 
             DbAlignment*** dbAlignmentsPart = NULL;
             int* dbAlignmentsPartLens = NULL;
-            int dbAlignmentsLen;
+            int dbAlignmentsLen = 0;
+
+            ASSERT(queriesLen == dbAlignmentsLen, "machine queriesLen mismatch");
 
             recieveMpiData(&dbAlignmentsPart, &dbAlignmentsPartLens, &dbAlignmentsLen, 
                 queries, database, scorer, i);
