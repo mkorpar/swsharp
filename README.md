@@ -2,6 +2,8 @@
 
 SW# (swsharp) is a library for sequence alignment based on CUDA enabled GPUs. It utilizes Hirschbergs and Ukkonens algorithm for memory efficiency and additional speed up. The library is scalable for use with multiple GPUs. Some parts of the library utilize MPI for CUDA enabled clusters. In database searches library utilizes swimd, a SSE4 sequence alignment library.
 
+This work has been supported in part by Croatian Science Foundation under the project UIP-11-2013-7353.
+
 ## DEPENDENCIES
 
 ### WINDOWS
